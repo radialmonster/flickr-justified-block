@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Flickr Justified Block
- * Plugin URI: https://github.com/RadialMonster/flickr-justified-block
+ * Plugin URI: https://github.com/radialmonster/flickr-justified-block
  * Description: A WordPress block that displays Flickr photos and other images in a responsive justified gallery layout. Simply paste URLs (one per line) and configure columns and spacing.
  * Version: 1.1.0
  * Author: RadialMonster
@@ -11,6 +11,8 @@
  * Requires at least: 5.0
  * Tested up to: 6.4
  * Requires PHP: 7.4
+ * GitHub Plugin URI: radialmonster/flickr-justified-block
+ * Primary Branch: main
  *
  * @package FlickrJustifiedBlock
  */
