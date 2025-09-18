@@ -1,0 +1,126 @@
+/**
+ * Flickr Justified Block Styles - Justified Gallery Layout
+ */
+
+/* The main container - justified gallery layout */
+.flickr-justified-grid {
+    --gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    width: 100%;
+}
+
+/* Row container for images */
+.flickr-row {
+    display: flex;
+    gap: var(--gap);
+    width: 100%;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+/* Individual card styles - dimensions set by JavaScript */
+.flickr-card {
+    background: transparent;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+    flex-shrink: 0; /* Prevent shrinking from JS-calculated size */
+}
+
+.flickr-card:hover {
+    transform: translateY(-2px);
+}
+
+/* Images sized by JavaScript - maintain crisp display */
+.flickr-card img {
+    display: block;
+    border-radius: 8px;
+    box-shadow: none;
+    transition: box-shadow 0.2s ease;
+    object-fit: contain; /* Fallback for any edge cases */
+}
+
+.flickr-card:hover img {
+    box-shadow: 0 4px 20px rgba(0,0,0,.15);
+}
+
+/* Individual masonry item links */
+.flickr-card .flickr-justified-item {
+    display: block;
+    width: 100%;
+    text-decoration: none;
+    color: inherit;
+}
+
+/* Focus states for accessibility */
+.flickr-card .flickr-justified-item:focus {
+    outline: 2px solid #005cee;
+    outline-offset: 2px;
+}
+
+/* --- Gallery Layout Styles --- */
+
+/* Editor-specific styles */
+.flickr-justified-block-editor {
+    display: grid;
+    grid-template-columns: repeat(var(--fm-columns, 3), 1fr);
+    gap: var(--fm-gap, 16px);
+    min-height: 100px;
+}
+
+/* Responsive design for editor */
+@media (max-width: 1024px) {
+    .flickr-justified-block-editor {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .flickr-justified-block-editor {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* Loading state for images */
+.flickr-card img[src=""] {
+    background: #f0f0f0;
+    min-height: 200px;
+}
+
+/* Alignment support */
+.wp-block-flickr-justified-block.alignwide {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.wp-block-flickr-justified-block.alignfull {
+    max-width: none;
+    width: 100vw;
+    position: relative;
+    left: 50%;
+    right: 50%;
+    margin-left: -50vw;
+    margin-right: -50vw;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .flickr-card {
+        border: 1px solid currentColor;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .flickr-card {
+        transition: none;
+    }
+
+    .flickr-card:hover {
+        transform: none;
+    }
+}

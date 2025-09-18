@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schemas.wp.org/wp/6.3/block.json",
+  "apiVersion": 3,
+  "name": "flickr-justified/block",
+  "title": "Flickr Justified",
+  "category": "media",
+  "icon": "format-gallery",
+  "description": "Display Flickr photos and images in a justified gallery layout. Paste URLs and configure spacing and image sizes.",
+  "keywords": ["flickr", "gallery", "justified", "images", "photos"],
+  "supports": {
+    "align": ["wide", "full"],
+    "anchor": true,
+    "spacing": {
+      "margin": true,
+      "padding": true
+    }
+  },
+  "textdomain": "flickr-justified-block",
+  "editorScript": "file:./assets/js/editor.js",
+  "style": "file:./assets/css/style.css",
+  "attributes": {
+    "urls": {
+      "type": "string",
+      "default": ""
+    },
+    "gap": {
+      "type": "number",
+      "default": 12
+    },
+    "imageSize": {
+      "type": "string",
+      "default": "large",
+      "enum": ["medium", "large", "large1600", "large2048", "original"]
+    },
+    "lightboxMaxWidth": {
+      "type": "number",
+      "default": 2048
+    },
+    "lightboxMaxHeight": {
+      "type": "number",
+      "default": 2048
+    },
+    "responsiveSettings": {
+      "type": "object",
+      "default": {
+        "mobile": 1,
+        "mobile_landscape": 1,
+        "tablet_portrait": 2,
+        "tablet_landscape": 3,
+        "desktop": 3,
+        "large_desktop": 4,
+        "extra_large": 4
+      }
+    },
+    "rowHeightMode": {
+      "type": "string",
+      "default": "auto"
+    },
+    "rowHeight": {
+      "type": "number",
+      "default": 280
+    }
+  }
+}
