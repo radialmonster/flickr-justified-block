@@ -130,19 +130,29 @@
                 grid.innerHTML = '';
 
                 // Group cards into new rows based on screen size
+                let previousRowHeight = null;
+
                 for (let i = 0; i < cardsData.length; i += imagesPerRow) {
                     const rowCards = cardsData.slice(i, i + imagesPerRow);
                     const rowImages = rowCards.map(cardData => cardData.img);
+                    const isLastRow = i + imagesPerRow >= cardsData.length;
+                    const isSingleImageLastRow = isLastRow && rowCards.length === 1 && previousRowHeight !== null;
 
                     let actualRowHeight;
 
-                    if (rowHeightMode === 'auto') {
+                    if (isSingleImageLastRow) {
+                        // Make single last image double the previous row height
+                        actualRowHeight = previousRowHeight * 2;
+                    } else if (rowHeightMode === 'auto') {
                         // Use optimal height calculation that fills container width
                         actualRowHeight = calculateOptimalRowHeight(rowImages, containerWidth, gap);
                     } else {
                         // Use fixed height
                         actualRowHeight = rowHeight;
                     }
+
+                    // Store this row's height for potential use by next row
+                    previousRowHeight = actualRowHeight;
 
                     // Create new row
                     const row = document.createElement('div');
