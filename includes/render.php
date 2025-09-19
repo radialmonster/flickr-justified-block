@@ -291,27 +291,31 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                     $data_attrs = sprintf('data-width="%d" data-height="%d"', $dimensions['width'], $dimensions['height']);
                 }
 
+                $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
                 $output .= sprintf(
                     '<article class="flickr-card" %s>
-                        <a href="%s" class="flickr-justified-item" data-flickr-page="%s">
+                        <a href="%s" class="%s" data-flickr-page="%s">
                             <img src="%s" loading="lazy" decoding="async" alt="">
                         </a>
                     </article>',
                     $data_attrs,
                     esc_url($lightbox_src),
+                    esc_attr($lightbox_class),
                     esc_attr($url),
                     esc_url($display_src)
                 );
             }
         } else {
             // Direct image URL
+            $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
             $output .= sprintf(
                 '<article class="flickr-card">
-                    <a href="%s" class="flickr-justified-item">
+                    <a href="%s" class="%s">
                         <img src="%s" loading="lazy" decoding="async" alt="">
                     </a>
                 </article>',
                 esc_url($url),
+                esc_attr($lightbox_class),
                 esc_url($url)
             );
         }

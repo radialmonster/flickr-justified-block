@@ -100,6 +100,21 @@ class FlickrJustifiedAdminSettings {
             'flickr_justified_settings',
             'flickr_justified_breakpoints_section'
         );
+
+        add_settings_section(
+            'flickr_justified_lightbox_section',
+            __('Lightbox Integration', 'flickr-justified-block'),
+            [__CLASS__, 'lightbox_section_callback'],
+            'flickr_justified_settings'
+        );
+
+        add_settings_field(
+            'lightbox_css_class',
+            __('Lightbox CSS Class', 'flickr-justified-block'),
+            [__CLASS__, 'lightbox_css_class_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_lightbox_section'
+        );
     }
 
     /**
@@ -172,6 +187,15 @@ class FlickrJustifiedAdminSettings {
                     $sanitized['breakpoints'][$key] = max(200, min(3000, absint($value))); // Clamp between 200-3000px
                 }
             }
+        }
+
+        // Sanitize lightbox CSS class
+        if (isset($input['lightbox_css_class'])) {
+            $css_class = sanitize_text_field($input['lightbox_css_class']);
+            // Remove any dots and ensure it's a valid CSS class name
+            $css_class = ltrim($css_class, '.');
+            $css_class = preg_replace('/[^a-zA-Z0-9_-]/', '', $css_class);
+            $sanitized['lightbox_css_class'] = !empty($css_class) ? $css_class : 'flickr-justified-item';
         }
 
         return $sanitized;
@@ -299,6 +323,33 @@ class FlickrJustifiedAdminSettings {
     }
 
     /**
+     * Lightbox section callback
+     */
+    public static function lightbox_section_callback() {
+        echo '<p>' . __('Configure how your images integrate with lightbox plugins.', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
+     * Lightbox CSS class callback
+     */
+    public static function lightbox_css_class_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $css_class = isset($options['lightbox_css_class']) ? $options['lightbox_css_class'] : 'flickr-justified-item';
+
+        echo '<input type="text" id="lightbox_css_class" name="flickr_justified_options[lightbox_css_class]" value="' . esc_attr($css_class) . '" class="regular-text" />';
+        echo '<p class="description">' . __('CSS class name applied to image links for lightbox integration. Default: flickr-justified-item', 'flickr-justified-block') . '</p>';
+        echo '<p class="description"><strong>' . __('Usage:', 'flickr-justified-block') . '</strong> ' . __('Configure your lightbox plugin to target', 'flickr-justified-block') . ' <code>.' . esc_html($css_class) . '</code></p>';
+    }
+
+    /**
+     * Get lightbox CSS class from settings
+     */
+    public static function get_lightbox_css_class() {
+        $options = get_option('flickr_justified_options', []);
+        return isset($options['lightbox_css_class']) ? $options['lightbox_css_class'] : 'flickr-justified-item';
+    }
+
+    /**
      * Settings page
      */
     public static function settings_page() {
@@ -334,6 +385,15 @@ class FlickrJustifiedAdminSettings {
                     <input type="hidden" name="action" value="clear_flickr_cache" />
                     <?php submit_button(__('Clear Flickr Cache', 'flickr-justified-block'), 'secondary', 'clear_cache', false); ?>
                 </form>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2><?php _e('Current Lightbox Selector', 'flickr-justified-block'); ?></h2>
+                <p><?php _e('Your current CSS selector for lightbox integration:', 'flickr-justified-block'); ?></p>
+                <div style="background: #f0f0f0; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 14px; margin: 10px 0;">
+                    <strong>.<?php echo esc_html(self::get_lightbox_css_class()); ?></strong>
+                </div>
+                <p class="description"><?php _e('Configure your lightbox plugin to target this selector. You can customize this in the Lightbox Integration settings above.', 'flickr-justified-block'); ?></p>
             </div>
 
             <div class="card" style="margin-top: 20px;">
