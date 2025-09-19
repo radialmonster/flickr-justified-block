@@ -269,6 +269,22 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $lightbox_src = $display_src;
             }
 
+            // If API failed to get any images from Flickr URLs, show error message
+            if (empty($display_src)) {
+                return '<div class="flickr-justified-error" style="
+                    padding: 20px;
+                    background: #f8d7da;
+                    border: 1px solid #f5c6cb;
+                    border-radius: 4px;
+                    color: #721c24;
+                    text-align: center;
+                    margin: 20px 0;
+                ">
+                    <h4 style="margin: 0 0 10px 0;">Gallery not available</h4>
+                    <p style="margin: 0;">Please check your Flickr API key in the plugin settings.</p>
+                </div>';
+            }
+
             if (!empty($display_src)) {
                 $data_attrs = '';
                 if ($dimensions) {
