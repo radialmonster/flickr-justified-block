@@ -276,13 +276,13 @@
                                     margin: '0 0 8px',
                                     fontSize: '16px'
                                 }
-                            }, '📸 ' + __('Flickr Masonry Block', 'flickr-justified-block')),
+                            }, '📸 ' + __('Flickr Justified Block', 'flickr-justified-block')),
                             el('p', {
                                 style: {
                                     margin: 0,
                                     fontSize: '14px'
                                 }
-                            }, __('Add image URLs in the sidebar to create your masonry gallery. One URL per line.', 'flickr-justified-block'))
+                            }, __('Add image URLs in the sidebar to create your justified gallery. One URL per line.', 'flickr-justified-block'))
                         )
                 )
             );
