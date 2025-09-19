@@ -22,6 +22,8 @@ class FlickrJustifiedAdminSettings {
         add_action('admin_menu', [__CLASS__, 'add_admin_menu']);
         add_action('admin_init', [__CLASS__, 'settings_init']);
         add_filter('plugin_action_links_' . plugin_basename(FLICKR_JUSTIFIED_PLUGIN_PATH . 'flickr-justified-block.php'), [__CLASS__, 'add_settings_link']);
+        add_action('wp_ajax_test_flickr_api_key', [__CLASS__, 'test_api_key_ajax']);
+        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_scripts']);
     }
 
     /**
@@ -209,7 +211,11 @@ class FlickrJustifiedAdminSettings {
             }
         }
 
-        echo '<input type="text" name="flickr_justified_options[api_key]" value="' . esc_attr($display_value) . '" class="regular-text" placeholder="' . esc_attr__('Enter your Flickr API key', 'flickr-justified-block') . '" />';
+        echo '<div style="display: flex; align-items: center; gap: 10px;">';
+        echo '<input type="text" id="flickr-api-key-input" name="flickr_justified_options[api_key]" value="' . esc_attr($display_value) . '" class="regular-text" placeholder="' . esc_attr__('Enter your Flickr API key', 'flickr-justified-block') . '" />';
+        echo '<button type="button" id="test-api-key" class="button button-secondary">' . __('Test API Key', 'flickr-justified-block') . '</button>';
+        echo '</div>';
+        echo '<div id="api-test-result" style="margin-top: 10px;"></div>';
         echo '<p class="description">' . __('Required to fetch high-resolution images from Flickr photo page URLs. The block will still work with direct image URLs without an API key.', 'flickr-justified-block') . '</p>';
 
         if (!empty($encrypted_api_key)) {
@@ -458,6 +464,109 @@ class FlickrJustifiedAdminSettings {
         asort($breakpoints);
 
         return $breakpoints;
+    }
+
+    /**
+     * Enqueue admin scripts
+     */
+    public static function enqueue_admin_scripts($hook) {
+        if ($hook !== 'settings_page_flickr-justified-settings') {
+            return;
+        }
+
+        wp_enqueue_script('jquery');
+        wp_add_inline_script('jquery', '
+            jQuery(document).ready(function($) {
+                $("#test-api-key").on("click", function() {
+                    var button = $(this);
+                    var apiKey = $("#flickr-api-key-input").val().trim();
+                    var resultDiv = $("#api-test-result");
+
+                    if (!apiKey) {
+                        resultDiv.html("<div class=\"notice notice-error inline\"><p>Please enter an API key to test.</p></div>");
+                        return;
+                    }
+
+                    // Show loading state
+                    button.prop("disabled", true).text("Testing...");
+                    resultDiv.html("<div class=\"notice notice-info inline\"><p>Testing API key...</p></div>");
+
+                    $.ajax({
+                        url: ajaxurl,
+                        method: "POST",
+                        data: {
+                            action: "test_flickr_api_key",
+                            api_key: apiKey,
+                            nonce: "' . wp_create_nonce('test_flickr_api_key') . '"
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                resultDiv.html("<div class=\"notice notice-success inline\"><p>✓ " + response.data.message + "</p></div>");
+                            } else {
+                                resultDiv.html("<div class=\"notice notice-error inline\"><p>✗ " + response.data.message + "</p></div>");
+                            }
+                        },
+                        error: function() {
+                            resultDiv.html("<div class=\"notice notice-error inline\"><p>✗ Failed to test API key. Please try again.</p></div>");
+                        },
+                        complete: function() {
+                            button.prop("disabled", false).text("Test API Key");
+                        }
+                    });
+                });
+            });
+        ');
+    }
+
+    /**
+     * Test API key via AJAX
+     */
+    public static function test_api_key_ajax() {
+        if (!wp_verify_nonce($_POST['nonce'], 'test_flickr_api_key')) {
+            wp_send_json_error(['message' => 'Security check failed']);
+        }
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions']);
+        }
+
+        $api_key = sanitize_text_field($_POST['api_key']);
+        if (empty($api_key)) {
+            wp_send_json_error(['message' => 'API key is required']);
+        }
+
+        // Test the API key by making a simple API call
+        $test_url = add_query_arg([
+            'method' => 'flickr.test.echo',
+            'api_key' => $api_key,
+            'format' => 'json',
+            'nojsoncallback' => 1,
+        ], 'https://api.flickr.com/services/rest/');
+
+        $response = wp_remote_get($test_url, [
+            'timeout' => 10,
+            'user-agent' => 'WordPress Flickr Justified Block'
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error(['message' => 'Connection failed: ' . $response->get_error_message()]);
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (empty($data)) {
+            wp_send_json_error(['message' => 'Invalid response from Flickr API']);
+        }
+
+        if (isset($data['stat']) && $data['stat'] === 'ok') {
+            wp_send_json_success(['message' => 'API key is valid and working!']);
+        } elseif (isset($data['stat']) && $data['stat'] === 'fail') {
+            $error_message = isset($data['message']) ? $data['message'] : 'Unknown error';
+            wp_send_json_error(['message' => 'API key test failed: ' . $error_message]);
+        } else {
+            wp_send_json_error(['message' => 'Unexpected response from Flickr API']);
+        }
     }
 }
 
