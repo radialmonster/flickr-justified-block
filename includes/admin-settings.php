@@ -535,6 +535,14 @@ class FlickrJustifiedAdminSettings {
             wp_send_json_error(['message' => 'API key is required']);
         }
 
+        // If the API key looks masked (starts with asterisks), use the stored key instead
+        if (preg_match('/^\*+[a-zA-Z0-9]+$/', $api_key)) {
+            $api_key = self::get_api_key();
+            if (empty($api_key)) {
+                wp_send_json_error(['message' => 'No valid API key found in settings']);
+            }
+        }
+
         // Test the API key by making a simple API call
         $test_url = add_query_arg([
             'method' => 'flickr.test.echo',
