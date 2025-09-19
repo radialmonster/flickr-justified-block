@@ -338,7 +338,13 @@ class FlickrJustifiedAdminSettings {
 
         echo '<input type="text" id="lightbox_css_class" name="flickr_justified_options[lightbox_css_class]" value="' . esc_attr($css_class) . '" class="regular-text" />';
         echo '<p class="description">' . __('CSS class name applied to image links for lightbox integration. Default: flickr-justified-item', 'flickr-justified-block') . '</p>';
-        echo '<p class="description"><strong>' . __('Usage:', 'flickr-justified-block') . '</strong> ' . __('Configure your lightbox plugin to target', 'flickr-justified-block') . ' <code>.' . esc_html($css_class) . '</code></p>';
+        echo '<p class="description"><strong>' . __('Example usage:', 'flickr-justified-block') . '</strong></p>';
+        echo '<code style="display: block; background: #f8f9fa; padding: 8px; margin: 5px 0; font-size: 12px;">
+// GLightbox<br>
+GLightbox({ selector: \'a.' . esc_html($css_class) . '\' });<br><br>
+// Fancybox v4<br>
+Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' });
+</code>';
     }
 
     /**
@@ -346,7 +352,8 @@ class FlickrJustifiedAdminSettings {
      */
     public static function get_lightbox_css_class() {
         $options = get_option('flickr_justified_options', []);
-        return isset($options['lightbox_css_class']) ? $options['lightbox_css_class'] : 'flickr-justified-item';
+        $cls = isset($options['lightbox_css_class']) ? trim($options['lightbox_css_class']) : '';
+        return $cls !== '' ? $cls : 'flickr-justified-item';
     }
 
     /**
