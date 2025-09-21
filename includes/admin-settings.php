@@ -115,6 +115,22 @@ class FlickrJustifiedAdminSettings {
             'flickr_justified_settings',
             'flickr_justified_lightbox_section'
         );
+
+        add_settings_field(
+            'gallery_group_attribute',
+            __('Gallery Grouping Attribute', 'flickr-justified-block'),
+            [__CLASS__, 'gallery_group_attribute_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_lightbox_section'
+        );
+
+        add_settings_field(
+            'gallery_group_format',
+            __('Gallery Grouping Format', 'flickr-justified-block'),
+            [__CLASS__, 'gallery_group_format_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_lightbox_section'
+        );
     }
 
     /**
@@ -196,6 +212,32 @@ class FlickrJustifiedAdminSettings {
             $css_class = ltrim($css_class, '.');
             $css_class = preg_replace('/[^a-zA-Z0-9_-]/', '', $css_class);
             $sanitized['lightbox_css_class'] = !empty($css_class) ? $css_class : 'flickr-justified-item';
+        }
+
+        // Sanitize gallery group attribute
+        if (isset($input['gallery_group_attribute'])) {
+            $attribute = sanitize_text_field($input['gallery_group_attribute']);
+            // Clean the attribute name first (allow letters, numbers, hyphens, underscores)
+            $attribute = preg_replace('/[^a-zA-Z0-9_-]/', '', $attribute);
+
+            // Ensure it starts with data- and is a valid attribute name
+            if (empty($attribute)) {
+                $attribute = 'data-gallery'; // Default attribute
+            } elseif (strpos($attribute, 'data-') !== 0) {
+                $attribute = 'data-' . $attribute;
+            }
+
+            $sanitized['gallery_group_attribute'] = !empty($attribute) ? $attribute : 'data-gallery';
+        }
+
+        // Sanitize gallery group format
+        if (isset($input['gallery_group_format'])) {
+            $format = sanitize_text_field($input['gallery_group_format']);
+            // Ensure the format contains {block_id} placeholder
+            if (empty($format) || strpos($format, '{block_id}') === false) {
+                $format = 'fjg-{block_id}'; // Default format
+            }
+            $sanitized['gallery_group_format'] = $format;
         }
 
         return $sanitized;
@@ -348,12 +390,78 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
     }
 
     /**
+     * Gallery group attribute callback
+     */
+    public static function gallery_group_attribute_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $attribute = isset($options['gallery_group_attribute']) ? $options['gallery_group_attribute'] : 'data-gallery';
+
+        echo '<input type="text" id="gallery_group_attribute" name="flickr_justified_options[gallery_group_attribute]" value="' . esc_attr($attribute) . '" class="regular-text" />';
+        echo '<p class="description">' . __('HTML attribute name for gallery grouping. Default: data-gallery', 'flickr-justified-block') . '</p>';
+
+        echo '<div style="margin-top: 15px;">';
+        echo '<p class="description"><strong>' . __('Popular lightbox plugin attributes:', 'flickr-justified-block') . '</strong></p>';
+        echo '<table class="form-table" style="margin-top: 0;">';
+        echo '<tbody>';
+        echo '<tr><td style="width: 200px;"><strong>PhotoSwipe (LightBox)</strong></td><td><code>data-lbwps-gid</code></td></tr>';
+        echo '<tr><td><strong>FancyBox / GLightbox</strong></td><td><code>data-gallery</code></td></tr>';
+        echo '<tr><td><strong>Lightbox2</strong></td><td><code>data-lightbox</code></td></tr>';
+        echo '<tr><td><strong>PhotoSwipe Core</strong></td><td><code>data-pswp-group</code></td></tr>';
+        echo '</tbody>';
+        echo '</table>';
+        echo '</div>';
+    }
+
+    /**
+     * Gallery group format callback
+     */
+    public static function gallery_group_format_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $format = isset($options['gallery_group_format']) ? $options['gallery_group_format'] : 'fjg-{block_id}';
+
+        echo '<input type="text" id="gallery_group_format" name="flickr_justified_options[gallery_group_format]" value="' . esc_attr($format) . '" class="regular-text" />';
+        echo '<p class="description">' . __('Format for gallery grouping attribute value. Use {block_id} as placeholder for unique block ID. Default: fjg-{block_id}', 'flickr-justified-block') . '</p>';
+
+        echo '<div style="margin-top: 15px;">';
+        echo '<p class="description"><strong>' . __('Popular lightbox plugin formats:', 'flickr-justified-block') . '</strong></p>';
+        echo '<table class="form-table" style="margin-top: 0;">';
+        echo '<tbody>';
+        echo '<tr><td style="width: 200px;"><strong>PhotoSwipe (LightBox)</strong></td><td><code>gallery-{block_id}</code></td></tr>';
+        echo '<tr><td><strong>FancyBox / GLightbox</strong></td><td><code>fjg-{block_id}</code></td></tr>';
+        echo '<tr><td><strong>Lightbox2</strong></td><td><code>gallery-{block_id}</code></td></tr>';
+        echo '<tr><td><strong>PhotoSwipe Core</strong></td><td><code>gallery-{block_id}</code></td></tr>';
+        echo '</tbody>';
+        echo '</table>';
+        echo '</div>';
+
+        echo '<p class="description" style="margin-top: 15px;">' . __('The {block_id} placeholder will be replaced with a unique identifier for each block instance, ensuring images from different blocks remain in separate galleries.', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
      * Get lightbox CSS class from settings
      */
     public static function get_lightbox_css_class() {
         $options = get_option('flickr_justified_options', []);
         $cls = isset($options['lightbox_css_class']) ? trim($options['lightbox_css_class']) : '';
         return $cls !== '' ? $cls : 'flickr-justified-item';
+    }
+
+    /**
+     * Get gallery group attribute from settings
+     */
+    public static function get_gallery_group_attribute() {
+        $options = get_option('flickr_justified_options', []);
+        $attribute = isset($options['gallery_group_attribute']) ? trim($options['gallery_group_attribute']) : '';
+        return $attribute !== '' ? $attribute : 'data-gallery';
+    }
+
+    /**
+     * Get gallery group format from settings
+     */
+    public static function get_gallery_group_format() {
+        $options = get_option('flickr_justified_options', []);
+        $format = isset($options['gallery_group_format']) ? trim($options['gallery_group_format']) : '';
+        return $format !== '' ? $format : 'fjg-{block_id}';
     }
 
     /**

@@ -292,16 +292,19 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 }
 
                 $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
-                $gallery_group = 'fjg-' . esc_attr($block_id);
+                $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
+                $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
+                $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
                 $output .= sprintf(
                     '<article class="flickr-card" %s>
-                        <a href="%s" class="%s" data-gallery="%s" data-flickr-page="%s">
+                        <a href="%s" class="%s" %s="%s" data-flickr-page="%s">
                             <img src="%s" loading="lazy" decoding="async" alt="">
                         </a>
                     </article>',
                     $data_attrs,
                     esc_url($lightbox_src),
                     esc_attr($lightbox_class),
+                    esc_attr($gallery_group_attribute),
                     esc_attr($gallery_group),
                     esc_attr($url),
                     esc_url($display_src)
@@ -310,15 +313,18 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         } else {
             // Direct image URL
             $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
-            $gallery_group = 'fjg-' . esc_attr($block_id);
+            $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
+            $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
+            $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
             $output .= sprintf(
                 '<article class="flickr-card">
-                    <a href="%s" class="%s" data-gallery="%s">
+                    <a href="%s" class="%s" %s="%s">
                         <img src="%s" loading="lazy" decoding="async" alt="">
                     </a>
                 </article>',
                 esc_url($url),
                 esc_attr($lightbox_class),
+                esc_attr($gallery_group_attribute),
                 esc_attr($gallery_group),
                 esc_url($url)
             );
