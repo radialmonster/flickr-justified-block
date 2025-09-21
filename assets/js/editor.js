@@ -73,7 +73,7 @@
             } = attributes;
 
             const blockProps = useBlockProps({
-                className: 'flickr-masonry-block-editor'
+                className: 'flickr-justified-block-editor'
             });
 
             const urlArray = urls ? urls.split(/\r?\n/).filter(url => url.trim()) : [];
@@ -200,7 +200,7 @@
                     },
                         el('p', {
                             style: { fontSize: '13px', color: '#666', marginBottom: '16px' }
-                        }, __('Configure how many images per row to display at different screen sizes. Breakpoint sizes are configured in Settings → Flickr Masonry.', 'flickr-justified-block')),
+                        }, __('Configure how many images per row to display at different screen sizes. Breakpoint sizes are configured in Settings - Flickr Justified.', 'flickr-justified-block')),
 
                         // Get breakpoint labels
                         (() => {
@@ -283,8 +283,8 @@
                                             }
                                         },
                                             url.indexOf('flickr.com') !== -1 ?
-                                                __('📸 Flickr Photo: ', 'flickr-justified-block') + url :
-                                                __('🔗 URL: ', 'flickr-justified-block') + url
+                                                __('Flickr Photo: ', 'flickr-justified-block') + url :
+                                                __('URL: ', 'flickr-justified-block') + url
                                         )
                                 )
                             );
@@ -304,7 +304,7 @@
                                     margin: '0 0 8px',
                                     fontSize: '16px'
                                 }
-                            }, '📸 ' + __('Flickr Justified Block', 'flickr-justified-block')),
+                            }, __('Flickr Justified Block', 'flickr-justified-block')),
                             el('p', {
                                 style: {
                                     margin: 0,
@@ -323,3 +323,4 @@
     });
 
 })(window.wp);
+

@@ -12,39 +12,37 @@ Display Flickr photos and other images in a beautiful responsive justified galle
 
 == Description ==
 
-**Flickr Justified Block** is a powerful WordPress block that lets you create stunning justified galleries from Flickr photos and other images. Simply paste image URLs (one per line) and the block automatically arranges them in a responsive justified gallery layout.
+Flickr Justified Block is a powerful WordPress block that lets you create stunning justified galleries from Flickr photos and other images. Simply paste image URLs (one per line) and the block automatically arranges them in a responsive justified gallery layout.
 
 ### Key Features
 
-* **🎨 Beautiful Justified Layout**: CSS-powered responsive justified gallery design that works on all devices
-* **📸 Flickr Integration**: Paste Flickr photo page URLs and automatically fetch high-resolution versions using the Flickr API
-* **⚙️ Customizable Settings**: Configure columns (1-6), gap spacing (0-48px), and image quality for Flickr photos
-* **🎲 Random Gallery Breakouts**: Optionally split galleries into multiple sections with configurable probability
-* **🖼️ Lightbox Controls**: Set maximum dimensions for lightbox display of images
-* **📱 Fully Responsive**: Automatically adjusts to 2 columns on tablets and 1 column on mobile
-* **♿ Accessibility Ready**: Includes proper focus states and supports high contrast and reduced motion preferences
-* **🚀 Performance Optimized**: Image caching, lazy loading, and efficient API usage
-* **🎯 Block Editor Integration**: Clean, intuitive interface that fits seamlessly into the WordPress block editor
-* **⚙️ Admin Settings Page**: Easy-to-use admin interface for managing Flickr API keys
+- Beautiful justified layout: responsive CSS + JS that works across devices
+- Flickr integration: paste Flickr photo page URLs; fetch high‑res via API
+- Customizable: gap spacing, gallery image size, lightbox max dimensions
+- Responsive controls: per‑breakpoint images‑per‑row configuration
+- Accessibility: focus states, high contrast and reduced motion support
+- Performance: caching, lazy loading, minimal dependencies
+- Editor integration: intuitive block sidebar controls
+- Admin settings: easy API key setup and cache management
 
 ### How to Use
 
 1. Add the "Flickr Justified" block to any post or page
 2. In the block sidebar, paste your image URLs (one per line)
-3. Customize columns, spacing, and image size preferences
-4. Publish and enjoy your beautiful masonry gallery!
+3. Customize gap, display size, and responsive settings
+4. Publish and enjoy your justified gallery!
 
 ### Supported URL Types
 
-* **Flickr Photo Pages**: `https://www.flickr.com/photos/username/1234567890/` (automatically fetches high-res versions)
-* **Direct Image URLs**: Any direct link to JPG, PNG, WebP, AVIF, GIF, or SVG images
-* **Mixed Content**: Combine both Flickr and direct URLs in the same gallery
+- Flickr Photo Pages: https://www.flickr.com/photos/username/1234567890/ (automatically fetches high‑res versions)
+- Direct Image URLs: Any direct link to JPG, PNG, WebP, AVIF, GIF, or SVG images
+- Mixed Content: Combine both Flickr and direct URLs in the same gallery
 
 ### Flickr API Setup
 
 To use Flickr photo page URLs, you'll need a free Flickr API key:
 
-1. Visit [Flickr App Garden](https://www.flickr.com/services/apps/create/)
+1. Visit Flickr App Garden: https://www.flickr.com/services/apps/create/
 2. Create a new app and get your API key
 3. Go to Settings → Flickr Justified in your WordPress admin and enter your API key
 
@@ -56,7 +54,7 @@ Without an API key, the block will still work with direct image URLs.
 
 1. Go to your WordPress admin dashboard
 2. Navigate to Plugins → Add New
-3. Search for "Flickr Masonry Block"
+3. Search for "Flickr Justified Block"
 4. Click "Install Now" and then "Activate"
 
 ### Manual Installation
@@ -77,7 +75,7 @@ Without an API key, the block will still work with direct image URLs.
 
 = Do I need a Flickr API key? =
 
-A Flickr API key is only required if you want to use Flickr photo page URLs. The block works perfectly with direct image URLs without any API key. Get a free API key at [Flickr App Garden](https://www.flickr.com/services/apps/create/) and add it via Settings → Flickr Justified.
+A Flickr API key is only required if you want to use Flickr photo page URLs. The block works perfectly with direct image URLs without any API key. Get a free API key at the Flickr App Garden and add it via Settings → Flickr Justified.
 
 = What image formats are supported? =
 
@@ -85,30 +83,25 @@ The block supports JPG, PNG, WebP, AVIF, GIF, and SVG formats. For Flickr photos
 
 = How do I change the number of columns? =
 
-Use the "Columns" setting in the block sidebar. You can choose from 1-6 columns. The layout automatically becomes responsive on smaller screens.
+Use the responsive settings in the block sidebar to control images per row at each breakpoint.
 
 = Can I mix Flickr URLs with direct image URLs? =
 
-Yes! You can combine both Flickr photo page URLs and direct image URLs in the same gallery.
+Yes. You can combine both Flickr photo page URLs and direct image URLs in the same gallery.
 
 = How does caching work? =
 
-Flickr API responses are cached for 1 week to improve performance and reduce API usage. The cache automatically refreshes when needed.
+Flickr API responses are cached (default one week) to improve performance and reduce API usage. The cache automatically refreshes when needed.
 
-= What are random breakouts? =
+= Is it mobile‑friendly? =
 
-Random breakouts allow galleries to be split into multiple sections with configurable probability. Enable this feature in the block settings to create more dynamic, varied gallery layouts.
-
-= Is it mobile-friendly? =
-
-Absolutely! The justified gallery layout automatically adjusts to 2 columns on tablets and 1 column on mobile devices for optimal viewing.
-
-
+Absolutely. The justified gallery layout automatically adjusts for optimal viewing on phones, tablets, and desktops.
 
 == Support ==
 
-For support, feature requests, or bug reports, please visit our [GitHub repository](https://github.com/RadialMonster/flickr-justified-block) or contact us through the WordPress.org support forums.
+For support, feature requests, or bug reports, please visit our GitHub repository or contact us through the WordPress.org support forums.
 
 == Privacy Policy ==
 
 This plugin may connect to the Flickr API when processing Flickr photo URLs. No personal data is sent to external services except for the photo IDs needed to fetch image information. All API responses are cached locally to minimize external requests.
+

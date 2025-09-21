@@ -65,7 +65,7 @@
     object-fit: contain; /* Fallback for any edge cases */
 }
 
-/* Individual masonry item links */
+/* Individual gallery item links */
 .flickr-card .flickr-justified-item {
     display: block;
     width: 100%;

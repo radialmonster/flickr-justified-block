@@ -5,7 +5,8 @@
       "Bash(wp-cli:*)",
       "Read(//c/Users/Owner/Mountain Duck/259b7dec-6661-488c-83a4-d3269e0bb53d/public_html/wp-content/plugins/simple-lightbox/**)",
       "Bash(find:*)",
-      "Bash(php:*)"
+      "Bash(php:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
