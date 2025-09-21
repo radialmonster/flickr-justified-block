@@ -205,8 +205,12 @@
                 if (img.complete && img.naturalWidth > 0) {
                     checkAllLoaded();
                 } else {
-                    img.addEventListener('load', checkAllLoaded);
-                    img.addEventListener('error', checkAllLoaded);
+                    // Prevent duplicate event listeners
+                    if (!img.hasAttribute('data-listeners-added')) {
+                        img.addEventListener('load', checkAllLoaded);
+                        img.addEventListener('error', checkAllLoaded);
+                        img.setAttribute('data-listeners-added', 'true');
+                    }
                 }
             });
         });
@@ -237,13 +241,16 @@
         const observer = new MutationObserver((mutations) => {
             const shouldInit = mutations.some(m =>
                 Array.from(m.addedNodes).some(n =>
-                    n.nodeType === 1 && (n.classList.contains('flickr-justified-grid') || n.querySelector('.flickr-justified-grid'))
+                    n.nodeType === 1 &&
+                    n.classList &&
+                    n.classList.contains('flickr-justified-grid') &&
+                    !n.classList.contains('justified-initialized')
                 )
             );
             if (shouldInit) {
                 setTimeout(initJustifiedGallery, 150);
             }
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: false });
     }
 })();
