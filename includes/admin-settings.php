@@ -131,6 +131,29 @@ class FlickrJustifiedAdminSettings {
             'flickr_justified_settings',
             'flickr_justified_lightbox_section'
         );
+
+        add_settings_section(
+            'flickr_justified_error_section',
+            __('Error Handling', 'flickr-justified-block'),
+            [__CLASS__, 'error_section_callback'],
+            'flickr_justified_settings'
+        );
+
+        add_settings_field(
+            'privacy_error_mode',
+            __('Private Photo Handling', 'flickr-justified-block'),
+            [__CLASS__, 'privacy_error_mode_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_error_section'
+        );
+
+        add_settings_field(
+            'custom_error_message',
+            __('Custom Error Message', 'flickr-justified-block'),
+            [__CLASS__, 'custom_error_message_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_error_section'
+        );
     }
 
     /**
@@ -238,6 +261,26 @@ class FlickrJustifiedAdminSettings {
                 $format = 'fjg-{block_id}'; // Default format
             }
             $sanitized['gallery_group_format'] = $format;
+        }
+
+        // Sanitize privacy error mode
+        if (isset($input['privacy_error_mode'])) {
+            $mode = sanitize_text_field($input['privacy_error_mode']);
+            $valid_modes = ['show_error', 'show_nothing'];
+            $sanitized['privacy_error_mode'] = in_array($mode, $valid_modes, true) ? $mode : 'show_error';
+        }
+
+        // Sanitize custom error message
+        if (isset($input['custom_error_message'])) {
+            $message = wp_kses($input['custom_error_message'], [
+                'strong' => [],
+                'em' => [],
+                'br' => [],
+                'p' => [],
+                'span' => ['style' => []],
+                'div' => ['style' => []],
+            ]);
+            $sanitized['custom_error_message'] = trim($message);
         }
 
         return $sanitized;
@@ -450,6 +493,69 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
     }
 
     /**
+     * Error section callback
+     */
+    public static function error_section_callback() {
+        echo '<p>' . __('Configure how the plugin handles private or unavailable Flickr photos.', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
+     * Privacy error mode callback
+     */
+    public static function privacy_error_mode_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $mode = isset($options['privacy_error_mode']) ? $options['privacy_error_mode'] : 'show_error';
+
+        echo '<select name="flickr_justified_options[privacy_error_mode]" id="privacy_error_mode">';
+        echo '<option value="show_error"' . selected($mode, 'show_error', false) . '>' . __('Show error message', 'flickr-justified-block') . '</option>';
+        echo '<option value="show_nothing"' . selected($mode, 'show_nothing', false) . '>' . __('Show nothing (hide the gallery)', 'flickr-justified-block') . '</option>';
+        echo '</select>';
+
+        echo '<p class="description">' . __('Choose what happens when a Flickr photo is private or unavailable:', 'flickr-justified-block') . '</p>';
+        echo '<ul style="list-style: disc; margin-left: 20px;">';
+        echo '<li><strong>' . __('Show error message:', 'flickr-justified-block') . '</strong> ' . __('Display an error box with customizable message', 'flickr-justified-block') . '</li>';
+        echo '<li><strong>' . __('Show nothing:', 'flickr-justified-block') . '</strong> ' . __('Hide the gallery completely with just a line break to prevent blocks from running together', 'flickr-justified-block') . '</li>';
+        echo '</ul>';
+    }
+
+    /**
+     * Custom error message callback
+     */
+    public static function custom_error_message_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $message = isset($options['custom_error_message']) ? $options['custom_error_message'] : '';
+
+        if (empty($message)) {
+            $message = "Gallery not available\n\nPlease check your Flickr API key in the plugin settings.";
+        }
+
+        echo '<textarea name="flickr_justified_options[custom_error_message]" id="custom_error_message" rows="4" cols="50" class="large-text">' . esc_textarea($message) . '</textarea>';
+        echo '<p class="description">' . __('Custom message to display when photos are private or unavailable. You can use basic HTML tags like &lt;strong&gt;, &lt;em&gt;, &lt;br&gt;, etc.', 'flickr-justified-block') . '</p>';
+        echo '<p class="description">' . __('This setting only applies when "Show error message" is selected above.', 'flickr-justified-block') . '</p>';
+
+        // Add JavaScript to show/hide this field based on the mode selection
+        ?>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var modeSelect = document.getElementById('privacy_error_mode');
+            var messageRow = document.getElementById('custom_error_message').closest('tr');
+
+            function toggleMessageField() {
+                if (modeSelect.value === 'show_error') {
+                    messageRow.style.display = '';
+                } else {
+                    messageRow.style.display = 'none';
+                }
+            }
+
+            modeSelect.addEventListener('change', toggleMessageField);
+            toggleMessageField(); // Initial call
+        });
+        </script>
+        <?php
+    }
+
+    /**
      * Get lightbox CSS class from settings
      */
     public static function get_lightbox_css_class() {
@@ -474,6 +580,29 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
         $options = get_option('flickr_justified_options', []);
         $format = isset($options['gallery_group_format']) ? trim($options['gallery_group_format']) : '';
         return $format !== '' ? $format : 'fjg-{block_id}';
+    }
+
+    /**
+     * Get privacy error mode from settings
+     */
+    public static function get_privacy_error_mode() {
+        $options = get_option('flickr_justified_options', []);
+        $mode = isset($options['privacy_error_mode']) ? $options['privacy_error_mode'] : 'show_error';
+        return in_array($mode, ['show_error', 'show_nothing'], true) ? $mode : 'show_error';
+    }
+
+    /**
+     * Get custom error message from settings
+     */
+    public static function get_custom_error_message() {
+        $options = get_option('flickr_justified_options', []);
+        $message = isset($options['custom_error_message']) ? trim($options['custom_error_message']) : '';
+
+        if (empty($message)) {
+            return "Gallery not available\n\nPlease check your Flickr API key in the plugin settings.";
+        }
+
+        return $message;
     }
 
     /**

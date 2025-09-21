@@ -281,20 +281,38 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $lightbox_src = $display_src;
             }
 
-            // If API failed to get any images from Flickr URLs, show error message
+            // If API failed to get any images from Flickr URLs, handle based on settings
             if (empty($display_src)) {
-                return '<div class="flickr-justified-error" style="
-                    padding: 20px;
-                    background: #f8d7da;
-                    border: 1px solid #f5c6cb;
-                    border-radius: 4px;
-                    color: #721c24;
-                    text-align: center;
-                    margin: 20px 0;
-                ">
-                    <h4 style="margin: 0 0 10px 0;">Gallery not available</h4>
-                    <p style="margin: 0;">Please check your Flickr API key in the plugin settings.</p>
-                </div>';
+                $error_mode = FlickrJustifiedAdminSettings::get_privacy_error_mode();
+
+                if ($error_mode === 'show_nothing') {
+                    // Return just a line break to prevent blocks from running together
+                    return '<br>';
+                } else {
+                    // Show error message (default behavior)
+                    $error_message = FlickrJustifiedAdminSettings::get_custom_error_message();
+
+                    // Convert line breaks to HTML and parse basic HTML
+                    $error_message = wp_kses($error_message, [
+                        'strong' => [],
+                        'em' => [],
+                        'br' => [],
+                        'p' => [],
+                        'span' => ['style' => []],
+                        'div' => ['style' => []],
+                    ]);
+                    $error_message = nl2br($error_message);
+
+                    return '<div class="flickr-justified-error" style="
+                        padding: 20px;
+                        background: #f8d7da;
+                        border: 1px solid #f5c6cb;
+                        border-radius: 4px;
+                        color: #721c24;
+                        text-align: center;
+                        margin: 20px 0;
+                    ">' . $error_message . '</div>';
+                }
             }
 
             if (!empty($display_src)) {
