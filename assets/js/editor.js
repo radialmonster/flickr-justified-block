@@ -15,48 +15,6 @@
     const { createElement: el } = wp.element;
 
     registerBlockType('flickr-justified/block', {
-        title: __('Flickr Justified', 'flickr-justified-block'),
-        icon: 'format-gallery',
-        category: 'media',
-        description: __('Display Flickr photos and images in a justified gallery layout. Paste URLs and configure spacing and image sizes.', 'flickr-justified-block'),
-        keywords: [
-            __('flickr', 'flickr-justified-block'),
-            __('gallery', 'flickr-justified-block'),
-            __('justified', 'flickr-justified-block'),
-            __('images', 'flickr-justified-block')
-        ],
-        attributes: {
-            urls: { type: 'string', default: '' },
-            gap: { type: 'number', default: 12 },
-            imageSize: { type: 'string', default: 'large', enum: ['medium', 'large', 'large1600', 'large2048', 'original'] },
-            lightboxMaxWidth: { type: 'number', default: 2048 },
-            lightboxMaxHeight: { type: 'number', default: 2048 },
-            responsiveSettings: {
-                type: 'object',
-                default: {
-                    mobile: 1,
-                    mobile_landscape: 1,
-                    tablet_portrait: 2,
-                    tablet_landscape: 3,
-                    desktop: 3,
-                    large_desktop: 4,
-                    extra_large: 4
-                }
-            },
-            rowHeightMode: { type: 'string', default: 'auto' },
-            rowHeight: { type: 'number', default: 280 },
-            maxViewportHeight: { type: 'number', default: 80 },
-            singleImageAlignment: { type: 'string', default: 'center', enum: ['left', 'center', 'right'] }
-        },
-        supports: {
-            align: ['wide', 'full'],
-            anchor: true,
-            spacing: {
-                margin: true,
-                padding: true
-            }
-        },
-
         edit: function(props) {
             const { attributes, setAttributes } = props;
             const {

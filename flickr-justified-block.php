@@ -37,9 +37,7 @@ class FlickrJustifiedBlock {
      */
     public static function init() {
         add_action('init', [__CLASS__, 'register_block']);
-        if (!function_exists('register_block_type_from_metadata')) {
-            add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
-        }
+        add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
         add_action('enqueue_block_assets', [__CLASS__, 'enqueue_block_assets']);
     }
 
