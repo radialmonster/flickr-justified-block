@@ -25,28 +25,26 @@
     background: transparent;
     border-radius: 8px;
     overflow: hidden;
-    transition: transform 0.3s cubic-bezier(0.2, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.2, 0, 0.2, 1);
+    transition: box-shadow 0.2s ease;
     box-sizing: border-box;
     flex-shrink: 0; /* Prevent shrinking from JS-calculated size */
-    transform: translateY(0); /* Establish transform baseline */
 }
 
 .flickr-card:hover {
-    transform: translateY(-3px) scale(1.02);
+    /* No transform - just shadow change */
 }
 
 /* Images sized by JavaScript - maintain crisp display */
 .flickr-card img {
     display: block;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    transition: box-shadow 0.3s cubic-bezier(0.2, 0, 0.2, 1);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: box-shadow 0.2s ease;
     object-fit: contain; /* Fallback for any edge cases */
-    backface-visibility: hidden; /* Prevent flickering during transform */
 }
 
 .flickr-card:hover img {
-    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
 }
 
 /* Individual masonry item links */
@@ -121,9 +119,5 @@
     .flickr-card,
     .flickr-card img {
         transition: none;
-    }
-
-    .flickr-card:hover {
-        transform: translateY(0) scale(1);
     }
 }
