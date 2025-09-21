@@ -58,17 +58,19 @@
                 const containerWidth = grid.offsetWidth;
                 const gap = parseInt(getComputedStyle(grid).getPropertyValue('--gap'), 10) || 12;
 
-                // Get responsive settings, breakpoints, and row height from data attributes
+                // Get responsive settings, breakpoints, row height, and viewport height from data attributes
                 let responsiveSettings = {};
                 let breakpoints = {};
                 let rowHeightMode = 'auto';
                 let rowHeight = 280;
+                let maxViewportHeight = 80;
 
                 try {
                     const responsiveData = grid.getAttribute('data-responsive-settings');
                     const breakpointsData = grid.getAttribute('data-breakpoints');
                     const rowHeightModeData = grid.getAttribute('data-row-height-mode');
                     const rowHeightData = grid.getAttribute('data-row-height');
+                    const maxViewportHeightData = grid.getAttribute('data-max-viewport-height');
 
                     if (responsiveData) {
                         responsiveSettings = JSON.parse(responsiveData);
@@ -84,6 +86,10 @@
 
                     if (rowHeightData) {
                         rowHeight = parseInt(rowHeightData, 10) || 280;
+                    }
+
+                    if (maxViewportHeightData) {
+                        maxViewportHeight = parseInt(maxViewportHeightData, 10) || 80;
                     }
                 } catch (e) {
                     console.warn('Error parsing responsive settings:', e);
@@ -108,9 +114,14 @@
                     };
                     rowHeightMode = 'auto';
                     rowHeight = 280;
+                    maxViewportHeight = 80;
                 }
 
                 const imagesPerRow = getImagesPerRow(containerWidth, breakpoints, responsiveSettings);
+
+                // Calculate maximum allowed height based on viewport
+                const viewportHeight = window.innerHeight;
+                const maxAllowedHeight = (viewportHeight * maxViewportHeight) / 100;
 
 
                 // Get all cards from the grid
@@ -150,14 +161,15 @@
                         // Calculate height that would fit the container width
                         const heightFromWidth = maxWidth / aspectRatio;
 
-                        // Use the smaller of the two constraints
-                        actualRowHeight = Math.min(maxHeight, heightFromWidth);
+                        // Use the smallest of the three constraints: max height, container width, and viewport height
+                        actualRowHeight = Math.min(maxHeight, heightFromWidth, maxAllowedHeight);
                     } else if (rowHeightMode === 'auto') {
-                        // Use optimal height calculation that fills container width
-                        actualRowHeight = calculateOptimalRowHeight(rowImages, containerWidth, gap);
+                        // Use optimal height calculation that fills container width, constrained by viewport
+                        const optimalHeight = calculateOptimalRowHeight(rowImages, containerWidth, gap);
+                        actualRowHeight = Math.min(optimalHeight, maxAllowedHeight);
                     } else {
-                        // Use fixed height
-                        actualRowHeight = rowHeight;
+                        // Use fixed height, constrained by viewport
+                        actualRowHeight = Math.min(rowHeight, maxAllowedHeight);
                     }
 
                     // Store this row's height for potential use by next row

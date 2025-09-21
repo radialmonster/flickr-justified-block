@@ -44,7 +44,8 @@
                 }
             },
             rowHeightMode: { type: 'string', default: 'auto' },
-            rowHeight: { type: 'number', default: 280 }
+            rowHeight: { type: 'number', default: 280 },
+            maxViewportHeight: { type: 'number', default: 80 }
         },
         supports: {
             align: ['wide', 'full'],
@@ -65,7 +66,8 @@
                 lightboxMaxHeight,
                 responsiveSettings,
                 rowHeightMode,
-                rowHeight
+                rowHeight,
+                maxViewportHeight
             } = attributes;
 
             const blockProps = useBlockProps({
@@ -163,6 +165,17 @@
                             value: rowHeight ?? 280,
                             onChange: function (value) {
                                 setAttributes({ rowHeight: value ?? 280 });
+                            }
+                        }),
+                        el(RangeControl, {
+                            label: __('Max viewport height (%)', 'flickr-justified-block'),
+                            help: __('Limit image height to a percentage of the browser window height. Prevents very large images from exceeding screen size.', 'flickr-justified-block'),
+                            min: 30,
+                            max: 100,
+                            step: 5,
+                            value: maxViewportHeight ?? 80,
+                            onChange: function (value) {
+                                setAttributes({ maxViewportHeight: value ?? 80 });
                             }
                         })
                     ),

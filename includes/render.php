@@ -220,7 +220,7 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
 /**
  * Render with justified gallery layout
  */
-function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $lightbox_max_width, $lightbox_max_height, $responsive_settings, $row_height_mode, $row_height) {
+function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $lightbox_max_width, $lightbox_max_height, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height) {
 
     // Get admin breakpoints
     $breakpoints = [];
@@ -230,13 +230,14 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
     // Generate simple structure - JavaScript will organize into responsive rows
     $output = sprintf(
-        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d">',
+        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d">',
         esc_attr($block_id),
         (int) $gap,
         esc_attr(json_encode($responsive_settings)),
         esc_attr(json_encode($breakpoints)),
         esc_attr($row_height_mode),
-        (int) $row_height
+        (int) $row_height,
+        (int) $max_viewport_height
     );
 
     foreach ($url_lines as $url) {
@@ -358,6 +359,7 @@ function flickr_justified_render_block($attributes) {
     ];
     $row_height_mode = isset($attributes['rowHeightMode']) ? $attributes['rowHeightMode'] : 'auto';
     $row_height = isset($attributes['rowHeight']) ? max(120, min(500, (int) $attributes['rowHeight'])) : 280;
+    $max_viewport_height = isset($attributes['maxViewportHeight']) ? max(30, min(100, (int) $attributes['maxViewportHeight'])) : 80;
 
     if (empty($urls)) {
         return '';
@@ -375,6 +377,6 @@ function flickr_justified_render_block($attributes) {
 
     // Use justified gallery layout
     return flickr_justified_render_justified_gallery(
-        $url_lines, $block_id, $gap, $image_size, $lightbox_max_width, $lightbox_max_height, $responsive_settings, $row_height_mode, $row_height
+        $url_lines, $block_id, $gap, $image_size, $lightbox_max_width, $lightbox_max_height, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height
     );
 }

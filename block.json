@@ -59,6 +59,10 @@
     "rowHeight": {
       "type": "number",
       "default": 280
+    },
+    "maxViewportHeight": {
+      "type": "number",
+      "default": 80
     }
   }
 }
