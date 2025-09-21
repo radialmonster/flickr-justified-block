@@ -24,6 +24,22 @@
     justify-content: flex-end;
 }
 
+/* Initial alignment before JavaScript creates rows - prevents flash */
+.flickr-justified-grid[data-single-image-alignment="left"]:not(.justified-initialized) {
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+.flickr-justified-grid[data-single-image-alignment="center"]:not(.justified-initialized) {
+    align-items: center;
+    justify-content: center;
+}
+
+.flickr-justified-grid[data-single-image-alignment="right"]:not(.justified-initialized) {
+    align-items: flex-end;
+    justify-content: flex-end;
+}
+
 /* Row container for images */
 .flickr-row {
     display: flex;
