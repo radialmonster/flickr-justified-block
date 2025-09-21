@@ -63,6 +63,11 @@
     "maxViewportHeight": {
       "type": "number",
       "default": 80
+    },
+    "singleImageAlignment": {
+      "type": "string",
+      "default": "center",
+      "enum": ["left", "center", "right"]
     }
   }
 }

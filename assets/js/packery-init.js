@@ -58,12 +58,13 @@
                 const containerWidth = grid.offsetWidth;
                 const gap = parseInt(getComputedStyle(grid).getPropertyValue('--gap'), 10) || 12;
 
-                // Get responsive settings, breakpoints, row height, and viewport height from data attributes
+                // Get responsive settings, breakpoints, row height, viewport height, and single image alignment from data attributes
                 let responsiveSettings = {};
                 let breakpoints = {};
                 let rowHeightMode = 'auto';
                 let rowHeight = 280;
                 let maxViewportHeight = 80;
+                let singleImageAlignment = 'center';
 
                 try {
                     const responsiveData = grid.getAttribute('data-responsive-settings');
@@ -71,6 +72,7 @@
                     const rowHeightModeData = grid.getAttribute('data-row-height-mode');
                     const rowHeightData = grid.getAttribute('data-row-height');
                     const maxViewportHeightData = grid.getAttribute('data-max-viewport-height');
+                    const singleImageAlignmentData = grid.getAttribute('data-single-image-alignment');
 
                     if (responsiveData) {
                         responsiveSettings = JSON.parse(responsiveData);
@@ -90,6 +92,10 @@
 
                     if (maxViewportHeightData) {
                         maxViewportHeight = parseInt(maxViewportHeightData, 10) || 80;
+                    }
+
+                    if (singleImageAlignmentData) {
+                        singleImageAlignment = singleImageAlignmentData || 'center';
                     }
                 } catch (e) {
                     console.warn('Error parsing responsive settings:', e);
@@ -115,6 +121,7 @@
                     rowHeightMode = 'auto';
                     rowHeight = 280;
                     maxViewportHeight = 80;
+                    singleImageAlignment = 'center';
                 }
 
                 const imagesPerRow = getImagesPerRow(containerWidth, breakpoints, responsiveSettings);
@@ -139,6 +146,22 @@
                 }));
 
                 grid.innerHTML = '';
+
+                // Apply single image alignment if there's only one image in the entire gallery
+                if (cardsData.length === 1) {
+                    let justifyContent = 'center'; // default
+                    if (singleImageAlignment === 'left') {
+                        justifyContent = 'flex-start';
+                    } else if (singleImageAlignment === 'right') {
+                        justifyContent = 'flex-end';
+                    }
+                    grid.style.alignItems = 'center';
+                    grid.style.justifyContent = justifyContent;
+                } else {
+                    // Reset alignment for multi-image galleries
+                    grid.style.alignItems = '';
+                    grid.style.justifyContent = '';
+                }
 
                 // Group cards into new rows based on screen size
                 let previousRowHeight = null;

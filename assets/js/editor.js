@@ -45,7 +45,8 @@
             },
             rowHeightMode: { type: 'string', default: 'auto' },
             rowHeight: { type: 'number', default: 280 },
-            maxViewportHeight: { type: 'number', default: 80 }
+            maxViewportHeight: { type: 'number', default: 80 },
+            singleImageAlignment: { type: 'string', default: 'center', enum: ['left', 'center', 'right'] }
         },
         supports: {
             align: ['wide', 'full'],
@@ -67,7 +68,8 @@
                 responsiveSettings,
                 rowHeightMode,
                 rowHeight,
-                maxViewportHeight
+                maxViewportHeight,
+                singleImageAlignment
             } = attributes;
 
             const blockProps = useBlockProps({
@@ -176,6 +178,19 @@
                             value: maxViewportHeight ?? 80,
                             onChange: function (value) {
                                 setAttributes({ maxViewportHeight: value ?? 80 });
+                            }
+                        }),
+                        el(SelectControl, {
+                            label: __('Single image alignment', 'flickr-justified-block'),
+                            help: __('Horizontal alignment when there is only one image in the entire gallery.', 'flickr-justified-block'),
+                            value: singleImageAlignment || 'center',
+                            options: [
+                                { label: __('Left', 'flickr-justified-block'), value: 'left' },
+                                { label: __('Center', 'flickr-justified-block'), value: 'center' },
+                                { label: __('Right', 'flickr-justified-block'), value: 'right' }
+                            ],
+                            onChange: function(value) {
+                                setAttributes({ singleImageAlignment: value || 'center' });
                             }
                         })
                     ),
