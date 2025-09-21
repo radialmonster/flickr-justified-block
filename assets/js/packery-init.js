@@ -178,6 +178,18 @@
                 }
 
                 grid.classList.add('justified-initialized');
+
+                // Trigger custom event for lightbox plugins to reinitialize
+                const reinitEvent = new CustomEvent('flickrGalleryReorganized', {
+                    detail: { grid: grid }
+                });
+                document.dispatchEvent(reinitEvent);
+
+                // Also trigger a generic event that some lightbox plugins listen for
+                setTimeout(() => {
+                    const resizeEvent = new Event('resize');
+                    window.dispatchEvent(resizeEvent);
+                }, 100);
             }
 
             // Check if images are already loaded

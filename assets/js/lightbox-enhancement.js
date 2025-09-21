@@ -22,7 +22,7 @@
     function findFlickrUrlByImageSrc(imageSrc) {
         console.log('Searching for Flickr URL for image:', imageSrc);
 
-        var galleryItems = document.querySelectorAll('.flickr-justified-item[data-flickr-page]');
+        var galleryItems = document.querySelectorAll('.flickr-card a[data-flickr-page]');
         for (var i = 0; i < galleryItems.length; i++) {
             var item = galleryItems[i];
             var href = item.getAttribute('href');
@@ -76,7 +76,7 @@
                 flickrUrl = getCurrentFlickrUrl();
                 if (!flickrUrl) {
                     // Final fallback to first gallery item
-                    var galleryItems = document.querySelectorAll('.flickr-justified-item[data-flickr-page]');
+                    var galleryItems = document.querySelectorAll('.flickr-card a[data-flickr-page]');
                     flickrUrl = galleryItems[0] ? galleryItems[0].getAttribute('data-flickr-page') : '#';
                     console.log('Using fallback URL:', flickrUrl);
                 }
