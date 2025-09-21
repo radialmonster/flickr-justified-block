@@ -129,12 +129,16 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
 
     if (empty($api_key)) {
         // Debug: Log when API key is missing
-        error_log('Flickr Justified Block: No API key found for photo ID: ' . $photo_id);
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: No API key found for photo ID: ' . $photo_id);
+        }
         return [];
     }
 
     // Debug: Log that we're making an API call
-    error_log('Flickr Justified Block: Making API call for photo ID: ' . $photo_id);
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Making API call for photo ID: ' . $photo_id);
+    }
 
     // Get available sizes from API with dimensions
     $api_url = add_query_arg([
@@ -147,11 +151,13 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
 
     $response = wp_remote_get($api_url, [
         'timeout' => 10,
-        'user-agent' => 'WordPress Flickr Masonry Block'
+        'user-agent' => 'WordPress Flickr Justified Block'
     ]);
 
     if (is_wp_error($response)) {
-        error_log('Flickr Justified Block: API request error for photo ID ' . $photo_id . ': ' . $response->get_error_message());
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: API request error for photo ID ' . $photo_id . ': ' . $response->get_error_message());
+        }
         return [];
     }
 
@@ -159,12 +165,16 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $data = json_decode($body, true);
 
     if (empty($data['sizes']['size'])) {
-        error_log('Flickr Justified Block: No sizes data returned for photo ID ' . $photo_id . '. Response: ' . $body);
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: No sizes data returned for photo ID ' . $photo_id . '. Response: ' . $body);
+        }
         return [];
     }
 
     // Debug: Log successful API call
-    error_log('Flickr Justified Block: Successfully retrieved ' . count($data['sizes']['size']) . ' sizes for photo ID: ' . $photo_id);
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Successfully retrieved ' . count($data['sizes']['size']) . ' sizes for photo ID: ' . $photo_id);
+    }
 
     // Build result with URLs and dimensions
     $result = flickr_justified_map_api_sizes_to_requested_with_dims($data['sizes']['size'], $requested_sizes);
@@ -338,7 +348,7 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 }
 
 /**
- * Render the Flickr Masonry block
+ * Render the Flickr Justified block
  *
  * @param array $attributes Block attributes
  * @return string Block HTML output
