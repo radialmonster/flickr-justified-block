@@ -11,19 +11,16 @@
     width: 100%;
 }
 
-/* Single image alignment - applied immediately to prevent flash */
-.flickr-justified-grid[data-single-image-alignment="left"] {
-    align-items: center;
+/* Single image alignment - applied to rows within single-image grids to prevent flash */
+.flickr-justified-grid[data-single-image-alignment="left"] .flickr-row {
     justify-content: flex-start;
 }
 
-.flickr-justified-grid[data-single-image-alignment="center"] {
-    align-items: center;
+.flickr-justified-grid[data-single-image-alignment="center"] .flickr-row {
     justify-content: center;
 }
 
-.flickr-justified-grid[data-single-image-alignment="right"] {
-    align-items: center;
+.flickr-justified-grid[data-single-image-alignment="right"] .flickr-row {
     justify-content: flex-end;
 }
 
