@@ -11,6 +11,22 @@
     width: 100%;
 }
 
+/* Single image alignment - applied immediately to prevent flash */
+.flickr-justified-grid[data-single-image-alignment="left"] {
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.flickr-justified-grid[data-single-image-alignment="center"] {
+    align-items: center;
+    justify-content: center;
+}
+
+.flickr-justified-grid[data-single-image-alignment="right"] {
+    align-items: center;
+    justify-content: flex-end;
+}
+
 /* Row container for images */
 .flickr-row {
     display: flex;

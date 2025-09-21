@@ -147,18 +147,10 @@
 
                 grid.innerHTML = '';
 
-                // Apply single image alignment if there's only one image in the entire gallery
-                if (cardsData.length === 1) {
-                    let justifyContent = 'center'; // default
-                    if (singleImageAlignment === 'left') {
-                        justifyContent = 'flex-start';
-                    } else if (singleImageAlignment === 'right') {
-                        justifyContent = 'flex-end';
-                    }
-                    grid.style.alignItems = 'center';
-                    grid.style.justifyContent = justifyContent;
-                } else {
-                    // Reset alignment for multi-image galleries
+                // For single image galleries, CSS handles alignment via data attribute
+                // Only reset alignment for multi-image galleries
+                if (cardsData.length > 1) {
+                    // Reset alignment for multi-image galleries (CSS data attribute alignment doesn't apply)
                     grid.style.alignItems = '';
                     grid.style.justifyContent = '';
                 }
