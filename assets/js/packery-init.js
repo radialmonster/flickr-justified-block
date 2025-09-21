@@ -141,10 +141,10 @@
                     let actualRowHeight;
 
                     if (isSingleImageLastRow) {
-                        // Make single last image larger but constrain to container width
+                        // Make single last image same height as previous row but constrain to container width
                         const img = rowImages[0];
                         const aspectRatio = img.naturalWidth / img.naturalHeight;
-                        const maxHeight = previousRowHeight * 2;
+                        const maxHeight = previousRowHeight;
                         const maxWidth = containerWidth;
 
                         // Calculate height that would fit the container width
