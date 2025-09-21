@@ -685,7 +685,7 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
      * Test API key via AJAX
      */
     public static function test_api_key_ajax() {
-        if (!wp_verify_nonce($_POST['nonce'], 'test_flickr_api_key')) {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'test_flickr_api_key')) {
             wp_send_json_error(['message' => 'Security check failed']);
         }
 
