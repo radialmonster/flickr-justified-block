@@ -141,8 +141,17 @@
                     let actualRowHeight;
 
                     if (isSingleImageLastRow) {
-                        // Make single last image double the previous row height
-                        actualRowHeight = previousRowHeight * 2;
+                        // Make single last image larger but constrain to container width
+                        const img = rowImages[0];
+                        const aspectRatio = img.naturalWidth / img.naturalHeight;
+                        const maxHeight = previousRowHeight * 2;
+                        const maxWidth = containerWidth;
+
+                        // Calculate height that would fit the container width
+                        const heightFromWidth = maxWidth / aspectRatio;
+
+                        // Use the smaller of the two constraints
+                        actualRowHeight = Math.min(maxHeight, heightFromWidth);
                     } else if (rowHeightMode === 'auto') {
                         // Use optimal height calculation that fills container width
                         actualRowHeight = calculateOptimalRowHeight(rowImages, containerWidth, gap);
