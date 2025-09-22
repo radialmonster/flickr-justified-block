@@ -32,15 +32,33 @@
     // Load PhotoSwipe CSS
     function loadPhotoSwipeCSS() {
         if (document.querySelector('link[href*="photoswipe"]')) {
+            console.log('PhotoSwipe CSS already loaded');
             return Promise.resolve(); // Already loaded
         }
+
+        console.log('Loading PhotoSwipe CSS from:', PHOTOSWIPE_CSS);
 
         return new Promise((resolve, reject) => {
             const link = document.createElement('link');
             link.rel = 'stylesheet';
             link.href = PHOTOSWIPE_CSS;
-            link.onload = resolve;
-            link.onerror = reject;
+            link.onload = () => {
+                console.log('PhotoSwipe CSS loaded successfully');
+                resolve();
+            };
+            link.onerror = () => {
+                console.error('Failed to load PhotoSwipe CSS from local files, trying CDN fallback');
+                // Fallback to CDN
+                const fallbackLink = document.createElement('link');
+                fallbackLink.rel = 'stylesheet';
+                fallbackLink.href = 'https://cdn.jsdelivr.net/npm/photoswipe@5.4.4/dist/photoswipe.css';
+                fallbackLink.onload = () => {
+                    console.log('PhotoSwipe CSS loaded from CDN fallback');
+                    resolve();
+                };
+                fallbackLink.onerror = reject;
+                document.head.appendChild(fallbackLink);
+            };
             document.head.appendChild(link);
         });
     }
@@ -48,12 +66,25 @@
     // Load PhotoSwipe JS
     function loadPhotoSwipeJS() {
         if (window.PhotoSwipe) {
+            console.log('PhotoSwipe already loaded');
             return Promise.resolve(window.PhotoSwipe);
         }
 
+        console.log('Loading PhotoSwipe from:', PHOTOSWIPE_JS);
+
         return import(PHOTOSWIPE_JS).then(module => {
+            console.log('PhotoSwipe loaded successfully:', module);
             window.PhotoSwipe = module.default;
             return module.default;
+        }).catch(error => {
+            console.error('Failed to load PhotoSwipe from local files:', error);
+            // Fallback to CDN
+            console.log('Attempting fallback to CDN...');
+            return import('https://cdn.jsdelivr.net/npm/photoswipe@5.4.4/dist/photoswipe.esm.js').then(module => {
+                console.log('PhotoSwipe loaded from CDN fallback');
+                window.PhotoSwipe = module.default;
+                return module.default;
+            });
         });
     }
 
@@ -61,15 +92,21 @@
     function prepareGalleryData() {
         const galleries = document.querySelectorAll('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
 
+        console.log('Found', galleries.length, 'galleries with built-in lightbox enabled');
+
         galleries.forEach(gallery => {
             const items = gallery.querySelectorAll('.flickr-card a');
+
+            console.log('Preparing', items.length, 'items in gallery');
+
+            // Mark gallery as PhotoSwipe enabled
+            gallery.setAttribute('data-photoswipe-initialized', 'true');
 
             items.forEach((item, index) => {
                 item.setAttribute('data-pswp-index', index);
 
-                // Remove any existing click handlers
-                item.removeEventListener('click', handleItemClick);
-                item.addEventListener('click', handleItemClick);
+                // Add our click handler with high priority
+                item.addEventListener('click', handleItemClick, true); // Capture phase
             });
         });
     }
@@ -77,11 +114,14 @@
     // Handle click on gallery item
     function handleItemClick(event) {
         event.preventDefault();
+        event.stopPropagation();
 
         const clickedItem = event.currentTarget;
         const gallery = clickedItem.closest('.flickr-justified-grid');
         const items = gallery.querySelectorAll('.flickr-card a');
         const index = parseInt(clickedItem.getAttribute('data-pswp-index'));
+
+        console.log('PhotoSwipe click handler triggered for index:', index);
 
         // Prepare gallery data for PhotoSwipe
         const galleryData = Array.from(items).map(item => {
@@ -96,6 +136,8 @@
                 element: item // Reference to original element
             };
         });
+
+        console.log('Opening PhotoSwipe with', galleryData.length, 'images');
 
         // Open PhotoSwipe
         openPhotoSwipe(galleryData, index);
@@ -194,19 +236,26 @@
     // Initialize when DOM is ready
     function init() {
         if (!isBuiltinLightboxEnabled()) {
-            return; // Built-in lightbox not enabled
+            console.log('Built-in PhotoSwipe lightbox not enabled');
+            return;
         }
 
-        prepareGalleryData();
-        console.log('PhotoSwipe built-in lightbox initialized');
+        // Wait a bit for other scripts to finish
+        setTimeout(() => {
+            prepareGalleryData();
+            console.log('PhotoSwipe built-in lightbox initialized');
+        }, 100);
     }
 
-    // Wait for DOM and initialize
+    // Wait for DOM and initialize - use multiple event triggers
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
     }
+
+    // Also initialize when window loads (after all resources)
+    window.addEventListener('load', init);
 
     // Re-initialize when new galleries are added (for dynamic content)
     const observer = new MutationObserver((mutations) => {
