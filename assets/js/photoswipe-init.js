@@ -175,16 +175,16 @@
                 loop: true,
                 pinchToClose: true,
                 closeOnVerticalDrag: true,
-                padding: { top: 50, bottom: 50, left: 50, right: 50 },
+                padding: { top: 20, bottom: 20, left: 20, right: 20 },
                 // Dynamic sizing based on viewport
-                maxZoomLevel: 2,
-                secondaryZoomLevel: 1.5,
-                initialZoomLevel: 'fit', // Fit to screen initially
+                maxZoomLevel: 3,
+                secondaryZoomLevel: 2,
+                initialZoomLevel: 1, // Start at actual size, don't force fit
                 // Use actual user viewport size for optimal image sizing
                 getViewportSizeFn: (options, pswp) => {
                     return {
-                        x: window.innerWidth - 100, // Use full screen width minus padding
-                        y: window.innerHeight - 100 // Use full screen height minus padding
+                        x: window.innerWidth - 40, // Use almost full screen width
+                        y: window.innerHeight - 40 // Use almost full screen height
                     };
                 }
             });
