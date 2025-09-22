@@ -238,12 +238,13 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         $breakpoints = FlickrJustifiedAdminSettings::get_breakpoints();
     }
 
-    // Get attribution mode for frontend
+    // Get attribution mode and builtin lightbox setting for frontend
     $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();
+    $use_builtin_lightbox = FlickrJustifiedAdminSettings::get_use_builtin_lightbox();
 
     // Generate simple structure - JavaScript will organize into responsive rows
     $output = sprintf(
-        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-attribution-mode="%s">',
+        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-attribution-mode="%s" data-use-builtin-lightbox="%s">',
         esc_attr($block_id),
         (int) $gap,
         esc_attr(json_encode($responsive_settings)),
@@ -252,7 +253,8 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         (int) $row_height,
         (int) $max_viewport_height,
         esc_attr($single_image_alignment),
-        esc_attr($attribution_mode)
+        esc_attr($attribution_mode),
+        $use_builtin_lightbox ? '1' : '0'
     );
 
     foreach ($url_lines as $url) {
@@ -325,10 +327,17 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                     $data_attrs = sprintf('data-width="%d" data-height="%d"', $dimensions['width'], $dimensions['height']);
                 }
 
-                $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
-                $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
-                $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
-                $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
+                // Use different lightbox settings based on builtin lightbox preference
+                if ($use_builtin_lightbox) {
+                    $lightbox_class = 'flickr-builtin-lightbox';
+                    $gallery_group_attribute = 'data-gallery';
+                    $gallery_group = esc_attr($block_id);
+                } else {
+                    $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
+                    $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
+                    $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
+                    $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
+                }
 
                 // Get attribution settings
                 $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();

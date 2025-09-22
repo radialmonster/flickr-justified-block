@@ -185,6 +185,14 @@ class FlickrJustifiedAdminSettings {
             'flickr_justified_settings',
             'flickr_justified_attribution_section'
         );
+
+        add_settings_field(
+            'use_builtin_lightbox',
+            __('Built-in Lightbox', 'flickr-justified-block'),
+            [__CLASS__, 'use_builtin_lightbox_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_lightbox_section'
+        );
     }
 
     /**
@@ -332,6 +340,11 @@ class FlickrJustifiedAdminSettings {
             $position = sanitize_text_field($input['attribution_position']);
             $valid_positions = ['bottom_left', 'bottom_right', 'top_left', 'top_right', 'bottom_center'];
             $sanitized['attribution_position'] = in_array($position, $valid_positions, true) ? $position : 'bottom_right';
+        }
+
+        // Sanitize use builtin lightbox
+        if (isset($input['use_builtin_lightbox'])) {
+            $sanitized['use_builtin_lightbox'] = (bool) $input['use_builtin_lightbox'];
         }
 
         return $sanitized;
@@ -689,6 +702,29 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
     }
 
     /**
+     * Use builtin lightbox callback
+     */
+    public static function use_builtin_lightbox_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $use_builtin = isset($options['use_builtin_lightbox']) ? $options['use_builtin_lightbox'] : false;
+
+        echo '<label>';
+        echo '<input type="checkbox" name="flickr_justified_options[use_builtin_lightbox]" value="1"' . checked($use_builtin, true, false) . ' />';
+        echo ' ' . __('Use built-in PhotoSwipe lightbox with guaranteed Flickr attribution', 'flickr-justified-block');
+        echo '</label>';
+
+        echo '<p class="description">' . __('Enable this to use our built-in PhotoSwipe lightbox instead of relying on third-party lightbox plugins.', 'flickr-justified-block') . '</p>';
+        echo '<p class="description"><strong>' . __('Benefits:', 'flickr-justified-block') . '</strong></p>';
+        echo '<ul style="list-style: disc; margin-left: 20px;">';
+        echo '<li>' . __('Guaranteed Flickr attribution button in toolbar', 'flickr-justified-block') . '</li>';
+        echo '<li>' . __('Consistent lightbox behavior across themes', 'flickr-justified-block') . '</li>';
+        echo '<li>' . __('No dependency on third-party lightbox plugins', 'flickr-justified-block') . '</li>';
+        echo '<li>' . __('Optimized for Flickr photo galleries', 'flickr-justified-block') . '</li>';
+        echo '</ul>';
+        echo '<p class="description"><em>' . __('Note: This will override the lightbox CSS class setting above when enabled.', 'flickr-justified-block') . '</em></p>';
+    }
+
+    /**
      * Get lightbox CSS class from settings
      */
     public static function get_lightbox_css_class() {
@@ -765,6 +801,14 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
         $position = isset($options['attribution_position']) ? $options['attribution_position'] : 'bottom_right';
         $valid_positions = ['bottom_left', 'bottom_right', 'top_left', 'top_right', 'bottom_center'];
         return in_array($position, $valid_positions, true) ? $position : 'bottom_right';
+    }
+
+    /**
+     * Get use builtin lightbox from settings
+     */
+    public static function get_use_builtin_lightbox() {
+        $options = get_option('flickr_justified_options', []);
+        return isset($options['use_builtin_lightbox']) ? (bool) $options['use_builtin_lightbox'] : false;
     }
 
     /**

@@ -97,16 +97,42 @@ class FlickrJustifiedBlock {
 
         // Only enqueue JavaScript on frontend
         if (!is_admin()) {
-            $lightbox_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/lightbox-enhancement.js';
-            $lightbox_js_ver  = @filemtime($lightbox_js_path);
+            // Check if builtin lightbox is enabled
+            $use_builtin_lightbox = false;
+            if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_use_builtin_lightbox')) {
+                $use_builtin_lightbox = FlickrJustifiedAdminSettings::get_use_builtin_lightbox();
+            }
 
-            wp_enqueue_script(
-                'flickr-justified-lightbox-enhancement',
-                FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/lightbox-enhancement.js',
-                [],
-                $lightbox_js_ver ? $lightbox_js_ver : FLICKR_JUSTIFIED_VERSION,
-                true
-            );
+            if ($use_builtin_lightbox) {
+                // Enqueue built-in PhotoSwipe script
+                $photoswipe_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/photoswipe-init.js';
+                $photoswipe_js_ver  = @filemtime($photoswipe_js_path);
+
+                wp_enqueue_script(
+                    'flickr-justified-photoswipe',
+                    FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/photoswipe-init.js',
+                    [],
+                    $photoswipe_js_ver ? $photoswipe_js_ver : FLICKR_JUSTIFIED_VERSION,
+                    true
+                );
+
+                // Pass plugin URL to JavaScript
+                wp_localize_script('flickr-justified-photoswipe', 'flickrJustifiedConfig', [
+                    'pluginUrl' => FLICKR_JUSTIFIED_PLUGIN_URL
+                ]);
+            } else {
+                // Enqueue third-party lightbox enhancement script
+                $lightbox_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/lightbox-enhancement.js';
+                $lightbox_js_ver  = @filemtime($lightbox_js_path);
+
+                wp_enqueue_script(
+                    'flickr-justified-lightbox-enhancement',
+                    FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/lightbox-enhancement.js',
+                    [],
+                    $lightbox_js_ver ? $lightbox_js_ver : FLICKR_JUSTIFIED_VERSION,
+                    true
+                );
+            }
 
             // Initialize justified layout script
             $init_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/justified-init.js';

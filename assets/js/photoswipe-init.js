@@ -1,0 +1,230 @@
+/**
+ * Built-in PhotoSwipe Implementation for Flickr Justified Block
+ * Provides native PhotoSwipe lightbox with guaranteed Flickr attribution
+ */
+(function() {
+    'use strict';
+
+    // PhotoSwipe local files (from cloned repository)
+    const PLUGIN_URL = (window.flickrJustifiedConfig && window.flickrJustifiedConfig.pluginUrl) || '/wp-content/plugins/flickr-justified-block';
+    const PHOTOSWIPE_CSS = PLUGIN_URL + '/dist/photoswipe/dist/photoswipe.css';
+    const PHOTOSWIPE_JS = PLUGIN_URL + '/dist/photoswipe/dist/photoswipe.esm.js';
+
+    // Check if builtin lightbox is enabled
+    function isBuiltinLightboxEnabled() {
+        const gallery = document.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
+        return gallery !== null;
+    }
+
+    // Get attribution settings
+    function getAttributionSettings() {
+        const gallery = document.querySelector('.flickr-justified-grid[data-attribution-mode]');
+        const firstItem = document.querySelector('.flickr-card a[data-flickr-attribution-text]');
+
+        if (!gallery && !firstItem) return null;
+
+        return {
+            text: firstItem ? (firstItem.getAttribute('data-flickr-attribution-text') || 'View on Flickr') : 'View on Flickr',
+            mode: gallery ? gallery.getAttribute('data-attribution-mode') : 'data_attributes'
+        };
+    }
+
+    // Load PhotoSwipe CSS
+    function loadPhotoSwipeCSS() {
+        if (document.querySelector('link[href*="photoswipe"]')) {
+            return Promise.resolve(); // Already loaded
+        }
+
+        return new Promise((resolve, reject) => {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = PHOTOSWIPE_CSS;
+            link.onload = resolve;
+            link.onerror = reject;
+            document.head.appendChild(link);
+        });
+    }
+
+    // Load PhotoSwipe JS
+    function loadPhotoSwipeJS() {
+        if (window.PhotoSwipe) {
+            return Promise.resolve(window.PhotoSwipe);
+        }
+
+        return import(PHOTOSWIPE_JS).then(module => {
+            window.PhotoSwipe = module.default;
+            return module.default;
+        });
+    }
+
+    // Prepare gallery data for PhotoSwipe
+    function prepareGalleryData() {
+        const galleries = document.querySelectorAll('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
+
+        galleries.forEach(gallery => {
+            const items = gallery.querySelectorAll('.flickr-card a');
+
+            items.forEach((item, index) => {
+                item.setAttribute('data-pswp-index', index);
+
+                // Remove any existing click handlers
+                item.removeEventListener('click', handleItemClick);
+                item.addEventListener('click', handleItemClick);
+            });
+        });
+    }
+
+    // Handle click on gallery item
+    function handleItemClick(event) {
+        event.preventDefault();
+
+        const clickedItem = event.currentTarget;
+        const gallery = clickedItem.closest('.flickr-justified-grid');
+        const items = gallery.querySelectorAll('.flickr-card a');
+        const index = parseInt(clickedItem.getAttribute('data-pswp-index'));
+
+        // Prepare gallery data for PhotoSwipe
+        const galleryData = Array.from(items).map(item => {
+            const img = item.querySelector('img');
+            const flickrPage = item.getAttribute('data-flickr-page');
+
+            return {
+                src: item.href, // Large image URL
+                width: parseInt(item.getAttribute('data-width')) || img.naturalWidth || 1200,
+                height: parseInt(item.getAttribute('data-height')) || img.naturalHeight || 800,
+                flickrPage: flickrPage,
+                element: item // Reference to original element
+            };
+        });
+
+        // Open PhotoSwipe
+        openPhotoSwipe(galleryData, index);
+    }
+
+    // Open PhotoSwipe gallery
+    function openPhotoSwipe(galleryData, index) {
+        Promise.all([loadPhotoSwipeCSS(), loadPhotoSwipeJS()]).then(() => {
+            const PhotoSwipe = window.PhotoSwipe;
+
+            const lightbox = new PhotoSwipe({
+                dataSource: galleryData,
+                index: index,
+                showHideAnimationType: 'zoom',
+                bgOpacity: 0.9,
+                spacing: 0.1,
+                allowPanToNext: false,
+                loop: true,
+                pinchToClose: true,
+                closeOnVerticalDrag: true,
+                padding: { top: 50, bottom: 50, left: 50, right: 50 }
+            });
+
+            // Add Flickr attribution button
+            lightbox.on('uiRegister', function() {
+                const attributionSettings = getAttributionSettings();
+                if (!attributionSettings) return;
+
+                lightbox.ui.registerElement({
+                    name: 'flickr-attribution',
+                    order: 8, // Before close button
+                    isButton: true,
+                    tagName: 'a',
+                    html: attributionSettings.text,
+                    title: attributionSettings.text,
+                    ariaLabel: 'View original photo on Flickr',
+                    onInit: (el, pswp) => {
+                        el.setAttribute('target', '_blank');
+                        el.setAttribute('rel', 'noopener noreferrer');
+                        el.style.fontSize = '14px';
+                        el.style.textDecoration = 'underline';
+                        el.style.color = '#fff';
+                        el.style.padding = '8px 12px';
+                        el.style.backgroundColor = 'rgba(0,0,0,0.3)';
+                        el.style.borderRadius = '4px';
+                        el.style.transition = 'background-color 0.2s';
+
+                        // Hover effect
+                        el.addEventListener('mouseenter', () => {
+                            el.style.backgroundColor = 'rgba(0,0,0,0.6)';
+                        });
+
+                        el.addEventListener('mouseleave', () => {
+                            el.style.backgroundColor = 'rgba(0,0,0,0.3)';
+                        });
+
+                        // Set initial URL
+                        updateAttributionUrl(el, pswp);
+
+                        // Update URL when slide changes
+                        pswp.on('change', () => {
+                            updateAttributionUrl(el, pswp);
+                        });
+                    }
+                });
+            });
+
+            // Open the lightbox
+            lightbox.init();
+
+        }).catch(error => {
+            console.error('Failed to load PhotoSwipe:', error);
+            // Fallback: open image in new tab
+            window.open(galleryData[index].src, '_blank');
+        });
+    }
+
+    // Update attribution URL in PhotoSwipe
+    function updateAttributionUrl(el, pswp) {
+        try {
+            const currentSlide = pswp.currSlide;
+            if (currentSlide && currentSlide.data && currentSlide.data.flickrPage) {
+                el.href = currentSlide.data.flickrPage;
+                el.style.opacity = '1';
+                el.style.pointerEvents = 'auto';
+            } else {
+                el.href = '#';
+                el.style.opacity = '0.5';
+                el.style.pointerEvents = 'none';
+            }
+        } catch (error) {
+            console.error('Error updating PhotoSwipe attribution URL:', error);
+        }
+    }
+
+    // Initialize when DOM is ready
+    function init() {
+        if (!isBuiltinLightboxEnabled()) {
+            return; // Built-in lightbox not enabled
+        }
+
+        prepareGalleryData();
+        console.log('PhotoSwipe built-in lightbox initialized');
+    }
+
+    // Wait for DOM and initialize
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Re-initialize when new galleries are added (for dynamic content)
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1 && node.querySelector &&
+                        node.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]')) {
+                        setTimeout(prepareGalleryData, 100);
+                    }
+                });
+            }
+        });
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+})();
