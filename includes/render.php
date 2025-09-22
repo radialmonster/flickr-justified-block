@@ -361,32 +361,32 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $error_mode = FlickrJustifiedAdminSettings::get_privacy_error_mode();
 
                 if ($error_mode === 'show_nothing') {
-                    // Return just a line break to prevent blocks from running together
-                    return '<br>';
+                    // Skip this photo and continue with the next one
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('Flickr Justified Block: Skipping failed photo (show_nothing mode): ' . $url);
+                    }
+                    continue;
                 } else {
-                    // Show error message (default behavior)
-                    $error_message = FlickrJustifiedAdminSettings::get_custom_error_message();
-
-                    // Convert line breaks to HTML and parse basic HTML
-                    $error_message = wp_kses($error_message, [
-                        'strong' => [],
-                        'em' => [],
-                        'br' => [],
-                        'p' => [],
-                        'span' => ['style' => []],
-                        'div' => ['style' => []],
-                    ]);
-                    $error_message = nl2br($error_message);
-
-                    return '<div class="flickr-justified-error" style="
-                        padding: 20px;
-                        background: #f8d7da;
-                        border: 1px solid #f5c6cb;
-                        border-radius: 4px;
-                        color: #721c24;
-                        text-align: center;
-                        margin: 20px 0;
-                    ">' . $error_message . '</div>';
+                    // Add an error placeholder for this specific photo
+                    $error_message = 'Photo unavailable';
+                    $output .= sprintf(
+                        '<article class="flickr-card flickr-error">
+                            <div style="
+                                padding: 20px;
+                                background: #f8d7da;
+                                border: 1px solid #f5c6cb;
+                                border-radius: 4px;
+                                color: #721c24;
+                                text-align: center;
+                                min-height: 100px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                            ">%s</div>
+                        </article>',
+                        esc_html($error_message)
+                    );
+                    continue;
                 }
             }
 

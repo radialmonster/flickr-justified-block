@@ -32,14 +32,6 @@
       "default": "large",
       "enum": ["medium", "large", "large1600", "large2048", "original"]
     },
-    "lightboxMaxWidth": {
-      "type": "number",
-      "default": 2048
-    },
-    "lightboxMaxHeight": {
-      "type": "number",
-      "default": 2048
-    },
     "responsiveSettings": {
       "type": "object",
       "default": {
