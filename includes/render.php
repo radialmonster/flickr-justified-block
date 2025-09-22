@@ -347,7 +347,7 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 }
 
                 if ($lightbox_dimensions) {
-                    $data_attrs = sprintf('data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
+                    $data_attrs = sprintf(' data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
                     error_log("PhotoSwipe DEBUG: Setting data attrs: {$data_attrs}");
                 } else {
                     error_log("PhotoSwipe DEBUG: No data attrs set - lightbox_dimensions is null");
@@ -422,16 +422,16 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 }
 
                 $output .= sprintf(
-                    '<article class="flickr-card" %s style="position: relative;">
-                        <a href="%s" class="%s" %s="%s"%s>
+                    '<article class="flickr-card" style="position: relative;">
+                        <a href="%s" class="%s" %s="%s" %s%s>
                             <img src="%s" loading="lazy" decoding="async" alt="">
                         </a>%s
                     </article>',
-                    $data_attrs,
                     esc_url($lightbox_src),
                     esc_attr($lightbox_class),
                     esc_attr($gallery_group_attribute),
                     esc_attr($gallery_group),
+                    $data_attrs,
                     $attribution_attrs,
                     esc_url($display_src),
                     $caption_overlay
