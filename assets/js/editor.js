@@ -12,7 +12,167 @@
         TextControl
     } = wp.components;
     const { InspectorControls, useBlockProps } = wp.blockEditor;
-    const { createElement: el } = wp.element;
+    const { createElement: el, useState, useEffect } = wp.element;
+
+    // Image preview component
+    function ImagePreview({ url, index }) {
+        const [imageData, setImageData] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+            if (!url || !url.trim()) {
+                setImageData(null);
+                setError(null);
+                return;
+            }
+
+            const trimmedUrl = url.trim();
+
+            // Check if it's a direct image URL first
+            const isImageUrl = /\.(jpe?g|png|webp|avif|gif|svg)(\?|#|$)/i.test(trimmedUrl);
+            if (isImageUrl) {
+                setImageData({
+                    success: true,
+                    image_url: trimmedUrl,
+                    is_flickr: false
+                });
+                setError(null);
+                return;
+            }
+
+            // Check if it's a Flickr URL
+            const isFlickrUrl = trimmedUrl.indexOf('flickr.com/photos/') !== -1;
+            if (!isFlickrUrl) {
+                setImageData(null);
+                setError('Not a supported image URL');
+                return;
+            }
+
+            // Fetch Flickr image data
+            setLoading(true);
+            setError(null);
+
+            wp.apiFetch({
+                path: '/flickr-justified/v1/preview-image',
+                method: 'POST',
+                data: {
+                    url: trimmedUrl
+                }
+            }).then((response) => {
+                if (response.success) {
+                    setImageData(response);
+                    setError(null);
+                } else {
+                    setImageData(null);
+                    setError('Failed to load image');
+                }
+            }).catch((err) => {
+                setImageData(null);
+                setError('Error loading image: ' + (err.message || 'Unknown error'));
+            }).finally(() => {
+                setLoading(false);
+            });
+        }, [url]);
+
+        if (loading) {
+            return el('div', {
+                key: index,
+                className: 'flickr-justified-item-preview',
+                style: {
+                    display: 'inline-block',
+                    width: '100%',
+                    marginBottom: 'var(--fm-gap)',
+                    breakInside: 'avoid'
+                }
+            },
+                el('div', {
+                    style: {
+                        padding: '20px',
+                        border: '2px dashed #ccc',
+                        borderRadius: '4px',
+                        textAlign: 'center',
+                        color: '#666',
+                        backgroundColor: '#f9f9f9'
+                    }
+                }, __('Loading...', 'flickr-justified-block'))
+            );
+        }
+
+        if (imageData && imageData.success) {
+            return el('div', {
+                key: index,
+                className: 'flickr-justified-item-preview',
+                style: {
+                    display: 'inline-block',
+                    width: '100%',
+                    marginBottom: 'var(--fm-gap)',
+                    breakInside: 'avoid'
+                }
+            },
+                el('a', {
+                    href: url.trim(),
+                    onClick: function(e) {
+                        e.preventDefault();
+                    },
+                    style: {
+                        display: 'block',
+                        textDecoration: 'none'
+                    }
+                },
+                    el('img', {
+                        src: imageData.image_url,
+                        alt: '',
+                        style: {
+                            width: '100%',
+                            height: 'auto',
+                            display: 'block',
+                            borderRadius: '4px'
+                        }
+                    })
+                )
+            );
+        }
+
+        // Show URL text for unsupported URLs or errors
+        return el('div', {
+            key: index,
+            className: 'flickr-justified-item-preview',
+            style: {
+                display: 'inline-block',
+                width: '100%',
+                marginBottom: 'var(--fm-gap)',
+                breakInside: 'avoid'
+            }
+        },
+            el('a', {
+                href: url.trim(),
+                onClick: function(e) {
+                    e.preventDefault();
+                },
+                style: {
+                    display: 'block',
+                    textDecoration: 'none'
+                }
+            },
+                el('div', {
+                    style: {
+                        padding: '12px',
+                        border: '2px dashed #ccc',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        wordBreak: 'break-all',
+                        color: '#666',
+                        backgroundColor: '#f9f9f9'
+                    }
+                },
+                    url.trim().indexOf('flickr.com') !== -1 ?
+                        __('Flickr Photo: ', 'flickr-justified-block') + url.trim() :
+                        __('URL: ', 'flickr-justified-block') + url.trim()
+                )
+            )
+        );
+    }
 
     registerBlockType('flickr-justified/block', {
         edit: function(props) {
@@ -172,57 +332,11 @@
                 el('div', blockProps,
                     urlArray.length > 0 ?
                         urlArray.map(function(url, index) {
-                            url = url.trim();
-                            const isImageUrl = /\.(jpe?g|png|webp|avif|gif|svg)(\?|#|$)/i.test(url);
-
-                            return el('div', {
+                            return el(ImagePreview, {
                                 key: index,
-                                className: 'flickr-justified-item-preview',
-                                style: {
-                                    display: 'inline-block',
-                                    width: '100%',
-                                    marginBottom: 'var(--fm-gap)',
-                                    breakInside: 'avoid'
-                                }
-                            },
-                                el('a', {
-                                    href: url,
-                                    onClick: function(e) {
-                                        e.preventDefault();
-                                    },
-                                    style: {
-                                        display: 'block',
-                                        textDecoration: 'none'
-                                    }
-                                },
-                                    isImageUrl ?
-                                        el('img', {
-                                            src: url,
-                                            alt: '',
-                                            style: {
-                                                width: '100%',
-                                                height: 'auto',
-                                                display: 'block',
-                                                borderRadius: '4px'
-                                            }
-                                        }) :
-                                        el('div', {
-                                            style: {
-                                                padding: '12px',
-                                                border: '2px dashed #ccc',
-                                                borderRadius: '4px',
-                                                fontSize: '12px',
-                                                wordBreak: 'break-all',
-                                                color: '#666',
-                                                backgroundColor: '#f9f9f9'
-                                            }
-                                        },
-                                            url.indexOf('flickr.com') !== -1 ?
-                                                __('Flickr Photo: ', 'flickr-justified-block') + url :
-                                                __('URL: ', 'flickr-justified-block') + url
-                                        )
-                                )
-                            );
+                                url: url,
+                                index: index
+                            });
                         }) :
                         el('div', {
                             style: {

@@ -39,6 +39,7 @@ class FlickrJustifiedBlock {
         add_action('init', [__CLASS__, 'register_block']);
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
         add_action('enqueue_block_assets', [__CLASS__, 'enqueue_block_assets']);
+        add_action('rest_api_init', [__CLASS__, 'register_rest_routes']);
     }
 
     /**
@@ -128,7 +129,78 @@ class FlickrJustifiedBlock {
         }
     }
 
-    
+    /**
+     * Register REST API routes for editor preview
+     */
+    public static function register_rest_routes() {
+        register_rest_route('flickr-justified/v1', '/preview-image', [
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'get_image_preview'],
+            'permission_callback' => function() {
+                return current_user_can('edit_posts');
+            },
+            'args' => [
+                'url' => [
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'esc_url_raw'
+                ]
+            ]
+        ]);
+    }
+
+    /**
+     * Get image preview data for editor
+     */
+    public static function get_image_preview($request) {
+        $url = $request->get_param('url');
+
+        if (empty($url)) {
+            return new WP_Error('invalid_url', 'Invalid URL provided', ['status' => 400]);
+        }
+
+        $is_flickr = strpos($url, 'flickr.com/photos/') !== false;
+
+        if ($is_flickr) {
+            // Get Flickr image data
+            $available_sizes = ['medium', 'large', 'large1600', 'original'];
+            $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
+
+            if (empty($image_data)) {
+                return new WP_Error('flickr_error', 'Could not fetch Flickr image data', ['status' => 404]);
+            }
+
+            // Use medium size for editor preview
+            $preview_size = 'medium';
+            if (!isset($image_data[$preview_size]) && isset($image_data['large'])) {
+                $preview_size = 'large';
+            } elseif (!isset($image_data[$preview_size]) && !isset($image_data['large'])) {
+                $preview_size = array_key_first($image_data);
+            }
+
+            if (isset($image_data[$preview_size])) {
+                return [
+                    'success' => true,
+                    'image_url' => $image_data[$preview_size]['url'],
+                    'width' => $image_data[$preview_size]['width'],
+                    'height' => $image_data[$preview_size]['height'],
+                    'is_flickr' => true
+                ];
+            }
+        } else {
+            // For direct image URLs, just return the URL
+            $is_image_url = preg_match('/\.(jpe?g|png|webp|avif|gif|svg)(\?|#|$)/i', $url);
+            if ($is_image_url) {
+                return [
+                    'success' => true,
+                    'image_url' => $url,
+                    'is_flickr' => false
+                ];
+            }
+        }
+
+        return new WP_Error('unsupported_url', 'Unsupported URL type', ['status' => 400]);
+    }
 }
 
 // Include required files
