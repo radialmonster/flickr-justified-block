@@ -221,7 +221,7 @@
                         el.style.fontSize = '14px';
                         el.style.textDecoration = 'underline';
                         el.style.color = '#fff';
-                        el.style.padding = '8px 16px';
+                        el.style.padding = '6px 12px';
                         el.style.backgroundColor = 'rgba(0,0,0,0.3)';
                         el.style.borderRadius = '4px';
                         el.style.transition = 'background-color 0.2s';
@@ -233,6 +233,7 @@
                         el.style.overflow = 'visible';
                         el.style.display = 'block';
                         el.style.width = 'auto';
+                        el.style.height = 'auto';
 
                         // Hover effect
                         el.addEventListener('mouseenter', () => {
