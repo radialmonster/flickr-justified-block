@@ -190,13 +190,29 @@
             });
 
             // Make top bar more compact
-            lightbox.on('uiRegister', function() {
-                // Reduce top bar height
-                const topBar = document.querySelector('.pswp__top-bar');
-                if (topBar) {
-                    topBar.style.height = '40px';
-                    topBar.style.minHeight = '40px';
-                }
+            lightbox.on('afterInit', function() {
+                // Wait for DOM to be ready, then make top bar compact
+                setTimeout(() => {
+                    const topBar = document.querySelector('.pswp__top-bar');
+                    if (topBar) {
+                        topBar.style.height = '45px';
+                        topBar.style.minHeight = '45px';
+
+                        // Also make buttons smaller
+                        const buttons = topBar.querySelectorAll('.pswp__button');
+                        buttons.forEach(button => {
+                            button.style.height = '40px';
+                            button.style.width = 'auto';
+                        });
+
+                        // Make counter smaller
+                        const counter = topBar.querySelector('.pswp__counter');
+                        if (counter) {
+                            counter.style.fontSize = '12px';
+                            counter.style.marginTop = '10px';
+                        }
+                    }
+                }, 100);
             });
 
             // Add Flickr attribution button
@@ -206,7 +222,7 @@
 
                 lightbox.ui.registerElement({
                     name: 'flickr-attribution',
-                    order: 5, // Before zoom button to give it more space
+                    order: 9, // After zoom button, before close button (back to right side)
                     isButton: true,
                     tagName: 'a',
                     html: attributionSettings.text,
@@ -224,10 +240,12 @@
                         el.style.transition = 'background-color 0.2s';
                         el.style.whiteSpace = 'nowrap';
                         el.style.minWidth = 'auto';
-                        el.style.marginRight = '10px !important';
+                        el.style.marginRight = '8px';
                         el.style.flexShrink = '0';
                         el.style.maxWidth = 'none';
                         el.style.overflow = 'visible';
+                        el.style.display = 'block';
+                        el.style.width = 'auto';
 
                         // Hover effect
                         el.addEventListener('mouseenter', () => {
