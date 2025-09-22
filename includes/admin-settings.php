@@ -154,6 +154,37 @@ class FlickrJustifiedAdminSettings {
             'flickr_justified_settings',
             'flickr_justified_error_section'
         );
+
+        add_settings_section(
+            'flickr_justified_attribution_section',
+            __('Flickr Attribution', 'flickr-justified-block'),
+            [__CLASS__, 'attribution_section_callback'],
+            'flickr_justified_settings'
+        );
+
+        add_settings_field(
+            'flickr_attribution_mode',
+            __('Attribution Method', 'flickr-justified-block'),
+            [__CLASS__, 'flickr_attribution_mode_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_attribution_section'
+        );
+
+        add_settings_field(
+            'attribution_text',
+            __('Attribution Text', 'flickr-justified-block'),
+            [__CLASS__, 'attribution_text_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_attribution_section'
+        );
+
+        add_settings_field(
+            'attribution_position',
+            __('Attribution Position', 'flickr-justified-block'),
+            [__CLASS__, 'attribution_position_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_attribution_section'
+        );
     }
 
     /**
@@ -281,6 +312,26 @@ class FlickrJustifiedAdminSettings {
                 'div' => ['style' => []],
             ]);
             $sanitized['custom_error_message'] = trim($message);
+        }
+
+        // Sanitize Flickr attribution mode
+        if (isset($input['flickr_attribution_mode'])) {
+            $mode = sanitize_text_field($input['flickr_attribution_mode']);
+            $valid_modes = ['data_attributes', 'caption_overlay', 'lightbox_button', 'disabled'];
+            $sanitized['flickr_attribution_mode'] = in_array($mode, $valid_modes, true) ? $mode : 'data_attributes';
+        }
+
+        // Sanitize attribution text
+        if (isset($input['attribution_text'])) {
+            $text = sanitize_text_field($input['attribution_text']);
+            $sanitized['attribution_text'] = !empty($text) ? $text : 'View on Flickr';
+        }
+
+        // Sanitize attribution position
+        if (isset($input['attribution_position'])) {
+            $position = sanitize_text_field($input['attribution_position']);
+            $valid_positions = ['bottom_left', 'bottom_right', 'top_left', 'top_right', 'bottom_center'];
+            $sanitized['attribution_position'] = in_array($position, $valid_positions, true) ? $position : 'bottom_right';
         }
 
         return $sanitized;
@@ -556,6 +607,88 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
     }
 
     /**
+     * Attribution section callback
+     */
+    public static function attribution_section_callback() {
+        echo '<p>' . __('Configure how Flickr attribution links are displayed to comply with Flickr\'s terms of service.', 'flickr-justified-block') . '</p>';
+        echo '<p><strong>' . __('Note:', 'flickr-justified-block') . '</strong> ' . __('Flickr\'s terms require attribution links back to the original photo pages when hosting images.', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
+     * Flickr attribution mode callback
+     */
+    public static function flickr_attribution_mode_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $mode = isset($options['flickr_attribution_mode']) ? $options['flickr_attribution_mode'] : 'data_attributes';
+
+        echo '<select name="flickr_justified_options[flickr_attribution_mode]" id="flickr_attribution_mode">';
+        echo '<option value="data_attributes"' . selected($mode, 'data_attributes', false) . '>' . __('Data attributes only (for lightbox plugins)', 'flickr-justified-block') . '</option>';
+        echo '<option value="caption_overlay"' . selected($mode, 'caption_overlay', false) . '>' . __('Caption overlay on gallery images', 'flickr-justified-block') . '</option>';
+        echo '<option value="lightbox_button"' . selected($mode, 'lightbox_button', false) . '>' . __('Button in lightbox (PhotoSwipe/Simple Lightbox)', 'flickr-justified-block') . '</option>';
+        echo '<option value="disabled"' . selected($mode, 'disabled', false) . '>' . __('Disabled (not recommended)', 'flickr-justified-block') . '</option>';
+        echo '</select>';
+
+        echo '<p class="description">' . __('Choose how Flickr attribution links are displayed:', 'flickr-justified-block') . '</p>';
+        echo '<ul style="list-style: disc; margin-left: 20px;">';
+        echo '<li><strong>' . __('Data attributes:', 'flickr-justified-block') . '</strong> ' . __('Stores Flickr URLs in HTML attributes for lightbox plugins to use', 'flickr-justified-block') . '</li>';
+        echo '<li><strong>' . __('Caption overlay:', 'flickr-justified-block') . '</strong> ' . __('Shows attribution link as overlay on gallery thumbnails', 'flickr-justified-block') . '</li>';
+        echo '<li><strong>' . __('Lightbox button:', 'flickr-justified-block') . '</strong> ' . __('Adds "View on Flickr" button to supported lightbox plugins', 'flickr-justified-block') . '</li>';
+        echo '<li><strong>' . __('Disabled:', 'flickr-justified-block') . '</strong> ' . __('No attribution (may violate Flickr terms)', 'flickr-justified-block') . '</li>';
+        echo '</ul>';
+    }
+
+    /**
+     * Attribution text callback
+     */
+    public static function attribution_text_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $text = isset($options['attribution_text']) ? $options['attribution_text'] : 'View on Flickr';
+
+        echo '<input type="text" name="flickr_justified_options[attribution_text]" id="attribution_text" value="' . esc_attr($text) . '" class="regular-text" />';
+        echo '<p class="description">' . __('Text to display for Flickr attribution links. Default: "View on Flickr"', 'flickr-justified-block') . '</p>';
+        echo '<p class="description">' . __('Examples: "View on Flickr", "Source", "Original", "📷 Flickr"', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
+     * Attribution position callback
+     */
+    public static function attribution_position_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $position = isset($options['attribution_position']) ? $options['attribution_position'] : 'bottom_right';
+
+        echo '<select name="flickr_justified_options[attribution_position]" id="attribution_position">';
+        echo '<option value="bottom_right"' . selected($position, 'bottom_right', false) . '>' . __('Bottom Right', 'flickr-justified-block') . '</option>';
+        echo '<option value="bottom_left"' . selected($position, 'bottom_left', false) . '>' . __('Bottom Left', 'flickr-justified-block') . '</option>';
+        echo '<option value="bottom_center"' . selected($position, 'bottom_center', false) . '>' . __('Bottom Center', 'flickr-justified-block') . '</option>';
+        echo '<option value="top_right"' . selected($position, 'top_right', false) . '>' . __('Top Right', 'flickr-justified-block') . '</option>';
+        echo '<option value="top_left"' . selected($position, 'top_left', false) . '>' . __('Top Left', 'flickr-justified-block') . '</option>';
+        echo '</select>';
+
+        echo '<p class="description">' . __('Position for caption overlay attribution (only applies when using caption overlay mode).', 'flickr-justified-block') . '</p>';
+
+        // Add JavaScript to show/hide position field based on attribution mode
+        ?>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var modeSelect = document.getElementById('flickr_attribution_mode');
+            var positionRow = document.getElementById('attribution_position').closest('tr');
+
+            function togglePositionField() {
+                if (modeSelect.value === 'caption_overlay') {
+                    positionRow.style.display = '';
+                } else {
+                    positionRow.style.display = 'none';
+                }
+            }
+
+            modeSelect.addEventListener('change', togglePositionField);
+            togglePositionField(); // Initial call
+        });
+        </script>
+        <?php
+    }
+
+    /**
      * Get lightbox CSS class from settings
      */
     public static function get_lightbox_css_class() {
@@ -603,6 +736,35 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
         }
 
         return $message;
+    }
+
+    /**
+     * Get Flickr attribution mode from settings
+     */
+    public static function get_flickr_attribution_mode() {
+        $options = get_option('flickr_justified_options', []);
+        $mode = isset($options['flickr_attribution_mode']) ? $options['flickr_attribution_mode'] : 'data_attributes';
+        $valid_modes = ['data_attributes', 'caption_overlay', 'lightbox_button', 'disabled'];
+        return in_array($mode, $valid_modes, true) ? $mode : 'data_attributes';
+    }
+
+    /**
+     * Get attribution text from settings
+     */
+    public static function get_attribution_text() {
+        $options = get_option('flickr_justified_options', []);
+        $text = isset($options['attribution_text']) ? trim($options['attribution_text']) : '';
+        return !empty($text) ? $text : 'View on Flickr';
+    }
+
+    /**
+     * Get attribution position from settings
+     */
+    public static function get_attribution_position() {
+        $options = get_option('flickr_justified_options', []);
+        $position = isset($options['attribution_position']) ? $options['attribution_position'] : 'bottom_right';
+        $valid_positions = ['bottom_left', 'bottom_right', 'top_left', 'top_right', 'bottom_center'];
+        return in_array($position, $valid_positions, true) ? $position : 'bottom_right';
     }
 
     /**

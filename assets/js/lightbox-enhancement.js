@@ -1,9 +1,22 @@
 /**
- * Simple Lightbox Enhancement for Flickr Justified Block
- * Adds a "View on Flickr" link in lightbox
+ * Multi-Lightbox Enhancement for Flickr Justified Block
+ * Adds Flickr attribution links for various lightbox plugins
  */
 (function() {
     'use strict';
+
+    // Get attribution settings from the gallery and first item
+    function getAttributionSettings() {
+        var gallery = document.querySelector('.flickr-justified-grid[data-attribution-mode]');
+        var firstItem = document.querySelector('.flickr-card a[data-flickr-attribution-text]');
+
+        if (!gallery && !firstItem) return null;
+
+        return {
+            text: firstItem ? (firstItem.getAttribute('data-flickr-attribution-text') || 'View on Flickr') : 'View on Flickr',
+            mode: gallery ? gallery.getAttribute('data-attribution-mode') : 'lightbox_button'
+        };
+    }
 
     // Function to get the current Flickr URL from the lightbox
     function getCurrentFlickrUrl() {
@@ -46,6 +59,11 @@
 
     // Function to add and update a clickable Flickr link in lightbox
     function addLightboxNote() {
+        var settings = getAttributionSettings();
+        if (!settings || settings.mode !== 'lightbox_button') {
+            return; // Attribution disabled or using different method
+        }
+
         // Try multiple times with increasing delays
         tryAddLink(1000); // First try after 1 second
 
@@ -90,6 +108,9 @@
 
     // Function to create or update the link with the correct URL
     function createOrUpdateLink(flickrUrl) {
+        var settings = getAttributionSettings();
+        if (!settings) return;
+
         var detailsArea = document.querySelector('#slb_viewer_wrap .slb_details .inner');
         if (!detailsArea) return;
 
@@ -100,6 +121,7 @@
             var linkElement = existingLink.querySelector('a');
             if (linkElement) {
                 linkElement.href = flickrUrl;
+                linkElement.textContent = settings.text;
                 console.log('Updated existing Flickr link to:', flickrUrl);
             }
         } else {
@@ -110,7 +132,7 @@
             linkDiv.innerHTML = '<div style="margin-top: 15px; text-align: center;">' +
                 '<a href="' + flickrUrl + '" target="_blank" rel="noopener noreferrer" ' +
                 'style="text-decoration: underline; font-size: 14px;">' +
-                'View on Flickr</a>' +
+                settings.text + '</a>' +
                 '</div>';
 
             detailsArea.appendChild(linkDiv);
@@ -175,5 +197,73 @@
 
     // Also try to add note to any existing lightboxes
     addLightboxNote();
+
+    // PhotoSwipe Integration
+    function initPhotoSwipeIntegration() {
+        // Wait for PhotoSwipe to be available
+        if (typeof PhotoSwipeLightbox !== 'undefined') {
+            setupPhotoSwipeAttribution();
+        } else {
+            // Check periodically for PhotoSwipe
+            var checkCount = 0;
+            var checkInterval = setInterval(function() {
+                if (typeof PhotoSwipeLightbox !== 'undefined' || checkCount > 20) {
+                    clearInterval(checkInterval);
+                    if (typeof PhotoSwipeLightbox !== 'undefined') {
+                        setupPhotoSwipeAttribution();
+                    }
+                }
+                checkCount++;
+            }, 500);
+        }
+    }
+
+    function setupPhotoSwipeAttribution() {
+        var settings = getAttributionSettings();
+        if (!settings || settings.mode !== 'lightbox_button') return;
+
+        // Add attribution button to existing PhotoSwipe instances
+        document.addEventListener('pswp:uiRegister', function(e) {
+            e.detail.pswp.ui.registerElement({
+                name: 'flickr-attribution',
+                order: 8,
+                isButton: true,
+                tagName: 'a',
+                html: settings.text,
+                onInit: function(el, pswp) {
+                    el.setAttribute('target', '_blank');
+                    el.setAttribute('rel', 'noopener');
+                    el.style.fontSize = '14px';
+                    el.style.textDecoration = 'underline';
+
+                    // Update link when slide changes
+                    pswp.on('change', function() {
+                        var currentSlide = pswp.currSlide;
+                        if (currentSlide && currentSlide.data && currentSlide.data.element) {
+                            var flickrUrl = currentSlide.data.element.getAttribute('data-flickr-page');
+                            if (flickrUrl) {
+                                el.href = flickrUrl;
+                            }
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    // Initialize PhotoSwipe integration
+    initPhotoSwipeIntegration();
+
+    // GLightbox/FancyBox Integration (they often use data-caption)
+    function initOtherLightboxIntegration() {
+        var settings = getAttributionSettings();
+        if (!settings || settings.mode === 'disabled') return;
+
+        // For lightboxes that support custom captions, the data-caption attribute
+        // is already set in the render logic with the Flickr URL and attribution text
+        console.log('Attribution data attributes ready for lightbox plugins');
+    }
+
+    initOtherLightboxIntegration();
 
 })();

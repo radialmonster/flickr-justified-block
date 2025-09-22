@@ -238,9 +238,12 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         $breakpoints = FlickrJustifiedAdminSettings::get_breakpoints();
     }
 
+    // Get attribution mode for frontend
+    $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();
+
     // Generate simple structure - JavaScript will organize into responsive rows
     $output = sprintf(
-        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s">',
+        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-attribution-mode="%s">',
         esc_attr($block_id),
         (int) $gap,
         esc_attr(json_encode($responsive_settings)),
@@ -248,7 +251,8 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         esc_attr($row_height_mode),
         (int) $row_height,
         (int) $max_viewport_height,
-        esc_attr($single_image_alignment)
+        esc_attr($single_image_alignment),
+        esc_attr($attribution_mode)
     );
 
     foreach ($url_lines as $url) {
@@ -325,19 +329,77 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
                 $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
                 $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
+
+                // Get attribution settings
+                $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();
+                $attribution_text = FlickrJustifiedAdminSettings::get_attribution_text();
+                $attribution_position = FlickrJustifiedAdminSettings::get_attribution_position();
+
+                // Build attribution data attributes for lightbox plugins
+                $attribution_attrs = '';
+                if ($attribution_mode !== 'disabled') {
+                    $attribution_attrs = sprintf(' data-flickr-page="%s" data-flickr-attribution-text="%s"',
+                        esc_attr($url),
+                        esc_attr($attribution_text)
+                    );
+
+                    // Add data attributes for common lightbox caption methods
+                    $attribution_attrs .= sprintf(' data-caption="%s" data-title="%s" title="%s"',
+                        esc_attr($attribution_text),
+                        esc_attr($attribution_text),
+                        esc_attr($attribution_text)
+                    );
+                }
+
+                // Build caption overlay if needed
+                $caption_overlay = '';
+                if ($attribution_mode === 'caption_overlay') {
+                    $position_classes = [
+                        'bottom_left' => 'bottom: 8px; left: 8px;',
+                        'bottom_right' => 'bottom: 8px; right: 8px;',
+                        'bottom_center' => 'bottom: 8px; left: 50%; transform: translateX(-50%);',
+                        'top_left' => 'top: 8px; left: 8px;',
+                        'top_right' => 'top: 8px; right: 8px;'
+                    ];
+
+                    $position_style = isset($position_classes[$attribution_position])
+                        ? $position_classes[$attribution_position]
+                        : $position_classes['bottom_right'];
+
+                    $caption_overlay = sprintf(
+                        '<div class="flickr-attribution-overlay" style="
+                            position: absolute;
+                            %s
+                            background: rgba(0,0,0,0.7);
+                            color: white;
+                            padding: 4px 8px;
+                            border-radius: 3px;
+                            font-size: 12px;
+                            z-index: 10;
+                            pointer-events: none;
+                        ">
+                            <a href="%s" target="_blank" rel="noopener" style="color: white; text-decoration: none; pointer-events: auto;">%s</a>
+                        </div>',
+                        $position_style,
+                        esc_attr($url),
+                        esc_html($attribution_text)
+                    );
+                }
+
                 $output .= sprintf(
-                    '<article class="flickr-card" %s>
-                        <a href="%s" class="%s" %s="%s" data-flickr-page="%s">
+                    '<article class="flickr-card" %s style="position: relative;">
+                        <a href="%s" class="%s" %s="%s"%s>
                             <img src="%s" loading="lazy" decoding="async" alt="">
-                        </a>
+                        </a>%s
                     </article>',
                     $data_attrs,
                     esc_url($lightbox_src),
                     esc_attr($lightbox_class),
                     esc_attr($gallery_group_attribute),
                     esc_attr($gallery_group),
-                    esc_attr($url),
-                    esc_url($display_src)
+                    $attribution_attrs,
+                    esc_url($display_src),
+                    $caption_overlay
                 );
             }
         } else {
