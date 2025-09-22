@@ -265,7 +265,8 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
         if ($is_flickr) {
             $available_sizes = [
-                'original', 'large2048', 'large1600', 'large1024', 'large',
+                'original', 'large6k', 'large5k', 'large4k', 'large3k',
+                'large2048', 'large1600', 'large1024', 'large',
                 'medium800', 'medium640', 'medium500', 'medium'
             ];
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
