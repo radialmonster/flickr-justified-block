@@ -180,11 +180,11 @@
                 maxZoomLevel: 2,
                 secondaryZoomLevel: 1.5,
                 initialZoomLevel: 'fit', // Fit to screen initially
-                // Better sizing for high-DPI screens
+                // Use actual user viewport size for optimal image sizing
                 getViewportSizeFn: (options, pswp) => {
                     return {
-                        x: Math.min(window.innerWidth - 100, 2560), // Max 2560px wide
-                        y: Math.min(window.innerHeight - 100, 1600) // Max 1600px tall
+                        x: window.innerWidth - 100, // Use full screen width minus padding
+                        y: window.innerHeight - 100 // Use full screen height minus padding
                     };
                 }
             });
