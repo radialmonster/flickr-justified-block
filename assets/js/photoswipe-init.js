@@ -196,7 +196,7 @@
 
                 lightbox.ui.registerElement({
                     name: 'flickr-attribution',
-                    order: 8, // Before close button
+                    order: 5, // Before zoom button to give it more space
                     isButton: true,
                     tagName: 'a',
                     html: attributionSettings.text,
@@ -214,6 +214,8 @@
                         el.style.transition = 'background-color 0.2s';
                         el.style.whiteSpace = 'nowrap';
                         el.style.minWidth = 'auto';
+                        el.style.marginRight = '10px';
+                        el.style.flexShrink = '0';
 
                         // Hover effect
                         el.addEventListener('mouseenter', () => {
