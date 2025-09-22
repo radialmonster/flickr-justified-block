@@ -189,6 +189,16 @@
                 }
             });
 
+            // Make top bar more compact
+            lightbox.on('uiRegister', function() {
+                // Reduce top bar height
+                const topBar = document.querySelector('.pswp__top-bar');
+                if (topBar) {
+                    topBar.style.height = '40px';
+                    topBar.style.minHeight = '40px';
+                }
+            });
+
             // Add Flickr attribution button
             lightbox.on('uiRegister', function() {
                 const attributionSettings = getAttributionSettings();
@@ -214,8 +224,10 @@
                         el.style.transition = 'background-color 0.2s';
                         el.style.whiteSpace = 'nowrap';
                         el.style.minWidth = 'auto';
-                        el.style.marginRight = '10px';
+                        el.style.marginRight = '10px !important';
                         el.style.flexShrink = '0';
+                        el.style.maxWidth = 'none';
+                        el.style.overflow = 'visible';
 
                         // Hover effect
                         el.addEventListener('mouseenter', () => {
