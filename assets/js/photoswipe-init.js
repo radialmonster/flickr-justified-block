@@ -136,16 +136,19 @@
                 element: item // Reference to original element
             };
 
-            console.log(`Image ${idx}:`, {
+            console.log(`Image ${idx} DETAILED:`, {
                 href: item.href,
                 imgSrc: img.src,
                 dataWidth: item.getAttribute('data-width'),
                 dataHeight: item.getAttribute('data-height'),
+                dataWidthParsed: parseInt(item.getAttribute('data-width')),
+                dataHeightParsed: parseInt(item.getAttribute('data-height')),
                 naturalWidth: img.naturalWidth,
                 naturalHeight: img.naturalHeight,
                 finalWidth: galleryItem.width,
                 finalHeight: galleryItem.height,
-                screenSize: `${window.innerWidth}x${window.innerHeight}`
+                screenSize: `${window.innerWidth}x${window.innerHeight}`,
+                allDataAttrs: Array.from(item.attributes).filter(attr => attr.name.startsWith('data-'))
             });
 
             return galleryItem;

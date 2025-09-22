@@ -339,6 +339,8 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 }
                 if ($lightbox_dimensions) {
                     $data_attrs = sprintf('data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
+                    // Debug: Log the dimensions being set
+                    error_log("PhotoSwipe DEBUG: Setting data attrs for lightbox - width: {$lightbox_dimensions['width']}, height: {$lightbox_dimensions['height']}, size: {$best_lightbox_size}");
                 }
 
                 // Use different lightbox settings based on builtin lightbox preference
