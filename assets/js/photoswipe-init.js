@@ -195,21 +195,15 @@
                 setTimeout(() => {
                     const topBar = document.querySelector('.pswp__top-bar');
                     if (topBar) {
-                        topBar.style.height = '45px';
-                        topBar.style.minHeight = '45px';
-
-                        // Also make buttons smaller
-                        const buttons = topBar.querySelectorAll('.pswp__button');
-                        buttons.forEach(button => {
-                            button.style.height = '40px';
-                            button.style.width = 'auto';
-                        });
+                        topBar.style.height = '50px';
+                        topBar.style.minHeight = '50px';
 
                         // Make counter smaller
                         const counter = topBar.querySelector('.pswp__counter');
                         if (counter) {
-                            counter.style.fontSize = '12px';
-                            counter.style.marginTop = '10px';
+                            counter.style.fontSize = '13px';
+                            counter.style.marginTop = '12px';
+                            counter.style.lineHeight = '26px';
                         }
                     }
                 }, 100);
