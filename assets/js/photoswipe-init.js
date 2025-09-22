@@ -144,7 +144,8 @@
                 naturalWidth: img.naturalWidth,
                 naturalHeight: img.naturalHeight,
                 finalWidth: galleryItem.width,
-                finalHeight: galleryItem.height
+                finalHeight: galleryItem.height,
+                screenSize: `${window.innerWidth}x${window.innerHeight}`
             });
 
             return galleryItem;
@@ -171,7 +172,18 @@
                 loop: true,
                 pinchToClose: true,
                 closeOnVerticalDrag: true,
-                padding: { top: 50, bottom: 50, left: 50, right: 50 }
+                padding: { top: 50, bottom: 50, left: 50, right: 50 },
+                // Dynamic sizing based on viewport
+                maxZoomLevel: 2,
+                secondaryZoomLevel: 1.5,
+                initialZoomLevel: 'fit', // Fit to screen initially
+                // Better sizing for high-DPI screens
+                getViewportSizeFn: (options, pswp) => {
+                    return {
+                        x: Math.min(window.innerWidth - 100, 2560), // Max 2560px wide
+                        y: Math.min(window.innerHeight - 100, 1600) // Max 1600px tall
+                    };
+                }
             });
 
             // Add Flickr attribution button

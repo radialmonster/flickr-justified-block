@@ -273,7 +273,16 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
 
-            $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
+            // Use different sizing strategy for built-in lightbox
+            if ($use_builtin_lightbox) {
+                // For PhotoSwipe, use larger sizes appropriate for typical screen sizes
+                // Most screens are 1920x1080 to 2560x1440, so use generous limits
+                $best_lightbox_size = flickr_justified_select_best_size($image_data, 2560, 1600);
+            } else {
+                // Use user's lightbox settings for third-party lightboxes
+                $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
+            }
+
             $lightbox_src = '';
             if ($best_lightbox_size && isset($image_data[$best_lightbox_size]['url'])) {
                 $lightbox_src = $image_data[$best_lightbox_size]['url'];
