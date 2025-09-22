@@ -7,8 +7,8 @@
 
     // PhotoSwipe local files (from cloned repository)
     const PLUGIN_URL = (window.flickrJustifiedConfig && window.flickrJustifiedConfig.pluginUrl) || '/wp-content/plugins/flickr-justified-block';
-    const PHOTOSWIPE_CSS = PLUGIN_URL + '/dist/photoswipe/dist/photoswipe.css';
-    const PHOTOSWIPE_JS = PLUGIN_URL + '/dist/photoswipe/dist/photoswipe.esm.js';
+    const PHOTOSWIPE_CSS = PLUGIN_URL.replace(/\/$/, '') + '/dist/photoswipe/dist/photoswipe.css';
+    const PHOTOSWIPE_JS = PLUGIN_URL.replace(/\/$/, '') + '/dist/photoswipe/dist/photoswipe.esm.js';
 
     // Check if builtin lightbox is enabled
     function isBuiltinLightboxEnabled() {
