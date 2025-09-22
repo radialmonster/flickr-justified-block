@@ -296,6 +296,17 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
             ];
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
 
+            // Debug: Log what we got back from API for this URL
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: URL processed: ' . $url);
+                error_log('Flickr Justified Block: Image data count: ' . count($image_data));
+                if (empty($image_data)) {
+                    error_log('Flickr Justified Block: NO IMAGE DATA returned for URL: ' . $url);
+                } else {
+                    error_log('Flickr Justified Block: Available sizes: ' . implode(', ', array_keys($image_data)));
+                }
+            }
+
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
 
