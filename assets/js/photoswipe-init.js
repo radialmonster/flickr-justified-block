@@ -179,7 +179,7 @@
                 // Dynamic sizing based on viewport
                 maxZoomLevel: 3,
                 secondaryZoomLevel: 2,
-                initialZoomLevel: 1, // Start at actual size, don't force fit
+                initialZoomLevel: 'fit', // Fit to screen initially, allow zoom for detail
                 // Use actual user viewport size for optimal image sizing
                 getViewportSizeFn: (options, pswp) => {
                     return {

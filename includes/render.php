@@ -302,9 +302,23 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
             // Use different sizing strategy for built-in lightbox
             if ($use_builtin_lightbox) {
-                // For PhotoSwipe, use the largest available size from Flickr's getSizes API
-                $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
-                error_log("PhotoSwipe DEBUG: Built-in lightbox - using largest available from getSizes, selected: {$best_lightbox_size}");
+                // For PhotoSwipe, select size appropriate for high-res displays (around 2-3x screen width)
+                // Target ~3500px for 2560px screens, but allow larger if no intermediate sizes exist
+                $best_lightbox_size = flickr_justified_select_best_size($image_data, 3500, 3500);
+
+                // If selection is too small (less than 2x screen width), use original
+                if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
+                    $selected_width = $image_data[$best_lightbox_size]['width'];
+                    if ($selected_width < 3000) {
+                        $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
+                        error_log("PhotoSwipe DEBUG: Selected size too small ({$selected_width}px), using largest: {$best_lightbox_size}");
+                    } else {
+                        error_log("PhotoSwipe DEBUG: Using appropriate size for high-res display: {$best_lightbox_size} ({$selected_width}px)");
+                    }
+                } else {
+                    $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
+                    error_log("PhotoSwipe DEBUG: Fallback to largest available: {$best_lightbox_size}");
+                }
             } else {
                 // Use user's lightbox settings for third-party lightboxes
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
