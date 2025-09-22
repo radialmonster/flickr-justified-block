@@ -278,10 +278,15 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 // For PhotoSwipe, use larger sizes appropriate for typical screen sizes
                 // Most screens are 1920x1080 to 2560x1440, so use generous limits
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, 2560, 1600);
+                error_log("PhotoSwipe DEBUG: Built-in lightbox - best size selected: {$best_lightbox_size}");
             } else {
                 // Use user's lightbox settings for third-party lightboxes
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
+                error_log("PhotoSwipe DEBUG: Third-party lightbox - best size selected: {$best_lightbox_size}");
             }
+
+            // Debug: Show available image sizes
+            error_log("PhotoSwipe DEBUG: Available image sizes: " . json_encode(array_keys($image_data)));
 
             $lightbox_src = '';
             if ($best_lightbox_size && isset($image_data[$best_lightbox_size]['url'])) {
@@ -336,11 +341,16 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $lightbox_dimensions = null;
                 if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
                     $lightbox_dimensions = $image_data[$best_lightbox_size];
+                    error_log("PhotoSwipe DEBUG: Found lightbox dimensions for size '{$best_lightbox_size}': " . json_encode($lightbox_dimensions));
+                } else {
+                    error_log("PhotoSwipe DEBUG: No lightbox dimensions found - best_lightbox_size: '{$best_lightbox_size}', image_data keys: " . json_encode(array_keys($image_data)));
                 }
+
                 if ($lightbox_dimensions) {
                     $data_attrs = sprintf('data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
-                    // Debug: Log the dimensions being set
-                    error_log("PhotoSwipe DEBUG: Setting data attrs for lightbox - width: {$lightbox_dimensions['width']}, height: {$lightbox_dimensions['height']}, size: {$best_lightbox_size}");
+                    error_log("PhotoSwipe DEBUG: Setting data attrs: {$data_attrs}");
+                } else {
+                    error_log("PhotoSwipe DEBUG: No data attrs set - lightbox_dimensions is null");
                 }
 
                 // Use different lightbox settings based on builtin lightbox preference
