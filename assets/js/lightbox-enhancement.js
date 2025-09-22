@@ -233,34 +233,29 @@
                 name: 'flickr-attribution',
                 order: 8,
                 isButton: true,
-                tagName: 'a',
+                tagName: 'a',  // Use anchor tag as per PhotoSwipe docs
                 html: settings.text,
+                title: settings.text,
+                ariaLabel: 'View original on Flickr',
                 onInit: function(el, pswp) {
                     console.log('PhotoSwipe attribution button initialized');
 
+                    // Set link attributes
                     el.setAttribute('target', '_blank');
-                    el.setAttribute('rel', 'noopener');
+                    el.setAttribute('rel', 'noopener noreferrer');
+
+                    // Style the link button
                     el.style.fontSize = '14px';
                     el.style.textDecoration = 'underline';
                     el.style.color = '#fff';
                     el.style.padding = '8px';
 
-                    // Set initial URL
+                    // Set initial URL and update on slide changes
                     updateAttributionUrl(el, pswp);
 
-                    // Update link when slide changes
                     pswp.on('change', function() {
                         console.log('PhotoSwipe slide changed');
                         updateAttributionUrl(el, pswp);
-                    });
-
-                    // Handle click manually to ensure it works
-                    el.addEventListener('click', function(event) {
-                        event.stopPropagation();
-                        var href = el.getAttribute('href');
-                        if (href && href !== '#') {
-                            window.open(href, '_blank', 'noopener,noreferrer');
-                        }
                     });
                 }
             });
@@ -310,11 +305,15 @@
                     if (flickrUrl) {
                         el.href = flickrUrl;
                         el.style.opacity = '1';
+                        el.style.pointerEvents = 'auto';
                         console.log('Set attribution URL to:', flickrUrl);
+                        return flickrUrl;
                     } else {
                         el.href = '#';
-                        el.style.opacity = '0.5';
-                        console.log('No Flickr URL found, hiding attribution');
+                        el.style.opacity = '0.3';
+                        el.style.pointerEvents = 'none';
+                        console.log('No Flickr URL found, dimming attribution');
+                        return null;
                     }
                 }
             } catch (error) {
