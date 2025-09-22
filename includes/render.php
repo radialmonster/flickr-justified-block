@@ -332,8 +332,13 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
             if (!empty($display_src)) {
                 $data_attrs = '';
-                if ($dimensions) {
-                    $data_attrs = sprintf('data-width="%d" data-height="%d"', $dimensions['width'], $dimensions['height']);
+                // Use lightbox image dimensions for data attributes (PhotoSwipe needs these)
+                $lightbox_dimensions = null;
+                if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
+                    $lightbox_dimensions = $image_data[$best_lightbox_size];
+                }
+                if ($lightbox_dimensions) {
+                    $data_attrs = sprintf('data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
                 }
 
                 // Use different lightbox settings based on builtin lightbox preference
