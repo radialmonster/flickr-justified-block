@@ -175,7 +175,7 @@
                 loop: true,
                 pinchToClose: true,
                 closeOnVerticalDrag: true,
-                padding: { top: 20, bottom: 20, left: 20, right: 20 },
+                padding: { top: 0, bottom: 0, left: 0, right: 0 },
                 // Dynamic sizing based on viewport
                 maxZoomLevel: 3,
                 secondaryZoomLevel: 2,
@@ -183,8 +183,8 @@
                 // Use actual user viewport size for optimal image sizing
                 getViewportSizeFn: (options, pswp) => {
                     return {
-                        x: window.innerWidth - 40, // Use almost full screen width
-                        y: window.innerHeight - 40 // Use almost full screen height
+                        x: window.innerWidth, // Use full screen width
+                        y: window.innerHeight // Use full screen height
                     };
                 }
             });
@@ -208,10 +208,12 @@
                         el.style.fontSize = '14px';
                         el.style.textDecoration = 'underline';
                         el.style.color = '#fff';
-                        el.style.padding = '8px 12px';
+                        el.style.padding = '8px 16px';
                         el.style.backgroundColor = 'rgba(0,0,0,0.3)';
                         el.style.borderRadius = '4px';
                         el.style.transition = 'background-color 0.2s';
+                        el.style.whiteSpace = 'nowrap';
+                        el.style.minWidth = 'auto';
 
                         // Hover effect
                         el.addEventListener('mouseenter', () => {
