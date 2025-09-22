@@ -28,30 +28,37 @@
             }
 
             const trimmedUrl = url.trim();
+            let isCancelled = false;
 
             // Check if it's a direct image URL first
             const isImageUrl = /\.(jpe?g|png|webp|avif|gif|svg)(\?|#|$)/i.test(trimmedUrl);
             if (isImageUrl) {
-                setImageData({
-                    success: true,
-                    image_url: trimmedUrl,
-                    is_flickr: false
-                });
-                setError(null);
+                if (!isCancelled) {
+                    setImageData({
+                        success: true,
+                        image_url: trimmedUrl,
+                        is_flickr: false
+                    });
+                    setError(null);
+                }
                 return;
             }
 
             // Check if it's a Flickr URL
             const isFlickrUrl = trimmedUrl.indexOf('flickr.com/photos/') !== -1;
             if (!isFlickrUrl) {
-                setImageData(null);
-                setError('Not a supported image URL');
+                if (!isCancelled) {
+                    setImageData(null);
+                    setError('Not a supported image URL');
+                }
                 return;
             }
 
             // Fetch Flickr image data
-            setLoading(true);
-            setError(null);
+            if (!isCancelled) {
+                setLoading(true);
+                setError(null);
+            }
 
             wp.apiFetch({
                 path: '/flickr-justified/v1/preview-image',
@@ -60,19 +67,30 @@
                     url: trimmedUrl
                 }
             }).then((response) => {
-                if (response.success) {
-                    setImageData(response);
-                    setError(null);
-                } else {
-                    setImageData(null);
-                    setError('Failed to load image');
+                if (!isCancelled) {
+                    if (response.success) {
+                        setImageData(response);
+                        setError(null);
+                    } else {
+                        setImageData(null);
+                        setError('Failed to load image');
+                    }
                 }
             }).catch((err) => {
-                setImageData(null);
-                setError('Error loading image: ' + (err.message || 'Unknown error'));
+                if (!isCancelled) {
+                    setImageData(null);
+                    setError('Error loading image: ' + (err.message || 'Unknown error'));
+                }
             }).finally(() => {
-                setLoading(false);
+                if (!isCancelled) {
+                    setLoading(false);
+                }
             });
+
+            // Cleanup function to prevent state updates if component unmounts
+            return () => {
+                isCancelled = true;
+            };
         }, [url]);
 
         if (loading) {

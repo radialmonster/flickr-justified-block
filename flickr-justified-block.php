@@ -73,7 +73,7 @@ class FlickrJustifiedBlock {
         wp_enqueue_script(
             'flickr-justified-editor',
             FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/editor.js',
-            ['wp-blocks', 'wp-components', 'wp-element', 'wp-block-editor', 'wp-i18n'],
+            ['wp-blocks', 'wp-components', 'wp-element', 'wp-block-editor', 'wp-i18n', 'wp-api-fetch'],
             $editor_js_ver ? $editor_js_ver : FLICKR_JUSTIFIED_VERSION,
             true
         );
@@ -175,10 +175,15 @@ class FlickrJustifiedBlock {
             if (!isset($image_data[$preview_size]) && isset($image_data['large'])) {
                 $preview_size = 'large';
             } elseif (!isset($image_data[$preview_size]) && !isset($image_data['large'])) {
-                $preview_size = array_key_first($image_data);
+                $first_available = array_key_first($image_data);
+                if ($first_available !== null) {
+                    $preview_size = $first_available;
+                } else {
+                    return new WP_Error('no_sizes', 'No image sizes available', ['status' => 404]);
+                }
             }
 
-            if (isset($image_data[$preview_size])) {
+            if (isset($image_data[$preview_size]) && isset($image_data[$preview_size]['url'])) {
                 return [
                     'success' => true,
                     'image_url' => $image_data[$preview_size]['url'],
