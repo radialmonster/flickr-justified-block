@@ -120,7 +120,7 @@ function flickr_justified_select_best_size($image_sizes_data, $max_width = 2048,
  * Enhanced version of flickr_justified_get_flickr_image_sizes that includes dimensions
  */
 function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $requested_sizes = ['large', 'original']) {
-    if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)(?:/|$)#', $page_url, $matches)) {
+    if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)(?:/.*)?(?:\?.*)?(?:#.*)?$#', $page_url, $matches)) {
         return [];
     }
 
