@@ -103,33 +103,9 @@ class FlickrJustifiedAdminSettings {
 
         add_settings_section(
             'flickr_justified_lightbox_section',
-            __('Lightbox Integration', 'flickr-justified-block'),
+            __('Built-in PhotoSwipe Lightbox', 'flickr-justified-block'),
             [__CLASS__, 'lightbox_section_callback'],
             'flickr_justified_settings'
-        );
-
-        add_settings_field(
-            'lightbox_css_class',
-            __('Lightbox CSS Class', 'flickr-justified-block'),
-            [__CLASS__, 'lightbox_css_class_callback'],
-            'flickr_justified_settings',
-            'flickr_justified_lightbox_section'
-        );
-
-        add_settings_field(
-            'gallery_group_attribute',
-            __('Gallery Grouping Attribute', 'flickr-justified-block'),
-            [__CLASS__, 'gallery_group_attribute_callback'],
-            'flickr_justified_settings',
-            'flickr_justified_lightbox_section'
-        );
-
-        add_settings_field(
-            'gallery_group_format',
-            __('Gallery Grouping Format', 'flickr-justified-block'),
-            [__CLASS__, 'gallery_group_format_callback'],
-            'flickr_justified_settings',
-            'flickr_justified_lightbox_section'
         );
 
         add_settings_section(
@@ -267,40 +243,6 @@ class FlickrJustifiedAdminSettings {
             }
         }
 
-        // Sanitize lightbox CSS class
-        if (isset($input['lightbox_css_class'])) {
-            $css_class = sanitize_text_field($input['lightbox_css_class']);
-            // Remove any dots and ensure it's a valid CSS class name
-            $css_class = ltrim($css_class, '.');
-            $css_class = preg_replace('/[^a-zA-Z0-9_-]/', '', $css_class);
-            $sanitized['lightbox_css_class'] = !empty($css_class) ? $css_class : 'flickr-justified-item';
-        }
-
-        // Sanitize gallery group attribute
-        if (isset($input['gallery_group_attribute'])) {
-            $attribute = sanitize_text_field($input['gallery_group_attribute']);
-            // Clean the attribute name first (allow letters, numbers, hyphens, underscores)
-            $attribute = preg_replace('/[^a-zA-Z0-9_-]/', '', $attribute);
-
-            // Ensure it starts with data- and is a valid attribute name
-            if (empty($attribute)) {
-                $attribute = 'data-gallery'; // Default attribute
-            } elseif (strpos($attribute, 'data-') !== 0) {
-                $attribute = 'data-' . $attribute;
-            }
-
-            $sanitized['gallery_group_attribute'] = !empty($attribute) ? $attribute : 'data-gallery';
-        }
-
-        // Sanitize gallery group format
-        if (isset($input['gallery_group_format'])) {
-            $format = sanitize_text_field($input['gallery_group_format']);
-            // Ensure the format contains {block_id} placeholder
-            if (empty($format) || strpos($format, '{block_id}') === false) {
-                $format = 'fjg-{block_id}'; // Default format
-            }
-            $sanitized['gallery_group_format'] = $format;
-        }
 
         // Sanitize privacy error mode
         if (isset($input['privacy_error_mode'])) {
@@ -342,10 +284,8 @@ class FlickrJustifiedAdminSettings {
             $sanitized['attribution_position'] = in_array($position, $valid_positions, true) ? $position : 'bottom_right';
         }
 
-        // Sanitize use builtin lightbox
-        if (isset($input['use_builtin_lightbox'])) {
-            $sanitized['use_builtin_lightbox'] = (bool) $input['use_builtin_lightbox'];
-        }
+        // Built-in lightbox is always enabled
+        $sanitized['use_builtin_lightbox'] = true;
 
         return $sanitized;
     }
@@ -487,74 +427,9 @@ class FlickrJustifiedAdminSettings {
      * Lightbox section callback
      */
     public static function lightbox_section_callback() {
-        echo '<p>' . __('Configure how your images integrate with lightbox plugins.', 'flickr-justified-block') . '</p>';
+        echo '<p>' . __('The plugin uses a built-in PhotoSwipe lightbox optimized for Flickr galleries with automatic attribution.', 'flickr-justified-block') . '</p>';
     }
 
-    /**
-     * Lightbox CSS class callback
-     */
-    public static function lightbox_css_class_callback() {
-        $options = get_option('flickr_justified_options', []);
-        $css_class = isset($options['lightbox_css_class']) ? $options['lightbox_css_class'] : 'flickr-justified-item';
-
-        echo '<input type="text" id="lightbox_css_class" name="flickr_justified_options[lightbox_css_class]" value="' . esc_attr($css_class) . '" class="regular-text" />';
-        echo '<p class="description">' . __('CSS class name applied to image links for lightbox integration. Default: flickr-justified-item', 'flickr-justified-block') . '</p>';
-        echo '<p class="description"><strong>' . __('Example usage:', 'flickr-justified-block') . '</strong></p>';
-        echo '<code style="display: block; background: #f8f9fa; padding: 8px; margin: 5px 0; font-size: 12px;">
-// GLightbox<br>
-GLightbox({ selector: \'a.' . esc_html($css_class) . '\' });<br><br>
-// Fancybox v4<br>
-Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' });
-</code>';
-    }
-
-    /**
-     * Gallery group attribute callback
-     */
-    public static function gallery_group_attribute_callback() {
-        $options = get_option('flickr_justified_options', []);
-        $attribute = isset($options['gallery_group_attribute']) ? $options['gallery_group_attribute'] : 'data-gallery';
-
-        echo '<input type="text" id="gallery_group_attribute" name="flickr_justified_options[gallery_group_attribute]" value="' . esc_attr($attribute) . '" class="regular-text" />';
-        echo '<p class="description">' . __('HTML attribute name for gallery grouping. Default: data-gallery', 'flickr-justified-block') . '</p>';
-
-        echo '<div style="margin-top: 15px;">';
-        echo '<p class="description"><strong>' . __('Popular lightbox plugin attributes:', 'flickr-justified-block') . '</strong></p>';
-        echo '<table class="form-table" style="margin-top: 0;">';
-        echo '<tbody>';
-        echo '<tr><td style="width: 200px;"><strong>PhotoSwipe (LightBox)</strong></td><td><code>data-lbwps-gid</code></td></tr>';
-        echo '<tr><td><strong>FancyBox / GLightbox</strong></td><td><code>data-gallery</code></td></tr>';
-        echo '<tr><td><strong>Lightbox2</strong></td><td><code>data-lightbox</code></td></tr>';
-        echo '<tr><td><strong>PhotoSwipe Core</strong></td><td><code>data-pswp-group</code></td></tr>';
-        echo '</tbody>';
-        echo '</table>';
-        echo '</div>';
-    }
-
-    /**
-     * Gallery group format callback
-     */
-    public static function gallery_group_format_callback() {
-        $options = get_option('flickr_justified_options', []);
-        $format = isset($options['gallery_group_format']) ? $options['gallery_group_format'] : 'fjg-{block_id}';
-
-        echo '<input type="text" id="gallery_group_format" name="flickr_justified_options[gallery_group_format]" value="' . esc_attr($format) . '" class="regular-text" />';
-        echo '<p class="description">' . __('Format for gallery grouping attribute value. Use {block_id} as placeholder for unique block ID. Default: fjg-{block_id}', 'flickr-justified-block') . '</p>';
-
-        echo '<div style="margin-top: 15px;">';
-        echo '<p class="description"><strong>' . __('Popular lightbox plugin formats:', 'flickr-justified-block') . '</strong></p>';
-        echo '<table class="form-table" style="margin-top: 0;">';
-        echo '<tbody>';
-        echo '<tr><td style="width: 200px;"><strong>PhotoSwipe (LightBox)</strong></td><td><code>gallery-{block_id}</code></td></tr>';
-        echo '<tr><td><strong>FancyBox / GLightbox</strong></td><td><code>fjg-{block_id}</code></td></tr>';
-        echo '<tr><td><strong>Lightbox2</strong></td><td><code>gallery-{block_id}</code></td></tr>';
-        echo '<tr><td><strong>PhotoSwipe Core</strong></td><td><code>gallery-{block_id}</code></td></tr>';
-        echo '</tbody>';
-        echo '</table>';
-        echo '</div>';
-
-        echo '<p class="description" style="margin-top: 15px;">' . __('The {block_id} placeholder will be replaced with a unique identifier for each block instance, ensuring images from different blocks remain in separate galleries.', 'flickr-justified-block') . '</p>';
-    }
 
     /**
      * Error section callback
@@ -705,51 +580,20 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
      * Use builtin lightbox callback
      */
     public static function use_builtin_lightbox_callback() {
-        $options = get_option('flickr_justified_options', []);
-        $use_builtin = isset($options['use_builtin_lightbox']) ? $options['use_builtin_lightbox'] : false;
+        echo '<div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px; padding: 15px; margin: 10px 0;">';
+        echo '<p><strong>' . __('✓ Built-in PhotoSwipe lightbox is always enabled', 'flickr-justified-block') . '</strong></p>';
+        echo '<p>' . __('This plugin now exclusively uses a built-in PhotoSwipe lightbox optimized for Flickr galleries.', 'flickr-justified-block') . '</p>';
+        echo '</div>';
 
-        echo '<label>';
-        echo '<input type="checkbox" name="flickr_justified_options[use_builtin_lightbox]" value="1"' . checked($use_builtin, true, false) . ' />';
-        echo ' ' . __('Use built-in PhotoSwipe lightbox with guaranteed Flickr attribution', 'flickr-justified-block');
-        echo '</label>';
-
-        echo '<p class="description">' . __('Enable this to use our built-in PhotoSwipe lightbox instead of relying on third-party lightbox plugins.', 'flickr-justified-block') . '</p>';
-        echo '<p class="description"><strong>' . __('Benefits:', 'flickr-justified-block') . '</strong></p>';
+        echo '<p class="description"><strong>' . __('Features:', 'flickr-justified-block') . '</strong></p>';
         echo '<ul style="list-style: disc; margin-left: 20px;">';
         echo '<li>' . __('Guaranteed Flickr attribution button in toolbar', 'flickr-justified-block') . '</li>';
         echo '<li>' . __('Consistent lightbox behavior across themes', 'flickr-justified-block') . '</li>';
         echo '<li>' . __('No dependency on third-party lightbox plugins', 'flickr-justified-block') . '</li>';
-        echo '<li>' . __('Optimized for Flickr photo galleries', 'flickr-justified-block') . '</li>';
+        echo '<li>' . __('Optimized for high-resolution displays', 'flickr-justified-block') . '</li>';
         echo '</ul>';
-        echo '<p class="description"><em>' . __('Note: This will override the lightbox CSS class setting above when enabled.', 'flickr-justified-block') . '</em></p>';
     }
 
-    /**
-     * Get lightbox CSS class from settings
-     */
-    public static function get_lightbox_css_class() {
-        $options = get_option('flickr_justified_options', []);
-        $cls = isset($options['lightbox_css_class']) ? trim($options['lightbox_css_class']) : '';
-        return $cls !== '' ? $cls : 'flickr-justified-item';
-    }
-
-    /**
-     * Get gallery group attribute from settings
-     */
-    public static function get_gallery_group_attribute() {
-        $options = get_option('flickr_justified_options', []);
-        $attribute = isset($options['gallery_group_attribute']) ? trim($options['gallery_group_attribute']) : '';
-        return $attribute !== '' ? $attribute : 'data-gallery';
-    }
-
-    /**
-     * Get gallery group format from settings
-     */
-    public static function get_gallery_group_format() {
-        $options = get_option('flickr_justified_options', []);
-        $format = isset($options['gallery_group_format']) ? trim($options['gallery_group_format']) : '';
-        return $format !== '' ? $format : 'fjg-{block_id}';
-    }
 
     /**
      * Get privacy error mode from settings
@@ -807,8 +651,8 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
      * Get use builtin lightbox from settings
      */
     public static function get_use_builtin_lightbox() {
-        $options = get_option('flickr_justified_options', []);
-        return isset($options['use_builtin_lightbox']) ? (bool) $options['use_builtin_lightbox'] : false;
+        // Always return true since we always use built-in PhotoSwipe
+        return true;
     }
 
     /**
@@ -849,14 +693,6 @@ Fancybox.bind(\'a.' . esc_html($css_class) . '\', { groupAttr: \'data-gallery\' 
                 </form>
             </div>
 
-            <div class="card" style="margin-top: 20px;">
-                <h2><?php _e('Current Lightbox Selector', 'flickr-justified-block'); ?></h2>
-                <p><?php _e('Your current CSS selector for lightbox integration:', 'flickr-justified-block'); ?></p>
-                <div style="background: #f0f0f0; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 14px; margin: 10px 0;">
-                    <strong>.<?php echo esc_html(self::get_lightbox_css_class()); ?></strong>
-                </div>
-                <p class="description"><?php _e('Configure your lightbox plugin to target this selector. You can customize this in the Lightbox Integration settings above.', 'flickr-justified-block'); ?></p>
-            </div>
 
             <div class="card" style="margin-top: 20px;">
                 <h2><?php _e('Supported URL Formats', 'flickr-justified-block'); ?></h2>

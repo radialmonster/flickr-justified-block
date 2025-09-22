@@ -21,8 +21,6 @@
                 urls,
                 gap,
                 imageSize,
-                lightboxMaxWidth,
-                lightboxMaxHeight,
                 responsiveSettings,
                 rowHeightMode,
                 rowHeight,
@@ -69,30 +67,9 @@
                                 setAttributes({ imageSize: value });
                             }
                         }),
-                        el('h4', {
-                            style: { margin: '16px 0 8px', fontSize: '14px', fontWeight: '600' }
-                        }, __('Enlarged Image Size', 'flickr-justified-block')),
                         el('p', {
-                            style: { fontSize: '12px', color: '#666', margin: '0 0 12px' }
-                        }, __('Maximum dimensions when images are clicked. Plugin will auto-select best available size from Flickr.', 'flickr-justified-block')),
-                        el(TextControl, {
-                            label: __('Max width (px)', 'flickr-justified-block'),
-                            type: 'number',
-                            value: lightboxMaxWidth || 2048,
-                            onChange: function (value) {
-                                const n = parseInt(value || '2048', 10) || 2048;
-                                setAttributes({ lightboxMaxWidth: n });
-                            }
-                        }),
-                        el(TextControl, {
-                            label: __('Max height (px)', 'flickr-justified-block'),
-                            type: 'number',
-                            value: lightboxMaxHeight || 2048,
-                            onChange: function (value) {
-                                const n = parseInt(value || '2048', 10) || 2048;
-                                setAttributes({ lightboxMaxHeight: n });
-                            }
-                        }),
+                            style: { fontSize: '12px', color: '#666', margin: '16px 0 12px' }
+                        }, __('Images use built-in PhotoSwipe lightbox optimized for high-resolution displays. The plugin automatically selects the best available size from Flickr.', 'flickr-justified-block')),
                         el(RangeControl, {
                             label: __('Grid gap (px)', 'flickr-justified-block'),
                             help: __('Space between images in the justified gallery.', 'flickr-justified-block'),

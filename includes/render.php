@@ -254,7 +254,7 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
 /**
  * Render with justified gallery layout
  */
-function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $lightbox_max_width, $lightbox_max_height, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment) {
+function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment) {
 
     // Get admin breakpoints
     $breakpoints = [];
@@ -262,9 +262,8 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         $breakpoints = FlickrJustifiedAdminSettings::get_breakpoints();
     }
 
-    // Get attribution mode and builtin lightbox setting for frontend
+    // Get attribution mode (always use builtin PhotoSwipe lightbox)
     $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();
-    $use_builtin_lightbox = FlickrJustifiedAdminSettings::get_use_builtin_lightbox();
 
     // Generate simple structure - JavaScript will organize into responsive rows
     $output = sprintf(
@@ -278,7 +277,7 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         (int) $max_viewport_height,
         esc_attr($single_image_alignment),
         esc_attr($attribution_mode),
-        $use_builtin_lightbox ? '1' : '0'
+        '1'
     );
 
     foreach ($url_lines as $url) {
@@ -300,29 +299,22 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
 
-            // Use different sizing strategy for built-in lightbox
-            if ($use_builtin_lightbox) {
-                // For PhotoSwipe, select size appropriate for high-res displays (around 2-3x screen width)
-                // Target ~3500px for 2560px screens, but allow larger if no intermediate sizes exist
-                $best_lightbox_size = flickr_justified_select_best_size($image_data, 3500, 3500);
+            // For PhotoSwipe, select size appropriate for high-res displays (around 2-3x screen width)
+            // Target ~3500px for 2560px screens, but allow larger if no intermediate sizes exist
+            $best_lightbox_size = flickr_justified_select_best_size($image_data, 3500, 3500);
 
-                // If selection is too small (less than 2x screen width), use original
-                if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
-                    $selected_width = $image_data[$best_lightbox_size]['width'];
-                    if ($selected_width < 3000) {
-                        $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
-                        error_log("PhotoSwipe DEBUG: Selected size too small ({$selected_width}px), using largest: {$best_lightbox_size}");
-                    } else {
-                        error_log("PhotoSwipe DEBUG: Using appropriate size for high-res display: {$best_lightbox_size} ({$selected_width}px)");
-                    }
-                } else {
+            // If selection is too small (less than 2x screen width), use original
+            if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
+                $selected_width = $image_data[$best_lightbox_size]['width'];
+                if ($selected_width < 3000) {
                     $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
-                    error_log("PhotoSwipe DEBUG: Fallback to largest available: {$best_lightbox_size}");
+                    error_log("PhotoSwipe DEBUG: Selected size too small ({$selected_width}px), using largest: {$best_lightbox_size}");
+                } else {
+                    error_log("PhotoSwipe DEBUG: Using appropriate size for high-res display: {$best_lightbox_size} ({$selected_width}px)");
                 }
             } else {
-                // Use user's lightbox settings for third-party lightboxes
-                $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
-                error_log("PhotoSwipe DEBUG: Third-party lightbox - best size selected: {$best_lightbox_size}");
+                $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
+                error_log("PhotoSwipe DEBUG: Fallback to largest available: {$best_lightbox_size}");
             }
 
             // Debug: Show ALL raw Flickr API data to see what sizes are actually available
@@ -400,17 +392,10 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                     error_log("PhotoSwipe DEBUG: No data attrs set - lightbox_dimensions is null");
                 }
 
-                // Use different lightbox settings based on builtin lightbox preference
-                if ($use_builtin_lightbox) {
-                    $lightbox_class = 'flickr-builtin-lightbox';
-                    $gallery_group_attribute = 'data-gallery';
-                    $gallery_group = esc_attr($block_id);
-                } else {
-                    $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
-                    $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
-                    $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
-                    $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
-                }
+                // Use PhotoSwipe lightbox settings
+                $lightbox_class = 'flickr-builtin-lightbox';
+                $gallery_group_attribute = 'data-gallery';
+                $gallery_group = esc_attr($block_id);
 
                 // Get attribution settings
                 $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();
@@ -485,11 +470,10 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 );
             }
         } else {
-            // Direct image URL
-            $lightbox_class = FlickrJustifiedAdminSettings::get_lightbox_css_class();
-            $gallery_group_attribute = FlickrJustifiedAdminSettings::get_gallery_group_attribute();
-            $gallery_group_format = FlickrJustifiedAdminSettings::get_gallery_group_format();
-            $gallery_group = str_replace('{block_id}', esc_attr($block_id), $gallery_group_format);
+            // Direct image URL - use PhotoSwipe lightbox
+            $lightbox_class = 'flickr-builtin-lightbox';
+            $gallery_group_attribute = 'data-gallery';
+            $gallery_group = esc_attr($block_id);
             $output .= sprintf(
                 '<article class="flickr-card">
                     <a href="%s" class="%s" %s="%s">
@@ -519,8 +503,7 @@ function flickr_justified_render_block($attributes) {
     $urls = isset($attributes['urls']) ? trim($attributes['urls']) : '';
     $gap = isset($attributes['gap']) ? max(0, (int) $attributes['gap']) : 12;
     $image_size = isset($attributes['imageSize']) ? $attributes['imageSize'] : 'large';
-    $lightbox_max_width = isset($attributes['lightboxMaxWidth']) ? max(400, (int) $attributes['lightboxMaxWidth']) : 2048;
-    $lightbox_max_height = isset($attributes['lightboxMaxHeight']) ? max(300, (int) $attributes['lightboxMaxHeight']) : 2048;
+    // PhotoSwipe automatically selects optimal image sizes
     $responsive_settings = isset($attributes['responsiveSettings']) ? $attributes['responsiveSettings'] : [
         'mobile' => 1,
         'mobile_landscape' => 1,
@@ -551,6 +534,6 @@ function flickr_justified_render_block($attributes) {
 
     // Use justified gallery layout
     return flickr_justified_render_justified_gallery(
-        $url_lines, $block_id, $gap, $image_size, $lightbox_max_width, $lightbox_max_height, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment
+        $url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment
     );
 }
