@@ -16,10 +16,22 @@ if (!defined('ABSPATH')) {
 function flickr_justified_map_api_sizes_to_requested($api_sizes, $requested_sizes) {
     $size_mapping = [
         'original' => ['Original'],
-        'large2048' => ['Large 2048', 'Original'],
+        'large6k' => ['Large 6144', 'Original'],
+        'large5k' => ['Large 5120', 'Large 6144', 'Original'],
+        'largef' => ['Large 4096', 'Large 5120', 'Original'],
+        'large4k' => ['Large 4096', 'Large 5120', 'Original'],
+        'large3k' => ['Large 3072', 'Large 4096', 'Original'],
+        'large2048' => ['Large 2048', 'Large 3072', 'Original'],
         'large1600' => ['Large 1600', 'Large 2048', 'Original'],
-        'large' => ['Large', 'Large 1600', 'Large 2048', 'Original'],
-        'medium' => ['Medium', 'Medium 640', 'Large', 'Large 1600']
+        'large1024' => ['Large 1024', 'Large 1600', 'Original'],
+        'large' => ['Large', 'Large 1024', 'Original'],
+        'medium800' => ['Medium 800', 'Large', 'Original'],
+        'medium640' => ['Medium 640', 'Medium 800', 'Large'],
+        'medium500' => ['Medium', 'Medium 640', 'Large'],
+        'medium' => ['Medium', 'Medium 640', 'Large'],
+        'small400' => ['Small 400', 'Medium'],
+        'small320' => ['Small 320', 'Small 400', 'Medium'],
+        'small240' => ['Small', 'Small 320', 'Medium']
     ];
 
     $result = [];
@@ -197,10 +209,22 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
 function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requested_sizes) {
     $size_mapping = [
         'original' => ['Original'],
-        'large2048' => ['Large 2048', 'Original'],
+        'large6k' => ['Large 6144', 'Original'],
+        'large5k' => ['Large 5120', 'Large 6144', 'Original'],
+        'largef' => ['Large 4096', 'Large 5120', 'Original'],
+        'large4k' => ['Large 4096', 'Large 5120', 'Original'],
+        'large3k' => ['Large 3072', 'Large 4096', 'Original'],
+        'large2048' => ['Large 2048', 'Large 3072', 'Original'],
         'large1600' => ['Large 1600', 'Large 2048', 'Original'],
-        'large' => ['Large', 'Large 1600', 'Large 2048', 'Original'],
-        'medium' => ['Medium', 'Medium 640', 'Large', 'Large 1600']
+        'large1024' => ['Large 1024', 'Large 1600', 'Original'],
+        'large' => ['Large', 'Large 1024', 'Original'],
+        'medium800' => ['Medium 800', 'Large', 'Original'],
+        'medium640' => ['Medium 640', 'Medium 800', 'Large'],
+        'medium500' => ['Medium', 'Medium 640', 'Large'],
+        'medium' => ['Medium', 'Medium 640', 'Large'],
+        'small400' => ['Small 400', 'Medium'],
+        'small320' => ['Small 320', 'Small 400', 'Medium'],
+        'small240' => ['Small', 'Small 320', 'Medium']
     ];
 
     $result = [];
@@ -265,9 +289,11 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
         if ($is_flickr) {
             $available_sizes = [
-                'original', 'large6k', 'large5k', 'large4k', 'large3k',
+                'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
                 'large2048', 'large1600', 'large1024', 'large',
-                'medium800', 'medium640', 'medium500', 'medium'
+                'medium800', 'medium640', 'medium500', 'medium',
+                'small400', 'small320', 'small240',
+                'thumbnail100', 'thumbnail150s', 'thumbnail75s'
             ];
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
 
