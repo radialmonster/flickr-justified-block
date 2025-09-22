@@ -298,12 +298,17 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
             // Debug: Log what we got back from API for this URL
             if (defined('WP_DEBUG') && WP_DEBUG) {
+                // Extract photo ID for clearer logging
+                $photo_id_match = preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $url, $matches);
+                $photo_id_for_log = $photo_id_match ? $matches[1] : 'unknown';
+
                 error_log('Flickr Justified Block: URL processed: ' . $url);
+                error_log('Flickr Justified Block: Photo ID extracted: ' . $photo_id_for_log);
                 error_log('Flickr Justified Block: Image data count: ' . count($image_data));
                 if (empty($image_data)) {
-                    error_log('Flickr Justified Block: NO IMAGE DATA returned for URL: ' . $url);
+                    error_log('Flickr Justified Block: ❌ FAILED - NO IMAGE DATA for Photo ID: ' . $photo_id_for_log . ' URL: ' . $url);
                 } else {
-                    error_log('Flickr Justified Block: Available sizes: ' . implode(', ', array_keys($image_data)));
+                    error_log('Flickr Justified Block: ✅ SUCCESS - Photo ID: ' . $photo_id_for_log . ' Available sizes: ' . implode(', ', array_keys($image_data)));
                 }
             }
 
