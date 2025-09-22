@@ -189,22 +189,15 @@
                 }
             });
 
-            // Make top bar more compact
+            // Make top bar slightly more compact
             lightbox.on('afterInit', function() {
                 // Wait for DOM to be ready, then make top bar compact
                 setTimeout(() => {
                     const topBar = document.querySelector('.pswp__top-bar');
                     if (topBar) {
-                        topBar.style.height = '50px';
-                        topBar.style.minHeight = '50px';
-
-                        // Make counter smaller
-                        const counter = topBar.querySelector('.pswp__counter');
-                        if (counter) {
-                            counter.style.fontSize = '13px';
-                            counter.style.marginTop = '12px';
-                            counter.style.lineHeight = '26px';
-                        }
+                        // Only reduce top bar height slightly
+                        topBar.style.height = '55px';
+                        topBar.style.minHeight = '55px';
                     }
                 }, 100);
             });
