@@ -287,8 +287,12 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 error_log("PhotoSwipe DEBUG: Third-party lightbox - best size selected: {$best_lightbox_size}");
             }
 
-            // Debug: Show available image sizes
-            error_log("PhotoSwipe DEBUG: Available image sizes: " . json_encode(array_keys($image_data)));
+            // Debug: Show available image sizes with dimensions
+            $debug_sizes = [];
+            foreach($image_data as $size => $data) {
+                $debug_sizes[$size] = $data['width'] . 'x' . $data['height'];
+            }
+            error_log("PhotoSwipe DEBUG: Available image sizes: " . json_encode($debug_sizes));
 
             $lightbox_src = '';
             if ($best_lightbox_size && isset($image_data[$best_lightbox_size]['url'])) {
