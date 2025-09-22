@@ -302,13 +302,9 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
             // Use different sizing strategy for built-in lightbox
             if ($use_builtin_lightbox) {
-                // For PhotoSwipe, just use the original size - no limits
-                $best_lightbox_size = 'original';
-                if (!isset($image_data['original'])) {
-                    // Fallback to largest available if no original
-                    $best_lightbox_size = flickr_justified_select_best_size($image_data, 99999, 99999);
-                }
-                error_log("PhotoSwipe DEBUG: Built-in lightbox - no limits, selected: {$best_lightbox_size}");
+                // For PhotoSwipe, use the largest available size from Flickr's getSizes API
+                $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
+                error_log("PhotoSwipe DEBUG: Built-in lightbox - using largest available from getSizes, selected: {$best_lightbox_size}");
             } else {
                 // Use user's lightbox settings for third-party lightboxes
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
