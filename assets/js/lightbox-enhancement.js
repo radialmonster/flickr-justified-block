@@ -200,30 +200,35 @@
 
     // PhotoSwipe Integration
     function initPhotoSwipeIntegration() {
-        // Wait for PhotoSwipe to be available
+        // Set up event listeners immediately - they will trigger when PhotoSwipe initializes
+        setupPhotoSwipeAttribution();
+
+        // Also check if PhotoSwipe is available and manually trigger setup
         if (typeof PhotoSwipeLightbox !== 'undefined') {
-            setupPhotoSwipeAttribution();
+            console.log('PhotoSwipeLightbox found immediately');
         } else {
             // Check periodically for PhotoSwipe
             var checkCount = 0;
             var checkInterval = setInterval(function() {
-                if (typeof PhotoSwipeLightbox !== 'undefined' || checkCount > 20) {
+                if (typeof PhotoSwipeLightbox !== 'undefined' || checkCount > 40) {
                     clearInterval(checkInterval);
                     if (typeof PhotoSwipeLightbox !== 'undefined') {
-                        setupPhotoSwipeAttribution();
+                        console.log('PhotoSwipeLightbox found after waiting');
                     }
                 }
                 checkCount++;
-            }, 500);
+            }, 250);
         }
     }
 
     function setupPhotoSwipeAttribution() {
         var settings = getAttributionSettings();
-        if (!settings || settings.mode !== 'lightbox_button') return;
+        if (!settings || (settings.mode !== 'lightbox_button' && settings.mode !== 'data_attributes')) return;
 
-        // Add attribution button to existing PhotoSwipe instances
+        // Wait for PhotoSwipe lightbox instances to be created
         document.addEventListener('pswp:uiRegister', function(e) {
+            console.log('PhotoSwipe uiRegister event triggered', e.detail);
+
             e.detail.pswp.ui.registerElement({
                 name: 'flickr-attribution',
                 order: 8,
@@ -231,24 +236,91 @@
                 tagName: 'a',
                 html: settings.text,
                 onInit: function(el, pswp) {
+                    console.log('PhotoSwipe attribution button initialized');
+
                     el.setAttribute('target', '_blank');
                     el.setAttribute('rel', 'noopener');
                     el.style.fontSize = '14px';
                     el.style.textDecoration = 'underline';
+                    el.style.color = '#fff';
+                    el.style.padding = '8px';
+
+                    // Set initial URL
+                    updateAttributionUrl(el, pswp);
 
                     // Update link when slide changes
                     pswp.on('change', function() {
-                        var currentSlide = pswp.currSlide;
-                        if (currentSlide && currentSlide.data && currentSlide.data.element) {
-                            var flickrUrl = currentSlide.data.element.getAttribute('data-flickr-page');
-                            if (flickrUrl) {
-                                el.href = flickrUrl;
-                            }
+                        console.log('PhotoSwipe slide changed');
+                        updateAttributionUrl(el, pswp);
+                    });
+
+                    // Handle click manually to ensure it works
+                    el.addEventListener('click', function(event) {
+                        event.stopPropagation();
+                        var href = el.getAttribute('href');
+                        if (href && href !== '#') {
+                            window.open(href, '_blank', 'noopener,noreferrer');
                         }
                     });
                 }
             });
         });
+
+        function updateAttributionUrl(el, pswp) {
+            try {
+                var currentSlide = pswp.currSlide;
+                console.log('Current slide:', currentSlide);
+
+                if (currentSlide && currentSlide.data) {
+                    var flickrUrl = null;
+
+                    // Try to get Flickr URL from the slide's original element
+                    if (currentSlide.data.element) {
+                        flickrUrl = currentSlide.data.element.getAttribute('data-flickr-page');
+                        console.log('Found Flickr URL from element:', flickrUrl);
+                    }
+
+                    // Fallback: try to find by matching image src or photo ID
+                    if (!flickrUrl && currentSlide.data.src) {
+                        var allLinks = document.querySelectorAll('.flickr-card a[data-flickr-page]');
+                        for (var i = 0; i < allLinks.length; i++) {
+                            var link = allLinks[i];
+
+                            // Direct URL match
+                            if (link.href === currentSlide.data.src) {
+                                flickrUrl = link.getAttribute('data-flickr-page');
+                                console.log('Found Flickr URL by exact URL match:', flickrUrl);
+                                break;
+                            }
+
+                            // Photo ID match (for Flickr images)
+                            if (currentSlide.data.src.includes('staticflickr.com')) {
+                                var lightboxPhotoId = currentSlide.data.src.split('/').pop().split('_')[0];
+                                var galleryPhotoId = link.href.split('/').pop().split('_')[0];
+
+                                if (lightboxPhotoId === galleryPhotoId) {
+                                    flickrUrl = link.getAttribute('data-flickr-page');
+                                    console.log('Found Flickr URL by photo ID match:', flickrUrl);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (flickrUrl) {
+                        el.href = flickrUrl;
+                        el.style.opacity = '1';
+                        console.log('Set attribution URL to:', flickrUrl);
+                    } else {
+                        el.href = '#';
+                        el.style.opacity = '0.5';
+                        console.log('No Flickr URL found, hiding attribution');
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating PhotoSwipe attribution URL:', error);
+            }
+        }
     }
 
     // Initialize PhotoSwipe integration
