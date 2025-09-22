@@ -124,17 +124,30 @@
         console.log('PhotoSwipe click handler triggered for index:', index);
 
         // Prepare gallery data for PhotoSwipe
-        const galleryData = Array.from(items).map(item => {
+        const galleryData = Array.from(items).map((item, idx) => {
             const img = item.querySelector('img');
             const flickrPage = item.getAttribute('data-flickr-page');
 
-            return {
+            const galleryItem = {
                 src: item.href, // Large image URL
                 width: parseInt(item.getAttribute('data-width')) || img.naturalWidth || 1200,
                 height: parseInt(item.getAttribute('data-height')) || img.naturalHeight || 800,
                 flickrPage: flickrPage,
                 element: item // Reference to original element
             };
+
+            console.log(`Image ${idx}:`, {
+                href: item.href,
+                imgSrc: img.src,
+                dataWidth: item.getAttribute('data-width'),
+                dataHeight: item.getAttribute('data-height'),
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight,
+                finalWidth: galleryItem.width,
+                finalHeight: galleryItem.height
+            });
+
+            return galleryItem;
         });
 
         console.log('Opening PhotoSwipe with', galleryData.length, 'images');
