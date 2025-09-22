@@ -1,8 +1,11 @@
 # Dependencies
 node_modules/
 
-# Distribution files (third-party libraries)
+# Distribution files (third-party source repositories)
 dist/
+
+# But keep our committed lib files
+!assets/lib/
 
 # Editor files
 .vscode/
