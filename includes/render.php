@@ -276,9 +276,9 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
             // Use different sizing strategy for built-in lightbox
             if ($use_builtin_lightbox) {
                 // For PhotoSwipe, use larger images than the user's standard lightbox settings
-                // Target images suitable for high-resolution displays
-                $target_width = max($lightbox_max_width, 3200);  // Good for 2560px + zoom
-                $target_height = max($lightbox_max_height, 2000); // Good for typical aspect ratios
+                // Target images suitable for high-resolution displays with zoom capability
+                $target_width = max($lightbox_max_width, 6000);  // Allow original size for high-res displays
+                $target_height = max($lightbox_max_height, 4500); // Allow original size for better quality
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, $target_width, $target_height);
                 error_log("PhotoSwipe DEBUG: Built-in lightbox - targeting {$target_width}x{$target_height}, selected: {$best_lightbox_size}");
             } else {
@@ -286,6 +286,9 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, $lightbox_max_width, $lightbox_max_height);
                 error_log("PhotoSwipe DEBUG: Third-party lightbox - best size selected: {$best_lightbox_size}");
             }
+
+            // Debug: Show ALL raw Flickr API data to see what sizes are actually available
+            error_log("PhotoSwipe DEBUG: FULL RAW IMAGE DATA: " . json_encode($image_data, JSON_PRETTY_PRINT));
 
             // Debug: Show available image sizes with dimensions
             $debug_sizes = [];
