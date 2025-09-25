@@ -65,6 +65,7 @@
                     if (singleImageAlignmentData) singleImageAlignment = singleImageAlignmentData || 'center';
                 } catch (e) {
                     console.warn('Error parsing responsive settings:', e);
+                    // Use the same hardcoded fallbacks as server-side for consistency
                     responsiveSettings = { mobile: 1, mobile_landscape: 1, tablet_portrait: 2, tablet_landscape: 3, desktop: 3, large_desktop: 4, extra_large: 4 };
                     breakpoints = { mobile: 320, mobile_landscape: 480, tablet_portrait: 600, tablet_landscape: 768, desktop: 1024, large_desktop: 1280, extra_large: 1440 };
                     rowHeightMode = 'auto';

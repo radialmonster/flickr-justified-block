@@ -520,15 +520,23 @@ function flickr_justified_render_block($attributes) {
     $gap = isset($attributes['gap']) ? max(0, (int) $attributes['gap']) : 12;
     $image_size = isset($attributes['imageSize']) ? $attributes['imageSize'] : 'large';
     // PhotoSwipe automatically selects optimal image sizes
-    $responsive_settings = isset($attributes['responsiveSettings']) ? $attributes['responsiveSettings'] : [
-        'mobile' => 1,
-        'mobile_landscape' => 1,
-        'tablet_portrait' => 2,
-        'tablet_landscape' => 3,
-        'desktop' => 3,
-        'large_desktop' => 4,
-        'extra_large' => 4
-    ];
+    // Get configured default responsive settings from admin, with fallback
+    $default_responsive = [];
+    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_configured_default_responsive_settings')) {
+        $default_responsive = FlickrJustifiedAdminSettings::get_configured_default_responsive_settings();
+    } else {
+        $default_responsive = [
+            'mobile' => 1,
+            'mobile_landscape' => 1,
+            'tablet_portrait' => 2,
+            'tablet_landscape' => 3,
+            'desktop' => 3,
+            'large_desktop' => 4,
+            'extra_large' => 4
+        ];
+    }
+
+    $responsive_settings = isset($attributes['responsiveSettings']) ? $attributes['responsiveSettings'] : $default_responsive;
     $row_height_mode = isset($attributes['rowHeightMode']) ? $attributes['rowHeightMode'] : 'auto';
     $row_height = isset($attributes['rowHeight']) ? max(120, min(500, (int) $attributes['rowHeight'])) : 280;
     $max_viewport_height = isset($attributes['maxViewportHeight']) ? max(30, min(100, (int) $attributes['maxViewportHeight'])) : 80;

@@ -40,6 +40,7 @@ class FlickrJustifiedBlock {
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
         add_action('enqueue_block_assets', [__CLASS__, 'enqueue_block_assets']);
         add_action('rest_api_init', [__CLASS__, 'register_rest_routes']);
+        add_filter('block_type_metadata', [__CLASS__, 'modify_block_attributes'], 10, 1);
     }
 
     /**
@@ -65,11 +66,41 @@ class FlickrJustifiedBlock {
     }
 
     /**
+     * Modify block attributes to use configured defaults
+     */
+    public static function modify_block_attributes($metadata) {
+        if (isset($metadata['name']) && $metadata['name'] === 'flickr-justified/block') {
+            // Get configured default responsive settings from admin
+            $configured_defaults = [];
+            if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_configured_default_responsive_settings')) {
+                $configured_defaults = FlickrJustifiedAdminSettings::get_configured_default_responsive_settings();
+            } else {
+                // Fallback to hardcoded defaults if admin class not loaded
+                $configured_defaults = [
+                    'mobile' => 1,
+                    'mobile_landscape' => 1,
+                    'tablet_portrait' => 2,
+                    'tablet_landscape' => 3,
+                    'desktop' => 3,
+                    'large_desktop' => 4,
+                    'extra_large' => 4
+                ];
+            }
+
+            // Update the default value for responsiveSettings
+            if (isset($metadata['attributes']['responsiveSettings'])) {
+                $metadata['attributes']['responsiveSettings']['default'] = $configured_defaults;
+            }
+        }
+        return $metadata;
+    }
+
+    /**
      * Enqueue editor assets
      */
     public static function enqueue_editor_assets() {
         $editor_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/editor.js';
-        $editor_js_ver  = @filemtime($editor_js_path);
+        $editor_js_ver  = file_exists($editor_js_path) ? filemtime($editor_js_path) : false;
         wp_enqueue_script(
             'flickr-justified-editor',
             FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/editor.js',
@@ -84,7 +115,7 @@ class FlickrJustifiedBlock {
      */
     public static function enqueue_block_assets() {
         $style_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/css/style.css';
-        $style_ver  = @filemtime($style_path);
+        $style_ver  = file_exists($style_path) ? filemtime($style_path) : false;
 
         // If metadata registration is unavailable, enqueue style manually
         if (!function_exists('register_block_type_from_metadata')) {
@@ -100,7 +131,7 @@ class FlickrJustifiedBlock {
         if (!is_admin()) {
             // Always use built-in PhotoSwipe lightbox
             $photoswipe_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/photoswipe-init.js';
-            $photoswipe_js_ver  = @filemtime($photoswipe_js_path);
+            $photoswipe_js_ver  = file_exists($photoswipe_js_path) ? filemtime($photoswipe_js_path) : false;
 
             wp_enqueue_script(
                 'flickr-justified-photoswipe',
@@ -117,7 +148,7 @@ class FlickrJustifiedBlock {
 
             // Initialize justified layout script
             $init_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/justified-init.js';
-            $init_js_ver  = @filemtime($init_js_path);
+            $init_js_ver  = file_exists($init_js_path) ? filemtime($init_js_path) : false;
 
             wp_enqueue_script(
                 'flickr-justified-layout',
@@ -163,6 +194,10 @@ class FlickrJustifiedBlock {
 
         if ($is_flickr) {
             // Get Flickr image data
+            if (!function_exists('flickr_justified_get_flickr_image_sizes_with_dimensions')) {
+                return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
+            }
+
             $available_sizes = ['medium', 'large', 'large1600', 'original'];
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
 
@@ -208,9 +243,9 @@ class FlickrJustifiedBlock {
     }
 }
 
-// Include required files
+// Include required files first
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/render.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/admin-settings.php';
 
-// Initialize the plugin
+// Initialize the plugin after includes are loaded
 FlickrJustifiedBlock::init();

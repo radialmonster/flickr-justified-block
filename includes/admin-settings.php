@@ -243,6 +243,16 @@ class FlickrJustifiedAdminSettings {
             }
         }
 
+        // Sanitize default responsive settings
+        if (isset($input['default_responsive_settings']) && is_array($input['default_responsive_settings'])) {
+            $sanitized['default_responsive_settings'] = [];
+            foreach ($input['default_responsive_settings'] as $key => $value) {
+                if (is_numeric($value)) {
+                    $sanitized['default_responsive_settings'][$key] = max(1, min(8, absint($value))); // Clamp between 1-8 images per row
+                }
+            }
+        }
+
 
         // Sanitize privacy error mode
         if (isset($input['privacy_error_mode'])) {
@@ -375,9 +385,15 @@ class FlickrJustifiedAdminSettings {
     public static function breakpoints_callback() {
         $options = get_option('flickr_justified_options', []);
         $breakpoints = isset($options['breakpoints']) ? $options['breakpoints'] : self::get_default_breakpoints();
+        $default_responsive = isset($options['default_responsive_settings']) ? $options['default_responsive_settings'] : self::get_default_responsive_settings();
 
         echo '<table class="form-table">';
         echo '<tbody>';
+        echo '<tr>';
+        echo '<th style="width: 200px;">' . __('Device Category', 'flickr-justified-block') . '</th>';
+        echo '<th style="width: 120px;">' . __('Min Width (px)', 'flickr-justified-block') . '</th>';
+        echo '<th>' . __('Default Images per Row', 'flickr-justified-block') . '</th>';
+        echo '</tr>';
 
         $breakpoint_labels = [
             'mobile' => __('Mobile Portrait', 'flickr-justified-block'),
@@ -390,11 +406,15 @@ class FlickrJustifiedAdminSettings {
         ];
 
         foreach ($breakpoint_labels as $key => $label) {
-            $value = isset($breakpoints[$key]) ? $breakpoints[$key] : '';
+            $breakpoint_value = isset($breakpoints[$key]) ? $breakpoints[$key] : '';
+            $responsive_value = isset($default_responsive[$key]) ? $default_responsive[$key] : 1;
             echo '<tr>';
-            echo '<td style="width: 200px;"><strong>' . esc_html($label) . '</strong></td>';
+            echo '<td><strong>' . esc_html($label) . '</strong></td>';
             echo '<td>';
-            echo '<input type="number" name="flickr_justified_options[breakpoints][' . esc_attr($key) . ']" value="' . esc_attr($value) . '" min="200" max="3000" class="small-text" placeholder="px" /> px';
+            echo '<input type="number" name="flickr_justified_options[breakpoints][' . esc_attr($key) . ']" value="' . esc_attr($breakpoint_value) . '" min="200" max="3000" class="small-text" placeholder="px" /> px';
+            echo '</td>';
+            echo '<td>';
+            echo '<input type="number" name="flickr_justified_options[default_responsive_settings][' . esc_attr($key) . ']" value="' . esc_attr($responsive_value) . '" min="1" max="8" class="small-text" /> ' . __('images per row', 'flickr-justified-block');
             echo '</td>';
             echo '</tr>';
         }
@@ -402,7 +422,7 @@ class FlickrJustifiedAdminSettings {
         echo '</tbody>';
         echo '</table>';
 
-        echo '<p class="description">' . __('Set the minimum width in pixels for each device category. Leave empty to disable a breakpoint.', 'flickr-justified-block') . '</p>';
+        echo '<p class="description">' . __('Set the minimum width in pixels for each device category and the default number of images per row. Leave breakpoint empty to disable. Users can override the images per row setting in individual blocks.', 'flickr-justified-block') . '</p>';
         echo '<p class="description"><strong>' . __('Common sizes:', 'flickr-justified-block') . '</strong> Mobile: 320-480px, Tablet: 768-1024px, Desktop: 1280-1440px, Ultra-wide: 1920px+</p>';
 
         echo '<p><button type="button" id="reset-breakpoints" class="button button-secondary">' . __('Reset to Defaults', 'flickr-justified-block') . '</button></p>';
@@ -412,10 +432,15 @@ class FlickrJustifiedAdminSettings {
         <script>
         document.getElementById('reset-breakpoints').addEventListener('click', function() {
             var defaults = <?php echo json_encode(self::get_default_breakpoints()); ?>;
+            var defaultResponsive = <?php echo json_encode(self::get_default_responsive_settings()); ?>;
             for (var key in defaults) {
-                var input = document.querySelector('input[name="flickr_justified_options[breakpoints][' + key + ']"]');
-                if (input) {
-                    input.value = defaults[key];
+                var breakpointInput = document.querySelector('input[name="flickr_justified_options[breakpoints][' + key + ']"]');
+                var responsiveInput = document.querySelector('input[name="flickr_justified_options[default_responsive_settings][' + key + ']"]');
+                if (breakpointInput) {
+                    breakpointInput.value = defaults[key];
+                }
+                if (responsiveInput && defaultResponsive[key] !== undefined) {
+                    responsiveInput.value = defaultResponsive[key];
                 }
             }
         });
@@ -801,6 +826,21 @@ class FlickrJustifiedAdminSettings {
     }
 
     /**
+     * Get default responsive settings (images per row)
+     */
+    public static function get_default_responsive_settings() {
+        return [
+            'mobile' => 1,
+            'mobile_landscape' => 1,
+            'tablet_portrait' => 2,
+            'tablet_landscape' => 3,
+            'desktop' => 3,
+            'large_desktop' => 4,
+            'extra_large' => 4
+        ];
+    }
+
+    /**
      * Get breakpoints from settings
      */
     public static function get_breakpoints() {
@@ -822,6 +862,27 @@ class FlickrJustifiedAdminSettings {
         asort($breakpoints);
 
         return $breakpoints;
+    }
+
+    /**
+     * Get default responsive settings from admin settings
+     */
+    public static function get_configured_default_responsive_settings() {
+        $options = get_option('flickr_justified_options', []);
+        $saved_responsive = isset($options['default_responsive_settings']) ? $options['default_responsive_settings'] : [];
+        $default_responsive = self::get_default_responsive_settings();
+
+        // Merge with defaults
+        $responsive_settings = [];
+        foreach ($default_responsive as $key => $default_value) {
+            if (isset($saved_responsive[$key]) && is_numeric($saved_responsive[$key]) && $saved_responsive[$key] >= 1) {
+                $responsive_settings[$key] = absint($saved_responsive[$key]);
+            } else {
+                $responsive_settings[$key] = $default_value;
+            }
+        }
+
+        return $responsive_settings;
     }
 
     /**
