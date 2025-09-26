@@ -162,10 +162,32 @@
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-            document.querySelectorAll('.flickr-justified-grid.justified-initialized').forEach(grid => {
+            const windowWidth = window.innerWidth;
+            console.log(`🔄 Window resized to ${windowWidth}px, reinitializing galleries...`);
+
+            const initializedGrids = document.querySelectorAll('.flickr-justified-grid.justified-initialized');
+            console.log(`Found ${initializedGrids.length} initialized galleries to resize`);
+
+            initializedGrids.forEach((grid, index) => {
+                const containerWidth = grid.offsetWidth;
+                console.log(`Gallery ${index + 1}: container width = ${containerWidth}px`);
+
+                // Temporarily disable lazy loading cooldown during resize
+                const wasResizing = grid._isResizing;
+                grid._isResizing = true;
+
                 grid.classList.remove('justified-initialized');
+
+                // Reset cooldown after a brief delay to allow resize to complete
+                setTimeout(() => {
+                    if (!wasResizing) {
+                        delete grid._isResizing;
+                    }
+                }, 1000);
             });
+
             initJustifiedGallery();
+            console.log('✅ Gallery reinitialization after resize complete');
         }, 250);
     });
 
@@ -257,13 +279,19 @@ function initFlickrAlbumLazyLoading() {
         }
 
         // Add cooldown period after reinitialization to prevent immediate re-triggering
+        // But allow immediate loading during window resize
         const now = Date.now();
         const lastReinit = gallery._lastReinit || 0;
         const cooldownPeriod = 2000; // 2 seconds cooldown
+        const isResizing = gallery._isResizing;
 
-        if (now - lastReinit < cooldownPeriod) {
+        if (!isResizing && now - lastReinit < cooldownPeriod) {
             console.log(`🧊 Cooldown active (${Math.round((cooldownPeriod - (now - lastReinit)) / 1000)}s remaining), skipping`);
             return;
+        }
+
+        if (isResizing) {
+            console.log('🪟 Resize in progress, bypassing cooldown for immediate reinitialization');
         }
 
         console.log('🚀 Starting to load next pages');
