@@ -33,6 +33,93 @@ define('FLICKR_JUSTIFIED_VERSION', '1.1.0');
 class FlickrJustifiedBlock {
 
     /**
+     * Base path used when looking up asset files relative to the plugin directory.
+     */
+    private const ASSET_BASE_PATH = '';
+
+    /**
+     * Retrieve details about an asset file located within the plugin directory.
+     *
+     * @param string $relative_path Relative path from the plugin root.
+     *
+     * @return array|false Array containing path, url and version or false when missing.
+     */
+    private static function get_asset_file_details($relative_path) {
+        $relative_path = ltrim($relative_path, '/');
+        $absolute_path = FLICKR_JUSTIFIED_PLUGIN_PATH . self::ASSET_BASE_PATH . $relative_path;
+
+        if (!file_exists($absolute_path)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf('Flickr Justified Block: Asset not found at %s', $absolute_path));
+            }
+            return false;
+        }
+
+        $version = filemtime($absolute_path);
+        if (!$version) {
+            $version = FLICKR_JUSTIFIED_VERSION;
+        }
+
+        return [
+            'path'    => $absolute_path,
+            'url'     => FLICKR_JUSTIFIED_PLUGIN_URL . self::ASSET_BASE_PATH . $relative_path,
+            'version' => $version,
+        ];
+    }
+
+    /**
+     * Retrieve script dependencies/version information, supporting WordPress build asset files.
+     *
+     * @param string $relative_path Relative path from the plugin root to the script.
+     * @param array  $fallback_deps Dependencies to use when no asset file is present.
+     *
+     * @return array|false Array with url, deps and version or false if the script cannot be located.
+     */
+    private static function get_script_registration_data($relative_path, array $fallback_deps = []) {
+        $asset_details = self::get_asset_file_details($relative_path);
+        if (!$asset_details) {
+            return false;
+        }
+
+        $deps     = $fallback_deps;
+        $version  = $asset_details['version'];
+        $asset_php_path = preg_replace('/\.js$/', '.asset.php', $asset_details['path']);
+
+        if ($asset_php_path && file_exists($asset_php_path)) {
+            $asset_data = include $asset_php_path;
+            if (is_array($asset_data)) {
+                if (!empty($asset_data['dependencies']) && is_array($asset_data['dependencies'])) {
+                    $deps = $asset_data['dependencies'];
+                }
+                if (!empty($asset_data['version'])) {
+                    $version = $asset_data['version'];
+                }
+            }
+        }
+
+        return [
+            'url'     => $asset_details['url'],
+            'deps'    => $deps,
+            'version' => $version,
+        ];
+    }
+
+    /**
+     * Determine whether the provided URL points to Flickr.
+     *
+     * @param string $url URL to inspect.
+     *
+     * @return bool
+     */
+    private static function is_flickr_url($url) {
+        if (empty($url)) {
+            return false;
+        }
+
+        return (bool) preg_match('~(?:https?:)?//(?:www\.)?flickr\.com/photos/~i', $url);
+    }
+
+    /**
      * Initialize the plugin
      */
     public static function init() {
@@ -99,29 +186,46 @@ class FlickrJustifiedBlock {
      * Enqueue editor assets
      */
     public static function enqueue_editor_assets() {
-        $editor_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/editor.js';
-        $editor_js_ver  = file_exists($editor_js_path) ? filemtime($editor_js_path) : false;
-        wp_enqueue_script(
+        $script_data = self::get_script_registration_data(
+            'assets/js/editor.js',
+            ['wp-blocks', 'wp-components', 'wp-element', 'wp-block-editor', 'wp-i18n', 'wp-api-fetch']
+        );
+
+        if (!$script_data) {
+            return;
+        }
+
+        wp_register_script(
             'flickr-justified-editor',
-            FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/editor.js',
-            ['wp-blocks', 'wp-components', 'wp-element', 'wp-block-editor', 'wp-i18n', 'wp-api-fetch'],
-            $editor_js_ver ? $editor_js_ver : FLICKR_JUSTIFIED_VERSION,
+            $script_data['url'],
+            $script_data['deps'],
+            $script_data['version'],
             true
         );
+
+        wp_enqueue_script('flickr-justified-editor');
+
+        if (function_exists('wp_set_script_translations')) {
+            wp_set_script_translations(
+                'flickr-justified-editor',
+                'flickr-justified-block',
+                FLICKR_JUSTIFIED_PLUGIN_PATH . 'languages'
+            );
+        }
     }
 
     /**
      * Enqueue block assets (both editor and frontend)
      */
     public static function enqueue_block_assets() {
-        $style_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/css/style.css';
-        $style_ver  = file_exists($style_path) ? filemtime($style_path) : false;
+        $style_details = self::get_asset_file_details('assets/css/style.css');
+        $style_ver     = $style_details ? $style_details['version'] : false;
 
         // If metadata registration is unavailable, enqueue style manually
         if (!function_exists('register_block_type_from_metadata')) {
             wp_enqueue_style(
                 'flickr-justified-style',
-                FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/css/style.css',
+                $style_details ? $style_details['url'] : FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/css/style.css',
                 ['wp-block-library'],
                 $style_ver ? $style_ver : FLICKR_JUSTIFIED_VERSION
             );
@@ -130,33 +234,33 @@ class FlickrJustifiedBlock {
         // Only enqueue JavaScript on frontend
         if (!is_admin()) {
             // Always use built-in PhotoSwipe lightbox
-            $photoswipe_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/photoswipe-init.js';
-            $photoswipe_js_ver  = file_exists($photoswipe_js_path) ? filemtime($photoswipe_js_path) : false;
+            $photoswipe_script = self::get_script_registration_data('assets/js/photoswipe-init.js');
+            if ($photoswipe_script) {
+                wp_enqueue_script(
+                    'flickr-justified-photoswipe',
+                    $photoswipe_script['url'],
+                    $photoswipe_script['deps'],
+                    $photoswipe_script['version'],
+                    true
+                );
 
-            wp_enqueue_script(
-                'flickr-justified-photoswipe',
-                FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/photoswipe-init.js',
-                [],
-                $photoswipe_js_ver ? $photoswipe_js_ver : FLICKR_JUSTIFIED_VERSION,
-                true
-            );
-
-            // Pass plugin URL to JavaScript
-            wp_localize_script('flickr-justified-photoswipe', 'flickrJustifiedConfig', [
-                'pluginUrl' => FLICKR_JUSTIFIED_PLUGIN_URL
-            ]);
+                // Pass plugin URL to JavaScript
+                wp_localize_script('flickr-justified-photoswipe', 'flickrJustifiedConfig', [
+                    'pluginUrl' => FLICKR_JUSTIFIED_PLUGIN_URL
+                ]);
+            }
 
             // Initialize justified layout script
-            $init_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/justified-init.js';
-            $init_js_ver  = file_exists($init_js_path) ? filemtime($init_js_path) : false;
-
-            wp_enqueue_script(
-                'flickr-justified-layout',
-                FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/justified-init.js',
-                [],
-                ($init_js_ver ? $init_js_ver : FLICKR_JUSTIFIED_VERSION) . '_' . time(), // Force cache bust
-                true
-            );
+            $layout_script = self::get_script_registration_data('assets/js/justified-init.js');
+            if ($layout_script) {
+                wp_enqueue_script(
+                    'flickr-justified-layout',
+                    $layout_script['url'],
+                    $layout_script['deps'],
+                    $layout_script['version'],
+                    true
+                );
+            }
         }
     }
 
@@ -213,7 +317,7 @@ class FlickrJustifiedBlock {
             return new WP_Error('invalid_url', 'Invalid URL provided', ['status' => 400]);
         }
 
-        $is_flickr = (strpos($url, 'flickr.com/photos/') !== false || strpos($url, 'www.flickr.com/photos/') !== false);
+        $is_flickr = self::is_flickr_url($url);
 
         // Check if this is a Flickr set/album URL
         if (!function_exists('flickr_justified_parse_set_url')) {
@@ -247,7 +351,7 @@ class FlickrJustifiedBlock {
                     error_log('Flickr Justified Block: REST API returning album data: ' . json_encode($response_data));
                 }
 
-                return $response_data;
+                return rest_ensure_response($response_data);
             } else {
                 return new WP_Error('set_error', 'Could not fetch Flickr set data', ['status' => 404]);
             }
@@ -280,23 +384,23 @@ class FlickrJustifiedBlock {
             }
 
             if (isset($image_data[$preview_size]) && isset($image_data[$preview_size]['url'])) {
-                return [
+                return rest_ensure_response([
                     'success' => true,
-                    'image_url' => $image_data[$preview_size]['url'],
-                    'width' => $image_data[$preview_size]['width'],
-                    'height' => $image_data[$preview_size]['height'],
+                    'image_url' => esc_url_raw($image_data[$preview_size]['url']),
+                    'width' => isset($image_data[$preview_size]['width']) ? absint($image_data[$preview_size]['width']) : 0,
+                    'height' => isset($image_data[$preview_size]['height']) ? absint($image_data[$preview_size]['height']) : 0,
                     'is_flickr' => true
-                ];
+                ]);
             }
         } else {
             // For direct image URLs, just return the URL
             $is_image_url = preg_match('/\.(jpe?g|png|webp|avif|gif|svg)(\?|#|$)/i', $url);
             if ($is_image_url) {
-                return [
+                return rest_ensure_response([
                     'success' => true,
-                    'image_url' => $url,
+                    'image_url' => esc_url_raw($url),
                     'is_flickr' => false
-                ];
+                ]);
             }
         }
 
@@ -342,10 +446,10 @@ class FlickrJustifiedBlock {
         // Return the photos as gallery HTML items
         $gallery_items = [];
         foreach ($result['photos'] as $photo_url) {
-            $photo_url = esc_url($photo_url);
+            $photo_url = esc_url_raw($photo_url);
             if (empty($photo_url)) continue;
 
-            $is_flickr = (strpos($photo_url, 'flickr.com/photos/') !== false || strpos($photo_url, 'www.flickr.com/photos/') !== false);
+            $is_flickr = self::is_flickr_url($photo_url);
 
             if ($is_flickr) {
                 // Get image data for this photo
@@ -366,9 +470,9 @@ class FlickrJustifiedBlock {
                     if (isset($image_data[$preferred_size]) && isset($image_data[$preferred_size]['url'])) {
                         $gallery_items[] = [
                             'url' => $photo_url,
-                            'image_url' => $image_data[$preferred_size]['url'],
-                            'width' => $image_data[$preferred_size]['width'],
-                            'height' => $image_data[$preferred_size]['height'],
+                            'image_url' => esc_url_raw($image_data[$preferred_size]['url']),
+                            'width' => isset($image_data[$preferred_size]['width']) ? absint($image_data[$preferred_size]['width']) : 0,
+                            'height' => isset($image_data[$preferred_size]['height']) ? absint($image_data[$preferred_size]['height']) : 0,
                             'flickr_page' => $photo_url,
                             'is_flickr' => true
                         ];
@@ -378,9 +482,9 @@ class FlickrJustifiedBlock {
                         if ($first_size && isset($image_data[$first_size]['url'])) {
                             $gallery_items[] = [
                                 'url' => $photo_url,
-                                'image_url' => $image_data[$first_size]['url'],
-                                'width' => $image_data[$first_size]['width'] ?? 0,
-                                'height' => $image_data[$first_size]['height'] ?? 0,
+                                'image_url' => esc_url_raw($image_data[$first_size]['url']),
+                                'width' => isset($image_data[$first_size]['width']) ? absint($image_data[$first_size]['width']) : 0,
+                                'height' => isset($image_data[$first_size]['height']) ? absint($image_data[$first_size]['height']) : 0,
                                 'flickr_page' => $photo_url,
                                 'is_flickr' => true
                             ];
@@ -405,14 +509,14 @@ class FlickrJustifiedBlock {
             }
         }
 
-        return [
+        return rest_ensure_response([
             'success' => true,
             'photos' => $gallery_items,
             'page' => $result['page'],
             'has_more' => $result['has_more'],
             'total_pages' => $result['pages'],
             'total_photos' => $result['total']
-        ];
+        ]);
     }
 }
 
