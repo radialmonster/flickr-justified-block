@@ -263,7 +263,14 @@ function flickr_justified_parse_set_url($url) {
     // https://flickr.com/photos/username/sets/72157600268349682
 
     if (empty($url) || !is_string($url)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: flickr_justified_parse_set_url - Invalid URL: ' . var_export($url, true));
+        }
         return false;
+    }
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: flickr_justified_parse_set_url - Testing URL: ' . $url);
     }
 
     $patterns = [
@@ -831,6 +838,9 @@ function flickr_justified_render_block($attributes) {
     foreach ($url_lines as $url) {
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: Parsing set URL: ' . $url . ' -> user_id: ' . $set_info['user_id'] . ', photoset_id: ' . $set_info['photoset_id']);
+            }
             // This is a Flickr set/album URL - get first page of photos
             $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 500);
             if (!empty($set_result['photos'])) {
@@ -852,12 +862,15 @@ function flickr_justified_render_block($attributes) {
                 }
             } else {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr Justified Block: Failed to expand set: ' . $url);
+                    error_log('Flickr Justified Block: Failed to expand set: ' . $url . ' - Result: ' . json_encode($set_result));
                 }
                 // Keep the original URL if set expansion failed
                 $expanded_urls[] = $url;
             }
         } else {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: URL not recognized as set/album: ' . $url);
+            }
             // Regular photo URL or direct image URL
             $expanded_urls[] = $url;
         }
@@ -866,6 +879,9 @@ function flickr_justified_render_block($attributes) {
     $url_lines = array_filter($expanded_urls);
 
     if (empty($url_lines)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: No URLs to process after expansion. Final URLs: ' . json_encode($url_lines));
+        }
         return '';
     }
 
