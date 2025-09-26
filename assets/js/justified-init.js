@@ -538,11 +538,51 @@ function initFlickrAlbumLazyLoading() {
                             display: block;
                         `;
                         finalTriggerElement.className = 'flickr-lazy-trigger';
-                        gallery.appendChild(finalTriggerElement);
 
-                        // Force reflow to ensure element has dimensions
-                        const rect = finalTriggerElement.getBoundingClientRect();
-                        console.log(`✅ New trigger dimensions: ${rect.width}x${rect.height}, positioned at ${rect.top}`);
+                        // Add buffer space to account for layout compression when images arrange into rows
+                        const bufferSpace = document.createElement('div');
+                        bufferSpace.style.cssText = `
+                            height: 2000px;
+                            width: 100%;
+                            visibility: hidden;
+                            position: relative;
+                            display: block;
+                        `;
+                        bufferSpace.className = 'flickr-layout-buffer';
+
+                        // Ensure trigger is placed at the very end of the gallery with buffer
+                        const allCards = gallery.querySelectorAll('.flickr-card');
+                        if (allCards.length > 0) {
+                            // Insert buffer and trigger after the last card
+                            const lastCard = allCards[allCards.length - 1];
+                            lastCard.parentNode.insertBefore(bufferSpace, lastCard.nextSibling);
+                            lastCard.parentNode.insertBefore(finalTriggerElement, bufferSpace.nextSibling);
+                        } else {
+                            // Fallback: append to gallery
+                            gallery.appendChild(bufferSpace);
+                            gallery.appendChild(finalTriggerElement);
+                        }
+
+                        // Remove buffer after layout stabilizes
+                        setTimeout(() => {
+                            if (bufferSpace.parentNode) {
+                                bufferSpace.remove();
+                                console.log('🗑️ Removed layout buffer after stabilization');
+                            }
+                        }, 1000);
+
+                        // Force reflow to ensure element has dimensions and correct position
+                        setTimeout(() => {
+                            const rect = finalTriggerElement.getBoundingClientRect();
+                            console.log(`✅ New trigger dimensions: ${rect.width}x${rect.height}, positioned at ${rect.top}`);
+
+                            // Verify trigger is below viewport
+                            if (rect.top <= window.innerHeight) {
+                                console.log(`⚠️ WARNING: Trigger is too high (${rect.top}px), may cause infinite loading`);
+                            } else {
+                                console.log(`✅ Trigger properly positioned ${Math.round(rect.top - window.innerHeight)}px below viewport`);
+                            }
+                        }, 10);
                     }
 
                     // ALWAYS re-observe the trigger element
