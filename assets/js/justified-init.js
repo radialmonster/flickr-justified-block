@@ -351,29 +351,45 @@ function initFlickrAlbumLazyLoading() {
             return;
         }
 
-        // Show loading indicator
+        // Show loading indicator with better styling and positioning
         const loadingIndicator = document.createElement('div');
         loadingIndicator.className = 'flickr-loading-indicator';
         loadingIndicator.style.cssText = `
             text-align: center;
             padding: 20px;
-            font-size: 16px;
-            color: #666;
-            font-weight: 500;
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin: 10px 0;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.95);
+            border: 2px solid #007cba;
+            border-radius: 8px;
+            margin: 20px auto;
+            max-width: 400px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            position: relative;
+            z-index: 1000;
         `;
-        loadingIndicator.textContent = 'Please Wait, Loading More Images...';
+        loadingIndicator.textContent = '⏳ Please Wait, Loading More Images...';
+
+        console.log('🔔 Creating loading indicator...');
 
         // Insert loading indicator before the trigger
         const trigger = gallery.querySelector('.flickr-lazy-trigger');
         if (trigger) {
+            console.log('🔔 Inserting loading indicator before trigger');
             gallery.insertBefore(loadingIndicator, trigger);
         } else {
+            console.log('🔔 Appending loading indicator to gallery end');
             gallery.appendChild(loadingIndicator);
         }
+
+        // Force the indicator to be visible immediately
+        setTimeout(() => {
+            if (loadingIndicator.parentNode) {
+                console.log('🔔 Loading indicator should now be visible');
+                loadingIndicator.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 50);
 
         // Load next page for each set (in parallel)
         const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
@@ -415,8 +431,10 @@ function initFlickrAlbumLazyLoading() {
             setTimeout(() => {
                 console.log('📐 Waiting for images to load before reinitialization...');
 
-                // Get all images that might still be loading (not just lazy ones)
-                const newImages = gallery.querySelectorAll('.flickr-card img');
+                // Get only newly added images (without data-load-listener-added attribute)
+                const allImages = gallery.querySelectorAll('.flickr-card img');
+                const newImages = Array.from(allImages).filter(img => !img.hasAttribute('data-load-listener-added'));
+                console.log(`📊 Image count: ${allImages.length} total, ${newImages.length} newly added`);
                 let loadedCount = 0;
                 const totalImages = newImages.length;
 
@@ -430,7 +448,10 @@ function initFlickrAlbumLazyLoading() {
 
                 const checkAllLoaded = () => {
                     loadedCount++;
-                    console.log(`📸 Image loaded (${loadedCount}/${totalImages})`);
+                    // Only log progress at key milestones to reduce console spam
+                    if (loadedCount === 1 || loadedCount % 10 === 0 || loadedCount === totalImages) {
+                        console.log(`📸 Image loaded (${loadedCount}/${totalImages})`);
+                    }
                     if (loadedCount >= totalImages) {
                         console.log('📸 All images loaded, reinitializing gallery...');
                         reinitializeGallery();
