@@ -680,6 +680,9 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     // Get album title using separate API call (only for first page to avoid redundant calls)
     $album_title = '';
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Checking if should get album title - page: ' . $page);
+    }
     if ($page === 1) {
         $photoset_info = flickr_justified_get_photoset_info($user_id, $photoset_id);
         if ($photoset_info && !empty($photoset_info['title'])) {
