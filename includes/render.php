@@ -427,6 +427,10 @@ function flickr_justified_resolve_user_id($username) {
  * @return array|false Array with photoset info or false on failure
  */
 function flickr_justified_get_photoset_info($user_id, $photoset_id) {
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: flickr_justified_get_photoset_info called for user: ' . $user_id . ', photoset: ' . $photoset_id);
+    }
+
     if (empty($user_id) || empty($photoset_id)) {
         return false;
     }
@@ -474,9 +478,17 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
     }
 
     $body = wp_remote_retrieve_body($response);
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: photosets.getInfo API response: ' . $body);
+    }
+
     $data = json_decode($body, true);
 
     if (json_last_error() !== JSON_ERROR_NONE || !isset($data['photoset'])) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: photosets.getInfo JSON error or no photoset data. Error: ' . json_last_error_msg());
+        }
         return false;
     }
 
@@ -485,6 +497,11 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
         'description' => isset($data['photoset']['description']['_content']) ? sanitize_textarea_field($data['photoset']['description']['_content']) : '',
         'photo_count' => isset($data['photoset']['count_photos']) ? intval($data['photoset']['count_photos']) : 0,
     ];
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Extracted photoset info: ' . json_encode($photoset_info));
+        error_log('Flickr Justified Block: Raw title data: ' . json_encode($data['photoset']['title'] ?? 'MISSING'));
+    }
 
     // Cache the result for 6 hours
     set_transient($cache_key, $photoset_info, 6 * HOUR_IN_SECONDS);
