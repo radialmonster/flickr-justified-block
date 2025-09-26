@@ -249,6 +249,17 @@ function initFlickrAlbumLazyLoading() {
             console.log('⏸️ Already loading, skipping');
             return;
         }
+
+        // Add cooldown period after reinitialization to prevent immediate re-triggering
+        const now = Date.now();
+        const lastReinit = gallery._lastReinit || 0;
+        const cooldownPeriod = 2000; // 2 seconds cooldown
+
+        if (now - lastReinit < cooldownPeriod) {
+            console.log(`🧊 Cooldown active (${Math.round((cooldownPeriod - (now - lastReinit)) / 1000)}s remaining), skipping`);
+            return;
+        }
+
         console.log('🚀 Starting to load next pages');
         gallery._flickrLoading = true;
 
@@ -440,6 +451,9 @@ function initFlickrAlbumLazyLoading() {
                     } else {
                         console.log('⚠️ No observer or trigger element found for re-observation!');
                     }
+
+                    // Set timestamp to prevent immediate re-triggering after layout changes
+                    gallery._lastReinit = Date.now();
                     console.log('🏁 Gallery reinitialization complete');
                 }
             }, 100);
@@ -567,30 +581,39 @@ function initFlickrAlbumLazyLoading() {
         card.className = 'flickr-card';
 
         const link = document.createElement('a');
-        link.className = 'flickr-justified-item flickr-builtin-lightbox';
+        // Match server-side class exactly - only flickr-builtin-lightbox
+        link.className = 'flickr-builtin-lightbox';
         link.href = photoData.image_url;
 
         // Get the gallery ID from the existing gallery structure
-        const existingItems = gallery.querySelectorAll('.flickr-justified-item[data-gallery]');
+        const existingItems = gallery.querySelectorAll('.flickr-builtin-lightbox[data-gallery]');
         const galleryId = existingItems.length > 0 ?
             existingItems[0].getAttribute('data-gallery') :
             'flickr-gallery-' + Date.now();
         link.setAttribute('data-gallery', galleryId);
 
-        if (photoData.is_flickr && photoData.flickr_page) {
-            link.setAttribute('data-flickr-page', photoData.flickr_page);
-            link.setAttribute('data-flickr-attribution-text', 'View on Flickr');
-        }
-
+        // Add dimensions for lightbox (required for proper lightbox functionality)
         if (photoData.width && photoData.height) {
             link.setAttribute('data-width', photoData.width);
             link.setAttribute('data-height', photoData.height);
+        }
+
+        // Add Flickr attribution attributes to match server-side structure
+        if (photoData.is_flickr && photoData.flickr_page) {
+            link.setAttribute('data-flickr-page', photoData.flickr_page);
+            link.setAttribute('data-flickr-attribution-text', 'View on Flickr');
+
+            // Add additional lightbox caption attributes (matches server-side)
+            link.setAttribute('data-caption', 'View on Flickr');
+            link.setAttribute('data-title', 'View on Flickr');
+            link.setAttribute('title', 'View on Flickr');
         }
 
         const img = document.createElement('img');
         img.src = photoData.image_url;
         img.alt = '';
         img.loading = 'lazy';
+        img.setAttribute('decoding', 'async'); // Match server-side attributes
 
         link.appendChild(img);
         card.appendChild(link);
