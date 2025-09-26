@@ -390,8 +390,11 @@ function initFlickrAlbumLazyLoading() {
             setData.loaded_photos = (setData.loaded_photos || 0) + result.photos.length;
             setData.isLoading = false;
 
+            console.log(`📊 Updated set metadata: current_page=${setData.current_page}, total_pages=${setData.total_pages}, loaded_photos=${setData.loaded_photos}`);
+
             // Update the data attribute on the gallery with all set metadata
             gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
+            console.log('💾 Updated DOM with new metadata');
 
         } catch (error) {
             console.error(`Failed to load page ${nextPage} for set ${setData.photoset_id}:`, error);
