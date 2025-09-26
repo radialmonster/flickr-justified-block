@@ -326,4 +326,13 @@
         subtree: true
     });
 
+    // Listen for custom event from lazy loading to re-initialize PhotoSwipe
+    document.addEventListener('flickr-gallery-updated', function(event) {
+        console.log('PhotoSwipe: Received gallery update event, re-initializing...');
+        setTimeout(() => {
+            prepareGalleryData();
+            console.log('PhotoSwipe: Re-initialization complete');
+        }, 100);
+    });
+
 })();

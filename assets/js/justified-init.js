@@ -412,6 +412,16 @@ function initFlickrAlbumLazyLoading() {
                     console.log('🏗️ Re-initializing gallery layout...');
                     window.initJustifiedGallery();
 
+                    // Re-initialize PhotoSwipe lightbox for new images
+                    console.log('🔦 Re-initializing PhotoSwipe lightbox for new images...');
+                    setTimeout(() => {
+                        // Trigger PhotoSwipe re-initialization by dispatching a custom event
+                        const photoswipeEvent = new CustomEvent('flickr-gallery-updated', {
+                            detail: { gallery: gallery }
+                        });
+                        document.dispatchEvent(photoswipeEvent);
+                    }, 50); // Small delay to ensure DOM is fully updated
+
                     // Check if trigger survived the reinitialization
                     const survivingTrigger = gallery.querySelector('.flickr-lazy-trigger');
                     console.log(`🔍 Checking for trigger after reinitialization: ${survivingTrigger ? 'SURVIVED' : 'DESTROYED'}`);
@@ -579,6 +589,7 @@ function initFlickrAlbumLazyLoading() {
 
         const card = document.createElement('article');
         card.className = 'flickr-card';
+        card.style.position = 'relative'; // Match server-side positioning
 
         const link = document.createElement('a');
         // Match server-side class exactly - only flickr-builtin-lightbox
