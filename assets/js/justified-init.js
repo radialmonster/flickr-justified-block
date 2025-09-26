@@ -300,27 +300,30 @@ function initFlickrAlbumLazyLoading() {
                 console.log('🏗️ Re-initializing gallery layout...');
                 window.initJustifiedGallery();
 
-                // Re-add trigger element after reinitialization (it gets lost during layout)
-                const existingTrigger = gallery.querySelector('.flickr-lazy-trigger');
-                console.log(`🔍 Checking for existing trigger: ${existingTrigger ? 'FOUND' : 'NOT FOUND'}`);
-                if (!existingTrigger) {
-                    console.log('🔄 Re-adding trigger element after gallery reinitialization');
-                    const newTrigger = document.createElement('div');
-                    newTrigger.style.height = '1px';
-                    newTrigger.style.width = '100%';
-                    newTrigger.className = 'flickr-lazy-trigger';
-                    gallery.appendChild(newTrigger);
+                // Ensure trigger element exists and is properly observed
+                let triggerElement = gallery.querySelector('.flickr-lazy-trigger');
+                console.log(`🔍 Checking for existing trigger: ${triggerElement ? 'FOUND' : 'NOT FOUND'}`);
 
-                    // Re-observe the new trigger
-                    const observer = gallery._flickrLazyObserver;
-                    if (observer) {
-                        console.log('👁️ Re-observing new trigger element');
-                        observer.observe(newTrigger);
-                    } else {
-                        console.log('⚠️ No observer found to re-observe trigger!');
-                    }
+                if (!triggerElement) {
+                    console.log('🔄 Re-adding trigger element after gallery reinitialization');
+                    triggerElement = document.createElement('div');
+                    triggerElement.style.height = '1px';
+                    triggerElement.style.width = '100%';
+                    triggerElement.className = 'flickr-lazy-trigger';
+                    gallery.appendChild(triggerElement);
                 } else {
-                    console.log('✅ Existing trigger found, no need to re-add');
+                    console.log('✅ Existing trigger found, but will re-observe anyway');
+                }
+
+                // ALWAYS re-observe the trigger element (connection may be broken by reinitialization)
+                const observer = gallery._flickrLazyObserver;
+                if (observer && triggerElement) {
+                    console.log('👁️ Re-observing trigger element (required after gallery reinitialization)');
+                    // First unobserve in case it's still connected to avoid duplicate observations
+                    observer.unobserve(triggerElement);
+                    observer.observe(triggerElement);
+                } else {
+                    console.log('⚠️ No observer or trigger element found for re-observation!');
                 }
                 console.log('🏁 Gallery reinitialization complete');
             }, 100);
