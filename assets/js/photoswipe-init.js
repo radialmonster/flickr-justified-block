@@ -183,17 +183,6 @@
                 }
             });
 
-            // Give the top bar a gap after PhotoSwipe mounts
-            lightbox.on('afterInit', () => {
-                const topBar = document.querySelector('.pswp__top-bar');
-                if (topBar) {
-                    topBar.style.alignItems = 'center';
-                    topBar.style.gap = '12px';          // space between buttons/links
-                    topBar.style.paddingRight = '10px'; // a little breathing room at the edge
-                    // topBar.style.height = '60px';    // optional: bump height if things feel tight
-                }
-            });
-
             // Add Flickr attribution button
             lightbox.on('uiRegister', function() {
                 const attributionSettings = getAttributionSettings();
@@ -210,47 +199,7 @@
                     onInit: (el, pswp) => {
                         el.setAttribute('target', '_blank');
                         el.setAttribute('rel', 'noopener noreferrer');
-
-                        // Base (mobile-first)
-                        const applySize = () => {
-                            const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
-
-                            // shared styles
-                            el.style.fontSize = '13px';
-                            el.style.textDecoration = 'underline';
-                            el.style.color = '#fff';
-                            el.style.padding = '6px 10px';
-                            el.style.backgroundColor = 'rgba(0,0,0,0.3)';
-                            el.style.borderRadius = '4px';
-                            el.style.transition = 'background-color 0.2s';
-                            el.style.whiteSpace = 'nowrap';
-                            el.style.marginRight = '12px';
-                            el.style.pointerEvents = 'auto';
-
-                            if (isDesktop) {
-                                // show full text on desktop
-                                el.style.maxWidth = 'none';
-                                el.style.overflow = 'visible';
-                                el.style.textOverflow = 'clip';
-                                el.style.flex = '0 0 auto';
-                            } else {
-                                // keep compact on mobile
-                                el.style.maxWidth = '40vw';
-                                el.style.overflow = 'hidden';
-                                el.style.textOverflow = 'ellipsis';
-                                el.style.flex = '0 1 auto';
-                            }
-                        };
-
-                        applySize();
-                        const onResize = () => applySize();
-                        window.addEventListener('resize', onResize);
-                        pswp.on('destroy', () => window.removeEventListener('resize', onResize));
-
-                        // Hover effect (desktop only, harmless on mobile)
-                        el.addEventListener('mouseenter', () => el.style.backgroundColor = 'rgba(0,0,0,0.6)');
-                        el.addEventListener('mouseleave', () => el.style.backgroundColor = 'rgba(0,0,0,0.3)');
-
+                        el.classList.add('pswp__button--flickr-attribution');
                         updateAttributionUrl(el, pswp);
                         pswp.on('change', () => updateAttributionUrl(el, pswp));
                     }
