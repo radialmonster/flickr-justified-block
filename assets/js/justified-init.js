@@ -215,7 +215,21 @@ function initFlickrAlbumLazyLoading() {
     'use strict';
 
     // Find galleries with set metadata (indicating they have more pages to load)
+    const allGalleries = document.querySelectorAll('.flickr-justified-grid');
     const galleriesWithSets = document.querySelectorAll('.flickr-justified-grid[data-set-metadata]');
+
+    console.log(`🔍 Lazy loading check: Found ${allGalleries.length} total galleries, ${galleriesWithSets.length} with set metadata`);
+
+    // Debug: Show what attributes each gallery has
+    allGalleries.forEach((gallery, index) => {
+        const attributes = Array.from(gallery.attributes).map(attr => attr.name);
+        console.log(`Gallery ${index + 1} attributes:`, attributes);
+
+        const setMetadata = gallery.getAttribute('data-set-metadata');
+        if (setMetadata) {
+            console.log(`Gallery ${index + 1} metadata:`, setMetadata.substring(0, 100) + '...');
+        }
+    });
 
     galleriesWithSets.forEach(gallery => {
         const metadataAttr = gallery.getAttribute('data-set-metadata');
