@@ -341,6 +341,85 @@ function flickr_justified_get_photoset_photos($user_id, $photoset_id, $set_url =
 }
 
 /**
+ * Resolve Flickr username to numeric user ID
+ *
+ * @param string $username Flickr username
+ * @return string|false Numeric user ID or false on failure
+ */
+function flickr_justified_resolve_user_id($username) {
+    if (empty($username) || !is_string($username)) {
+        return false;
+    }
+
+    // If it's already numeric, return as-is
+    if (is_numeric($username)) {
+        return $username;
+    }
+
+    // Check cache first
+    $cache_key = 'flickr_justified_user_id_' . md5($username);
+    $cached_user_id = get_transient($cache_key);
+    if (!empty($cached_user_id)) {
+        return $cached_user_id;
+    }
+
+    // Get API key
+    $api_key = '';
+    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
+        $api_key = FlickrJustifiedAdminSettings::get_api_key();
+    }
+
+    if (empty($api_key)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: No API key found for user lookup: ' . $username);
+        }
+        return false;
+    }
+
+    // Make API call to resolve username
+    $api_url = add_query_arg([
+        'method' => 'flickr.people.findByUsername',
+        'api_key' => $api_key,
+        'username' => $username,
+        'format' => 'json',
+        'nojsoncallback' => 1,
+    ], 'https://api.flickr.com/services/rest/');
+
+    $response = wp_remote_get($api_url, [
+        'timeout' => 10,
+        'user-agent' => 'WordPress Flickr Justified Block'
+    ]);
+
+    if (is_wp_error($response)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: User lookup failed: ' . $response->get_error_message());
+        }
+        return false;
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE || !isset($data['user']['id'])) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: User lookup returned invalid data for: ' . $username . ' - Response: ' . $body);
+        }
+        return false;
+    }
+
+    $user_id = $data['user']['id'];
+
+    // Cache the result for 24 hours
+    set_transient($cache_key, $user_id, DAY_IN_SECONDS);
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Resolved username "' . $username . '" to user ID: ' . $user_id);
+    }
+
+    return $user_id;
+}
+
+/**
  * Get photos from a Flickr set with pagination support
  *
  * @param string $user_id Flickr user ID or username
@@ -361,11 +440,30 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         ];
     }
 
+    // Resolve username to numeric user ID if needed
+    $resolved_user_id = flickr_justified_resolve_user_id($user_id);
+    if (!$resolved_user_id) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: Failed to resolve user ID for: ' . $user_id);
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => 1,
+            'pages' => 1
+        ];
+    }
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Using resolved user ID: ' . $resolved_user_id . ' (from: ' . $user_id . ')');
+    }
+
     $page = max(1, intval($page));
     $per_page = max(1, min(500, intval($per_page))); // Flickr max is 500
 
-    // Cache key includes page number
-    $cache_key = 'flickr_justified_set_page_' . md5($user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page);
+    // Cache key includes page number - use resolved user ID for consistency
+    $cache_key = 'flickr_justified_set_page_' . md5($resolved_user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page);
 
     // Check cache first
     $cached_result = get_transient($cache_key);
@@ -393,7 +491,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     }
 
     if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Making photoset API call for set: ' . $photoset_id . ' user: ' . $user_id . ' page: ' . $page);
+        error_log('Flickr Justified Block: Making photoset API call for set: ' . $photoset_id . ' user: ' . $resolved_user_id . ' (original: ' . $user_id . ') page: ' . $page);
     }
 
     // Make API call to get photos in the set
@@ -401,7 +499,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         'method' => 'flickr.photosets.getPhotos',
         'api_key' => $api_key,
         'photoset_id' => $photoset_id,
-        'user_id' => $user_id,
+        'user_id' => $resolved_user_id,
         'per_page' => $per_page,
         'page' => $page,
         'extras' => 'url_m,url_l,url_o', // Get multiple size URLs
