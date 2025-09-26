@@ -167,11 +167,21 @@
                                     lineHeight: '1'
                                 }
                             }, '📸'),
-                            el('div', {
+                            // Show album title if available, otherwise show generic label
+                            imageData.album_title ? el('div', {
                                 style: {
                                     fontWeight: 'bold',
+                                    marginBottom: '4px',
+                                    fontSize: '18px',
+                                    lineHeight: '1.2'
+                                }
+                            }, imageData.album_title) : null,
+                            el('div', {
+                                style: {
+                                    fontWeight: imageData.album_title ? 'normal' : 'bold',
                                     marginBottom: '8px',
-                                    fontSize: '16px'
+                                    fontSize: imageData.album_title ? '14px' : '16px',
+                                    opacity: imageData.album_title ? '0.8' : '1'
                                 }
                             }, (() => {
                                 const urlTrimmed = url.trim();

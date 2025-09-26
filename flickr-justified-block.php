@@ -222,13 +222,13 @@ class FlickrJustifiedBlock {
 
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
-            // This is a Flickr set - get the first photo for preview
-            if (!function_exists('flickr_justified_get_photoset_photos')) {
+            // This is a Flickr set - get the photos and metadata for preview
+            if (!function_exists('flickr_justified_get_photoset_photos_paginated')) {
                 return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
             }
 
-            $set_photos = flickr_justified_get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $url);
-            if (!empty($set_photos)) {
+            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 500);
+            if (!empty($set_result['photos'])) {
                 return [
                     'success' => true,
                     'image_url' => '', // We'll show a set indicator instead
@@ -238,8 +238,9 @@ class FlickrJustifiedBlock {
                         'user_id' => sanitize_text_field($set_info['user_id']),
                         'photoset_id' => sanitize_text_field($set_info['photoset_id'])
                     ],
-                    'photo_count' => count($set_photos),
-                    'first_photo' => !empty($set_photos[0]) ? esc_url_raw($set_photos[0]) : ''
+                    'photo_count' => count($set_result['photos']),
+                    'album_title' => !empty($set_result['album_title']) ? sanitize_text_field($set_result['album_title']) : '',
+                    'first_photo' => !empty($set_result['photos'][0]) ? esc_url_raw($set_result['photos'][0]) : ''
                 ];
             } else {
                 return new WP_Error('set_error', 'Could not fetch Flickr set data', ['status' => 404]);

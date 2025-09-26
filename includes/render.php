@@ -582,11 +582,12 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         ];
     }
 
-    // Extract pagination info
+    // Extract pagination info and album title
     $total_photos = isset($data['photoset']['total']) ? intval($data['photoset']['total']) : 0;
     $current_page = isset($data['photoset']['page']) ? intval($data['photoset']['page']) : $page;
     $total_pages = isset($data['photoset']['pages']) ? intval($data['photoset']['pages']) : 1;
     $photos_on_page = isset($data['photoset']['photo']) ? count($data['photoset']['photo']) : 0;
+    $album_title = isset($data['photoset']['title']) ? sanitize_text_field($data['photoset']['title']) : '';
 
     // Convert photos to individual photo page URLs
     $photo_urls = [];
@@ -607,7 +608,8 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         'has_more' => $current_page < $total_pages,
         'total' => $total_photos,
         'page' => $current_page,
-        'pages' => $total_pages
+        'pages' => $total_pages,
+        'album_title' => $album_title
     ];
 
     if (defined('WP_DEBUG') && WP_DEBUG) {
