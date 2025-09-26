@@ -55,18 +55,35 @@
     border-radius: 8px;
     overflow: hidden;
     box-sizing: border-box;
-    flex-shrink: 0; /* Prevent shrinking from JS-calculated size */
+    flex: 0 0 auto; /* Prevent shrinking/growing from JS-calculated size */
 }
 
 /* Images sized by JavaScript - maintain crisp display */
 .flickr-card img {
     display: block;
-    border-radius: 8px;
-    object-fit: contain; /* Fallback for any edge cases */
+    object-fit: cover; /* Cover the container for justified layout */
+    width: 100%;
+    height: 100%;
+    max-width: none; /* neutralize global img resets */
+    object-position: center; /* nicer crops */
+}
+
+/* Helps reduce CLS while images decode */
+.flickr-card img[loading="lazy"] {
+    content-visibility: auto;
+    contain-intrinsic-size: 300px 200px; /* pick a sensible average */
+}
+
+/* Make anchor fill the card (consistent click target) */
+.flickr-card > a {
+    display: block;
+    width: 100%;
+    height: 100%;
 }
 
 /* Individual gallery item links */
-.flickr-card .flickr-justified-item {
+.flickr-card .flickr-justified-item,
+.flickr-card .flickr-builtin-lightbox {
     display: block;
     width: 100%;
     text-decoration: none;
@@ -74,7 +91,8 @@
 }
 
 /* Focus states for accessibility */
-.flickr-card .flickr-justified-item:focus {
+.flickr-card .flickr-justified-item:focus,
+.flickr-card .flickr-builtin-lightbox:focus {
     outline: 2px solid #005cee;
     outline-offset: 2px;
 }

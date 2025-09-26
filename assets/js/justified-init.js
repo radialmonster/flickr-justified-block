@@ -123,8 +123,6 @@
                         const width = actualRowHeight * aspectRatio;
                         card.style.width = `${width}px`;
                         card.style.height = `${actualRowHeight}px`;
-                        img.style.width = `${width}px`;
-                        img.style.height = `${actualRowHeight}px`;
                         row.appendChild(card);
                     });
 
@@ -144,8 +142,8 @@
                 if (img.complete && img.naturalWidth > 0) {
                     checkAllLoaded();
                 } else if (!img.hasAttribute('data-listeners-added')) {
-                    img.addEventListener('load', checkAllLoaded);
-                    img.addEventListener('error', checkAllLoaded);
+                    img.addEventListener('load', checkAllLoaded, { once: true });
+                    img.addEventListener('error', checkAllLoaded, { once: true });
                     img.setAttribute('data-listeners-added', 'true');
                 }
             });
@@ -175,13 +173,16 @@
                 // Temporarily disable lazy loading cooldown during resize
                 const wasResizing = grid._isResizing;
                 grid._isResizing = true;
+                grid._resizeFlagTs = Date.now();
 
                 grid.classList.remove('justified-initialized');
 
                 // Reset cooldown after a brief delay to allow resize to complete
                 setTimeout(() => {
-                    if (!wasResizing) {
+                    // only clear if no newer resize flagged it again
+                    if (grid._isResizing && (Date.now() - (grid._resizeFlagTs || 0)) > 900) {
                         delete grid._isResizing;
+                        delete grid._resizeFlagTs;
                     }
                 }, 1000);
             });
@@ -198,7 +199,7 @@
             );
             if (shouldInit) setTimeout(initJustifiedGallery, 150);
         });
-        observer.observe(document.body, { childList: true, subtree: false });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     // Make initJustifiedGallery accessible to lazy loading function
@@ -213,6 +214,14 @@
  */
 function initFlickrAlbumLazyLoading() {
     'use strict';
+
+    // Helper visible to all inner functions
+    function getLastImageInGallery(gallery) {
+        const cards = gallery.querySelectorAll('.flickr-card');
+        if (!cards.length) return null;
+        const lastCard = cards[cards.length - 1];
+        return lastCard.querySelector('img');
+    }
 
     // Find galleries with set metadata (indicating they have more pages to load)
     const allGalleries = document.querySelectorAll('.flickr-justified-grid');
@@ -232,6 +241,9 @@ function initFlickrAlbumLazyLoading() {
     });
 
     galleriesWithSets.forEach(gallery => {
+        // Prevent duplicate observers per gallery
+        if (gallery._flickrLazyObserver) return; // already wired
+
         const metadataAttr = gallery.getAttribute('data-set-metadata');
         if (!metadataAttr) return;
 
@@ -268,7 +280,7 @@ function initFlickrAlbumLazyLoading() {
 
         // Find and observe the last image in the gallery
         function observeLastImage() {
-            const lastImage = gallery.querySelector('.flickr-card:last-child img');
+            const lastImage = getLastImageInGallery(gallery);
             if (lastImage) {
                 observer.observe(lastImage);
                 gallery._lastObservedImage = lastImage;
@@ -412,56 +424,39 @@ function initFlickrAlbumLazyLoading() {
             setTimeout(() => {
                 console.log('📐 Waiting for images to load before reinitialization...');
 
-                // Get only newly added images (without data-load-listener-added attribute)
                 const allImages = gallery.querySelectorAll('.flickr-card img');
                 const newImages = Array.from(allImages).filter(img => !img.hasAttribute('data-load-listener-added'));
                 console.log(`📊 Image count: ${allImages.length} total, ${newImages.length} newly added`);
-                let loadedCount = 0;
-                const totalImages = newImages.length;
 
-                if (totalImages === 0) {
-                    // No lazy loading images, proceed immediately
+                if (newImages.length === 0) {
                     reinitializeGallery();
-                    return;
-                }
+                } else {
+                    console.log(`📸 Waiting for ${newImages.length} images to decode/load...`);
 
-                console.log(`📸 Waiting for ${totalImages} images to load...`);
-
-                const checkAllLoaded = () => {
-                    loadedCount++;
-                    // Only log progress at key milestones to reduce console spam
-                    if (loadedCount === 1 || loadedCount % 10 === 0 || loadedCount === totalImages) {
-                        console.log(`📸 Image loaded (${loadedCount}/${totalImages})`);
-                    }
-                    if (loadedCount >= totalImages) {
-                        console.log('📸 All images loaded, reinitializing gallery...');
-                        reinitializeGallery();
-                    }
-                };
-
-                // Add load listeners to all new images
-                newImages.forEach((img, index) => {
-                    if (img.complete && img.naturalWidth > 0) {
-                        // Image already loaded
-                        checkAllLoaded();
-                    } else if (!img.hasAttribute('data-load-listener-added')) {
-                        // Wait for image to load - avoid duplicate listeners
-                        img.addEventListener('load', checkAllLoaded, { once: true });
-                        img.addEventListener('error', checkAllLoaded, { once: true }); // Count errors too
+                    const waits = newImages.map(img => {
                         img.setAttribute('data-load-listener-added', 'true');
-                    } else {
-                        // Listener already added but image not loaded, count anyway
-                        checkAllLoaded();
-                    }
-                });
+                        if (typeof img.decode === 'function') {
+                            // decode doesn't fire load events; it resolves when ready to paint
+                            return img.decode().catch(() => {});
+                        }
+                        return new Promise(resolve => {
+                            if (img.complete && img.naturalWidth > 0) return resolve();
+                            const done = () => {
+                                img.removeEventListener('load', done);
+                                img.removeEventListener('error', done);
+                                resolve();
+                            };
+                            img.addEventListener('load', done, { once: true });
+                            img.addEventListener('error', done, { once: true });
+                        });
+                    });
 
-                // Fallback timeout in case some images never load
-                setTimeout(() => {
-                    if (loadedCount < totalImages) {
-                        console.log(`⏰ Timeout reached, reinitializing anyway (${loadedCount}/${totalImages} loaded)`);
+                    const timeout = new Promise(resolve => setTimeout(resolve, 5000)); // safety
+                    Promise.race([Promise.allSettled(waits), timeout]).then(() => {
+                        console.log('📸 All images decoded/loaded, reinitializing gallery...');
                         reinitializeGallery();
-                    }
-                }, 5000);
+                    });
+                }
 
                 function reinitializeGallery() {
                     console.log('📐 Dispatching gallery reorganized event...');
@@ -501,7 +496,7 @@ function initFlickrAlbumLazyLoading() {
                         // Re-observe the new last image
                         const observer = gallery._flickrLazyObserver;
                         if (observer) {
-                            const newLastImage = gallery.querySelector('.flickr-card:last-child img');
+                            const newLastImage = getLastImageInGallery(gallery);
                             if (newLastImage) {
                                 observer.observe(newLastImage);
                                 gallery._lastObservedImage = newLastImage;
@@ -515,22 +510,21 @@ function initFlickrAlbumLazyLoading() {
                     // Re-initialize PhotoSwipe lightbox for new images
                     console.log('🔦 Re-initializing PhotoSwipe lightbox for new images...');
 
-                    // Multiple attempts to ensure PhotoSwipe integration
-                    const triggerPhotoSwipeUpdate = () => {
-                        const photoswipeEvent = new CustomEvent('flickr-gallery-updated', {
-                            detail: { gallery: gallery }
-                        });
-                        document.dispatchEvent(photoswipeEvent);
-                    };
+                    // Debounced PhotoSwipe update to prevent spam
+                    const triggerPhotoSwipeUpdate = (() => {
+                        let timeout = null;
+                        return () => {
+                            clearTimeout(timeout);
+                            timeout = setTimeout(() => {
+                                const photoswipeEvent = new CustomEvent('flickr-gallery-updated', {
+                                    detail: { gallery: gallery }
+                                });
+                                document.dispatchEvent(photoswipeEvent);
+                            }, 100); // one clean signal
+                        };
+                    })();
 
-                    // Immediate trigger
                     triggerPhotoSwipeUpdate();
-
-                    // Delayed trigger to ensure DOM is fully updated
-                    setTimeout(triggerPhotoSwipeUpdate, 50);
-
-                    // Final trigger after potential layout changes
-                    setTimeout(triggerPhotoSwipeUpdate, 200);
 
 
                     // Set timestamp to prevent immediate re-triggering after layout changes
