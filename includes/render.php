@@ -284,8 +284,16 @@ function flickr_justified_parse_set_url($url) {
         '#(?:www\.)?flickr\.com/photos/([^/]+)/sets/(\d+)/with/(\d+)#i'
     ];
 
-    foreach ($patterns as $pattern) {
+    foreach ($patterns as $index => $pattern) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: Testing pattern ' . $index . ': ' . $pattern . ' against URL: ' . $url);
+        }
+
         if (preg_match($pattern, $url, $matches)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: Pattern ' . $index . ' MATCHED! Matches: ' . json_encode($matches));
+            }
+
             // Validate that we got the expected matches
             if (isset($matches[1], $matches[2]) && !empty($matches[1]) && !empty($matches[2])) {
                 $result = [
@@ -302,7 +310,15 @@ function flickr_justified_parse_set_url($url) {
                     }
                 }
 
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr Justified Block: Successfully parsed set URL - Result: ' . json_encode($result));
+                }
+
                 return $result;
+            }
+        } else {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: Pattern ' . $index . ' did not match');
             }
         }
     }
