@@ -268,20 +268,34 @@ function flickr_justified_parse_set_url($url) {
 
     $patterns = [
         // Standard sets format: /photos/username/sets/photoset_id
-        '#flickr\.com/photos/([^/]+)/sets/(\d+)#i',
+        '#(?:www\.)?flickr\.com/photos/([^/]+)/sets/(\d+)#i',
         // Albums format: /photos/username/albums/photoset_id
-        '#flickr\.com/photos/([^/]+)/albums/(\d+)#i'
+        '#(?:www\.)?flickr\.com/photos/([^/]+)/albums/(\d+)#i',
+        // Albums with specific photo: /photos/username/albums/photoset_id/with/photo_id
+        '#(?:www\.)?flickr\.com/photos/([^/]+)/albums/(\d+)/with/(\d+)#i',
+        // Sets with specific photo: /photos/username/sets/photoset_id/with/photo_id
+        '#(?:www\.)?flickr\.com/photos/([^/]+)/sets/(\d+)/with/(\d+)#i'
     ];
 
     foreach ($patterns as $pattern) {
         if (preg_match($pattern, $url, $matches)) {
             // Validate that we got the expected matches
             if (isset($matches[1], $matches[2]) && !empty($matches[1]) && !empty($matches[2])) {
-                return [
+                $result = [
                     'user_id' => trim($matches[1]),
                     'photoset_id' => $matches[2],
                     'url' => $url
                 ];
+
+                // If there's a /with/photo_id parameter, include it
+                if (isset($matches[3]) && !empty($matches[3])) {
+                    $result['with_photo_id'] = $matches[3];
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('Flickr Justified Block: Found /with/ parameter - photo ID: ' . $matches[3]);
+                    }
+                }
+
+                return $result;
             }
         }
     }
@@ -527,7 +541,7 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         $url = esc_url($url);
         if (empty($url)) continue;
 
-        $is_flickr = strpos($url, 'flickr.com/photos/') !== false;
+        $is_flickr = (strpos($url, 'flickr.com/photos/') !== false || strpos($url, 'www.flickr.com/photos/') !== false);
 
         if ($is_flickr) {
             $available_sizes = [

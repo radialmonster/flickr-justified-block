@@ -213,7 +213,7 @@ class FlickrJustifiedBlock {
             return new WP_Error('invalid_url', 'Invalid URL provided', ['status' => 400]);
         }
 
-        $is_flickr = strpos($url, 'flickr.com/photos/') !== false;
+        $is_flickr = (strpos($url, 'flickr.com/photos/') !== false || strpos($url, 'www.flickr.com/photos/') !== false);
 
         // Check if this is a Flickr set/album URL
         if (!function_exists('flickr_justified_parse_set_url')) {
@@ -338,7 +338,7 @@ class FlickrJustifiedBlock {
             $photo_url = esc_url($photo_url);
             if (empty($photo_url)) continue;
 
-            $is_flickr = strpos($photo_url, 'flickr.com/photos/') !== false;
+            $is_flickr = (strpos($photo_url, 'flickr.com/photos/') !== false || strpos($photo_url, 'www.flickr.com/photos/') !== false);
 
             if ($is_flickr) {
                 // Get image data for this photo

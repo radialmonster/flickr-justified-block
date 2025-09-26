@@ -45,9 +45,10 @@
             }
 
             // Check if it's a Flickr URL (photo or set/album)
-            const isFlickrPhoto = /flickr\.com\/photos\/[^/]+\/\d+/i.test(trimmedUrl);
-            const isFlickrSet = /flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+/i.test(trimmedUrl);
-            const isFlickrUrl = isFlickrPhoto || isFlickrSet;
+            const isFlickrPhoto = /(?:www\.)?flickr\.com\/photos\/[^/]+\/\d+/i.test(trimmedUrl);
+            const isFlickrSet = /(?:www\.)?flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+/i.test(trimmedUrl);
+            const isFlickrSetWithPhoto = /(?:www\.)?flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+\/with\/\d+/i.test(trimmedUrl);
+            const isFlickrUrl = isFlickrPhoto || isFlickrSet || isFlickrSetWithPhoto;
 
             if (!isFlickrUrl) {
                 if (!isCancelled) {
@@ -245,9 +246,11 @@
                 },
                     (() => {
                         const urlTrimmed = url.trim();
-                        if (/flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+/i.test(urlTrimmed)) {
+                        if (/(?:www\.)?flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+\/with\/\d+/i.test(urlTrimmed)) {
+                            return __('Flickr Set/Album (with specific photo): ', 'flickr-justified-block') + urlTrimmed;
+                        } else if (/(?:www\.)?flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+/i.test(urlTrimmed)) {
                             return __('Flickr Set/Album: ', 'flickr-justified-block') + urlTrimmed;
-                        } else if (/flickr\.com\/photos\/[^/]+\/\d+/i.test(urlTrimmed)) {
+                        } else if (/(?:www\.)?flickr\.com\/photos\/[^/]+\/\d+/i.test(urlTrimmed)) {
                             return __('Flickr Photo: ', 'flickr-justified-block') + urlTrimmed;
                         } else {
                             return __('URL: ', 'flickr-justified-block') + urlTrimmed;
