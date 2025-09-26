@@ -227,7 +227,7 @@ function initFlickrAlbumLazyLoading() {
                 }
             });
         }, {
-            rootMargin: '200px' // Load when 200px from bottom
+            rootMargin: '1000px' // Load when 1000px from bottom (increased for large galleries)
         });
 
         // Create and observe a trigger element at the bottom of the gallery
