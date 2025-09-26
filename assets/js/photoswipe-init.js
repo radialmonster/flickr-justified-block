@@ -183,6 +183,16 @@
                 }
             });
 
+            // Give the top bar a gap after PhotoSwipe mounts
+            lightbox.on('afterInit', () => {
+                const topBar = document.querySelector('.pswp__top-bar');
+                if (topBar) {
+                    topBar.style.alignItems = 'center';
+                    topBar.style.gap = '12px';          // space between buttons/links
+                    topBar.style.paddingRight = '10px'; // a little breathing room at the edge
+                    // topBar.style.height = '60px';    // optional: bump height if things feel tight
+                }
+            });
 
             // Add Flickr attribution button
             lightbox.on('uiRegister', function() {
@@ -214,7 +224,7 @@
                             el.style.borderRadius = '4px';
                             el.style.transition = 'background-color 0.2s';
                             el.style.whiteSpace = 'nowrap';
-                            el.style.marginRight = '8px';
+                            el.style.marginRight = '12px';
                             el.style.pointerEvents = 'auto';
 
                             if (isDesktop) {
