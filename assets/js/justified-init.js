@@ -492,6 +492,36 @@ function initFlickrAlbumLazyLoading() {
                     const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
                     document.dispatchEvent(event);
 
+                    // Process pending photos BEFORE removing justified-initialized class
+                    // This is critical because initJustifiedGallery() will clear gallery.innerHTML
+                    if (gallery._pendingPhotos && gallery._pendingPhotos.length > 0) {
+                        console.log(`📦 Inserting ${gallery._pendingPhotos.length} pending photos into gallery`);
+
+                        gallery._pendingPhotos.forEach((photoData, index) => {
+                            const card = createPhotoCard(photoData, gallery);
+                            if (card) {
+                                try {
+                                    // Insert before any existing trigger elements to maintain order
+                                    const trigger = gallery.querySelector('.flickr-lazy-trigger');
+                                    if (trigger) {
+                                        gallery.insertBefore(card, trigger);
+                                    } else {
+                                        gallery.appendChild(card);
+                                    }
+                                    console.log(`✅ Successfully inserted photo ${index + 1}/${gallery._pendingPhotos.length}`);
+                                } catch (e) {
+                                    console.error(`❌ Failed to insert photo ${index + 1}:`, e);
+                                }
+                            } else {
+                                console.warn(`⚠️ Failed to create card for photo ${index + 1}`);
+                            }
+                        });
+
+                        // Clear pending photos after insertion
+                        delete gallery._pendingPhotos;
+                        console.log('🧹 Cleared pending photos array');
+                    }
+
                     // Re-initialize gallery layout
                     console.log('🏗️ Re-initializing gallery layout...');
                     window.initJustifiedGallery();
@@ -709,28 +739,18 @@ function initFlickrAlbumLazyLoading() {
 
             console.log(`Loaded ${result.photos.length} photos from page ${nextPage}`);
 
-            // Add new photos to the gallery (only if we have photos)
+            // Store new photos for insertion after reinitialization
             if (result.photos && result.photos.length > 0) {
+                if (!gallery._pendingPhotos) gallery._pendingPhotos = [];
                 result.photos.forEach(photoData => {
-                    // Validate photo data before creating card
+                    // Validate photo data before storing
                     if (!photoData || !photoData.image_url) {
                         console.warn('Invalid photo data received:', photoData);
                         return;
                     }
-
-                    const card = createPhotoCard(photoData, gallery);
-                    if (card) {
-                        // Insert before the lazy trigger
-                        const trigger = gallery.querySelector('.flickr-lazy-trigger');
-                        if (trigger) {
-                            console.log('📍 Inserting new photo card before trigger');
-                            gallery.insertBefore(card, trigger);
-                        } else {
-                            console.log('⚠️ No trigger found, appending card to end');
-                            gallery.appendChild(card);
-                        }
-                    }
+                    gallery._pendingPhotos.push(photoData);
                 });
+                console.log(`📦 Stored ${result.photos.length} photos for insertion after reinitialization`);
             }
 
             // Update set metadata
