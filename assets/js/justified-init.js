@@ -496,33 +496,6 @@ function initFlickrAlbumLazyLoading() {
                 console.log('🏁 Gallery reinitialization complete');
             }
 
-
-                    // Re-initialize PhotoSwipe lightbox for new images
-                    console.log('🔦 Re-initializing PhotoSwipe lightbox for new images...');
-
-                    // Debounced PhotoSwipe update to prevent spam
-                    const triggerPhotoSwipeUpdate = (() => {
-                        let timeout = null;
-                        return () => {
-                            clearTimeout(timeout);
-                            timeout = setTimeout(() => {
-                                const photoswipeEvent = new CustomEvent('flickr-gallery-updated', {
-                                    detail: { gallery: gallery }
-                                });
-                                document.dispatchEvent(photoswipeEvent);
-                            }, 100); // one clean signal
-                        };
-                    })();
-
-                    triggerPhotoSwipeUpdate();
-
-
-                    // Set timestamp to prevent immediate re-triggering after layout changes
-                    gallery._lastReinit = Date.now();
-                    console.log('🏁 Gallery reinitialization complete');
-                }
-            }, 100);
-
         } catch (error) {
             console.error('Failed to load album pages:', error);
             // Remove loading indicator on error
