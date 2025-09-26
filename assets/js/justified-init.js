@@ -242,7 +242,7 @@ function initFlickrAlbumLazyLoading() {
         gallery._flickrLazyObserver = observer;
     });
 
-    async function loadNextPages(gallery, setMetadata) {
+    async function loadNextPages(gallery, originalSetMetadata) {
         console.log('🔄 loadNextPages triggered by scroll');
         // Prevent rapid-fire loading by checking if we're already loading
         if (gallery._flickrLoading) {
@@ -251,6 +251,18 @@ function initFlickrAlbumLazyLoading() {
         }
         console.log('🚀 Starting to load next pages');
         gallery._flickrLoading = true;
+
+        // CRITICAL FIX: Re-read metadata from DOM to get latest state
+        const currentMetadataAttr = gallery.getAttribute('data-set-metadata');
+        let setMetadata = originalSetMetadata; // fallback
+        if (currentMetadataAttr) {
+            try {
+                setMetadata = JSON.parse(currentMetadataAttr);
+                console.log('✅ Re-read fresh metadata from DOM');
+            } catch (e) {
+                console.warn('Failed to parse updated metadata, using original:', e);
+            }
+        }
 
         // Find sets that have more pages to load
         console.log('Checking for sets to load. Current metadata:', setMetadata);
