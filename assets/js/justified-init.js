@@ -39,15 +39,11 @@
             const cards = grid.querySelectorAll('.flickr-card');
             if (cards.length === 0) return;
 
-            const allImages = Array.from(cards).map(card => card.querySelector('img')).filter(img => img);
-            let loadedCount = 0;
-
-            function checkAllLoaded() {
-                loadedCount++;
-                if (loadedCount === allImages.length) {
-                    processRows();
-                }
-            }
+            // Build rows immediately (use data-* aspect ratios / fallbacks).
+            // Fine-tuning happens inside processRows() when decode/load resolves.
+            // This prevents the "1 image per row" tall column flash.
+            // (Chrome defers load on lazy images, so we must not gate on it.)
+            // ----------------------------------------------------------------
 
             function processRows() {
                 const containerWidth = grid.offsetWidth;
@@ -170,19 +166,12 @@
                 document.dispatchEvent(reinitEvent);
             }
 
-            if (allImages.length === 0) {
-                processRows();
-                return;
-            }
-            allImages.forEach(img => {
-                if (img.complete && img.naturalWidth > 0) {
-                    checkAllLoaded();
-                } else if (!img.hasAttribute('data-listeners-added')) {
-                    img.addEventListener('load', checkAllLoaded, { once: true });
-                    img.addEventListener('error', checkAllLoaded, { once: true });
-                    img.setAttribute('data-listeners-added', 'true');
-                }
-            });
+            // Do the initial layout right now.
+            processRows();
+
+            // (Optional) Progressive refinement as images load is already handled
+            // by decode-based relayout inside processRows(). No need to gate
+            // the first render on image loads.
         });
     }
 
