@@ -215,6 +215,43 @@
     height: auto;
 }
 
+/* Give the PhotoSwipe top bar consistent spacing */
+.pswp__top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px 8px 10px;
+}
+
+/* Base styling for the Flickr attribution control */
+.pswp__button--flickr-attribution {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35em;
+    font-size: 13px;
+    line-height: 1.25;
+    color: #fff;
+    text-decoration: underline;
+    background-color: rgba(0, 0, 0, 0.35);
+    border-radius: 4px;
+    padding: 6px 12px;
+    margin-right: 8px;
+    white-space: nowrap;
+    transition: background-color 0.2s ease;
+}
+
+.pswp__button--flickr-attribution:hover,
+.pswp__button--flickr-attribution:focus-visible {
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #fff;
+}
+
+.pswp__button--flickr-attribution:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.6);
+    outline-offset: 2px;
+}
+
 /* Respect notches / dynamic islands */
 .pswp {
     padding-top: env(safe-area-inset-top);
@@ -222,43 +259,44 @@
 }
 
 
-/* Mobile: keep everything on ONE row, ensure "View on Flickr" never truncates */
+/* Mobile: allow a second row so "View on Flickr" can breathe */
 @media (max-width: 768px) {
   .pswp__top-bar {
-    flex-wrap: nowrap;         /* single row */
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    height: 48px;              /* a bit tighter */
-    padding: 6px 8px;
+    gap: 8px 10px;
+    padding: 10px;
   }
 
-  /* Let counter yield space; it can shrink/ellipsis if needed */
   .pswp__counter {
     order: 0;
-    margin-right: auto;        /* pushes others right */
-    min-width: 0;              /* allow flex-box to shrink */
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-right: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1 1 auto;
   }
 
-  /* NEVER truncate attribution; keep it inline */
-  .pswp__button--flickr-attribution {
+  .pswp__button--zoom {
     order: 1;
-    flex: 0 0 auto;            /* do not shrink */
-    min-width: max-content;    /* size to full text */
-    white-space: nowrap;       /* single line, no wrap */
-    overflow: visible;         /* no clipping */
-    text-overflow: clip;
-    margin-right: 6px;         /* small gap before icons */
+    margin-left: auto;
   }
 
-  /* Keep zoom/close visible but compact */
-  .pswp__button--zoom  { order: 2; }
-  .pswp__button--close { order: 3; }
+  .pswp__button--close {
+    order: 2;
+  }
 
-  /* Slightly smaller icons on mobile to buy space */
+  .pswp__button--flickr-attribution {
+    order: 3;
+    flex: 1 0 100%;
+    margin-right: 0;
+    white-space: normal;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 12px;
+  }
+
   .pswp__button svg,
   .pswp__preloader .pswp__icn {
     width: 24px;
@@ -266,7 +304,11 @@
   }
 }
 
-/* On very narrow phones, hide the counter to guarantee space for attribution */
+/* On very narrow phones, keep controls visible but reduce chrome */
 @media (max-width: 420px) {
-  .pswp__counter { display: none; }
+  .pswp__counter {
+    order: 3;
+    width: 100%;
+    text-align: center;
+  }
 }
