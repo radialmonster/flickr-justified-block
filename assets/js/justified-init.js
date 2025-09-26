@@ -425,14 +425,11 @@ function initFlickrAlbumLazyLoading() {
         const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
 
         try {
-            console.log(`⏳ Waiting for ${loadPromises.length} page load promises to complete...`);
+            // ⏳ Waiting done...
             await Promise.all(loadPromises);
-            console.log('✅ All page load promises completed successfully');
 
-            // Remove loading indicator
-            if (loadingIndicator && loadingIndicator.parentNode) {
-                loadingIndicator.remove();
-            }
+            // remove loading indicator...
+            if (loadingIndicator && loadingIndicator.parentNode) loadingIndicator.remove();
 
             // Re-initialize the justified layout with new photos
             console.log('🔄 Starting gallery reinitialization...');
@@ -453,7 +450,7 @@ function initFlickrAlbumLazyLoading() {
                 const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
                 document.dispatchEvent(event);
 
-                // Stage new cards in a hidden container so they don't affect layout yet
+                // Stage new cards if any
                 let staging = gallery.querySelector('.flickr-staging');
                 if (!staging) {
                     staging = document.createElement('div');
@@ -461,42 +458,44 @@ function initFlickrAlbumLazyLoading() {
                     staging.style.display = 'none';
                     gallery.appendChild(staging);
                 }
-
                 if (gallery._pendingPhotos && gallery._pendingPhotos.length > 0) {
-                    console.log(`📦 Staging ${gallery._pendingPhotos.length} photos`);
                     const frag = document.createDocumentFragment();
-                    gallery._pendingPhotos.forEach((photoData, index) => {
+                    gallery._pendingPhotos.forEach(photoData => {
                         const card = createPhotoCard(photoData, gallery);
-                        if (card) {
-                            frag.appendChild(card);
-                        } else {
-                            console.warn(`⚠️ Failed to create card for photo ${index + 1}`);
-                        }
+                        if (card) frag.appendChild(card);
                     });
                     staging.appendChild(frag);
                     delete gallery._pendingPhotos;
-                    console.log('🧹 Cleared pending photos array');
                 }
 
-                // Re-initialize gallery layout IMMEDIATELY (uses AR fallbacks)
-                console.log('🏗️ Re-initializing gallery layout (provisional pass)...');
+                // Rebuild rows immediately
                 gallery.classList.remove('justified-initialized');
                 window.initJustifiedGallery();
 
-                // After rebuild, re-observe last image for lazy loading
+                // Re-observe new last image
                 setTimeout(() => {
-                    const observer = gallery._flickrLazyObserver;
-                    if (observer) {
-                        const newLastImage = getLastImageInGallery(gallery);
+                    const obs = gallery._flickrLazyObserver;
+                    if (obs) {
+                        const newLastImage = (function getLastImageInGallery(g){
+                            const cards = g.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
+                            if (!cards.length) return null;
+                            return cards[cards.length - 1].querySelector('img');
+                        })(gallery);
                         if (newLastImage) {
-                            observer.observe(newLastImage);
+                            obs.observe(newLastImage);
                             gallery._lastObservedImage = newLastImage;
-                            console.log('👁️ Re-observing new last image after reinitialization');
-                        } else {
-                            console.warn('⚠️ No new last image found after reinitialization');
                         }
                     }
                 }, 100);
+
+                // Ping PhotoSwipe
+                const photoswipeEvent = new CustomEvent('flickr-gallery-updated', { detail: { gallery } });
+                document.dispatchEvent(photoswipeEvent);
+
+                gallery._lastReinit = Date.now();
+                console.log('🏁 Gallery reinitialization complete');
+            }
+
 
                     // Re-initialize PhotoSwipe lightbox for new images
                     console.log('🔦 Re-initializing PhotoSwipe lightbox for new images...');
