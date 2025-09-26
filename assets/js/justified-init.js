@@ -373,13 +373,18 @@ function initFlickrAlbumLazyLoading() {
 
         console.log('🔔 Creating loading indicator...');
 
-        // Insert loading indicator before the trigger
+        // Insert loading indicator safely
         const trigger = gallery.querySelector('.flickr-lazy-trigger');
-        if (trigger) {
+        if (trigger && trigger.parentNode === gallery) {
             console.log('🔔 Inserting loading indicator before trigger');
-            gallery.insertBefore(loadingIndicator, trigger);
+            try {
+                gallery.insertBefore(loadingIndicator, trigger);
+            } catch (e) {
+                console.log('🔔 Trigger insertion failed, appending to gallery end');
+                gallery.appendChild(loadingIndicator);
+            }
         } else {
-            console.log('🔔 Appending loading indicator to gallery end');
+            console.log('🔔 No valid trigger found, appending loading indicator to gallery end');
             gallery.appendChild(loadingIndicator);
         }
 
@@ -490,6 +495,37 @@ function initFlickrAlbumLazyLoading() {
                     // Re-initialize gallery layout
                     console.log('🏗️ Re-initializing gallery layout...');
                     window.initJustifiedGallery();
+
+                    // Wait for DOM to stabilize after complete rebuild
+                    setTimeout(() => {
+                        // Ensure trigger is properly positioned after gallery rebuild
+                        let postReinitTrigger = gallery.querySelector('.flickr-lazy-trigger');
+                        if (!postReinitTrigger) {
+                            console.log('🔧 Trigger missing after reinitialization, creating new one');
+                            postReinitTrigger = document.createElement('div');
+                            postReinitTrigger.style.cssText = `
+                                height: 10px;
+                                width: 100%;
+                                clear: both;
+                                visibility: hidden;
+                                position: relative;
+                                display: block;
+                                margin-top: 100px;
+                            `;
+                            postReinitTrigger.className = 'flickr-lazy-trigger';
+                            gallery.appendChild(postReinitTrigger);
+                        } else {
+                            // Add margin to existing trigger to push it down
+                            postReinitTrigger.style.marginTop = '100px';
+                        }
+
+                        // Re-observe the properly positioned trigger
+                        const observer = gallery._flickrLazyObserver;
+                        if (observer && postReinitTrigger) {
+                            observer.observe(postReinitTrigger);
+                            console.log('🔧 Re-observed trigger after proper positioning');
+                        }
+                    }, 100);
 
                     // Re-initialize PhotoSwipe lightbox for new images
                     console.log('🔦 Re-initializing PhotoSwipe lightbox for new images...');
