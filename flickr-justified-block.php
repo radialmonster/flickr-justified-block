@@ -227,7 +227,7 @@ class FlickrJustifiedBlock {
                 return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
             }
 
-            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 500);
+            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 50);
             if (!empty($set_result['photos'])) {
                 $response_data = [
                     'success' => true,
@@ -333,7 +333,7 @@ class FlickrJustifiedBlock {
         }
 
         // Get the photos for this page
-        $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, 500);
+        $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, 50);
 
         if (!is_array($result) || empty($result['photos'])) {
             return new WP_Error('no_photos', 'No photos found for this page', ['status' => 404]);

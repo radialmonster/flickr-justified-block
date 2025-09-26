@@ -140,17 +140,9 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     }
 
     if (empty($api_key)) {
-        // Debug: Log when API key is missing
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: No API key found for photo ID: ' . $photo_id);
-        }
         return [];
     }
 
-    // Debug: Log that we're making an API call
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Making API call for photo ID: ' . $photo_id);
-    }
 
     // Get available sizes from API with dimensions
     $api_url = add_query_arg([
@@ -167,9 +159,6 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     ]);
 
     if (is_wp_error($response)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: API request error for photo ID ' . $photo_id . ': ' . $response->get_error_message());
-        }
         return [];
     }
 
@@ -177,16 +166,9 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $data = json_decode($body, true);
 
     if (empty($data['sizes']['size'])) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: No sizes data returned for photo ID ' . $photo_id . '. Response: ' . $body);
-        }
         return [];
     }
 
-    // Debug: Log successful API call
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Successfully retrieved ' . count($data['sizes']['size']) . ' sizes for photo ID: ' . $photo_id);
-    }
 
     // Build result with URLs and dimensions
     $result = flickr_justified_map_api_sizes_to_requested_with_dims($data['sizes']['size'], $requested_sizes);
@@ -263,14 +245,7 @@ function flickr_justified_parse_set_url($url) {
     // https://flickr.com/photos/username/sets/72157600268349682
 
     if (empty($url) || !is_string($url)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: flickr_justified_parse_set_url - Invalid URL: ' . var_export($url, true));
-        }
         return false;
-    }
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: flickr_justified_parse_set_url - Testing URL: ' . $url);
     }
 
     $patterns = [
@@ -285,14 +260,7 @@ function flickr_justified_parse_set_url($url) {
     ];
 
     foreach ($patterns as $index => $pattern) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: Testing pattern ' . $index . ': ' . $pattern . ' against URL: ' . $url);
-        }
-
         if (preg_match($pattern, $url, $matches)) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr Justified Block: Pattern ' . $index . ' MATCHED! Matches: ' . json_encode($matches));
-            }
 
             // Validate that we got the expected matches
             if (isset($matches[1], $matches[2]) && !empty($matches[1]) && !empty($matches[2])) {
@@ -305,20 +273,9 @@ function flickr_justified_parse_set_url($url) {
                 // If there's a /with/photo_id parameter, include it
                 if (isset($matches[3]) && !empty($matches[3])) {
                     $result['with_photo_id'] = $matches[3];
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('Flickr Justified Block: Found /with/ parameter - photo ID: ' . $matches[3]);
-                    }
-                }
-
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr Justified Block: Successfully parsed set URL - Result: ' . json_encode($result));
                 }
 
                 return $result;
-            }
-        } else {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr Justified Block: Pattern ' . $index . ' did not match');
             }
         }
     }
@@ -336,7 +293,7 @@ function flickr_justified_parse_set_url($url) {
  */
 function flickr_justified_get_photoset_photos($user_id, $photoset_id, $set_url = '') {
     // Use the paginated function to get first page
-    $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 1, 500);
+    $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 1, 50);
     return $result['photos'];
 }
 
@@ -370,9 +327,6 @@ function flickr_justified_resolve_user_id($username) {
     }
 
     if (empty($api_key)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: No API key found for user lookup: ' . $username);
-        }
         return false;
     }
 
@@ -391,9 +345,6 @@ function flickr_justified_resolve_user_id($username) {
     ]);
 
     if (is_wp_error($response)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: User lookup failed: ' . $response->get_error_message());
-        }
         return false;
     }
 
@@ -401,9 +352,6 @@ function flickr_justified_resolve_user_id($username) {
     $data = json_decode($body, true);
 
     if (json_last_error() !== JSON_ERROR_NONE || !isset($data['user']['id'])) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: User lookup returned invalid data for: ' . $username . ' - Response: ' . $body);
-        }
         return false;
     }
 
@@ -411,10 +359,6 @@ function flickr_justified_resolve_user_id($username) {
 
     // Cache the result for 24 hours
     set_transient($cache_key, $user_id, DAY_IN_SECONDS);
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Resolved username "' . $username . '" to user ID: ' . $user_id);
-    }
 
     return $user_id;
 }
@@ -427,9 +371,6 @@ function flickr_justified_resolve_user_id($username) {
  * @return array|false Array with photoset info or false on failure
  */
 function flickr_justified_get_photoset_info($user_id, $photoset_id) {
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: flickr_justified_get_photoset_info called for user: ' . $user_id . ', photoset: ' . $photoset_id);
-    }
 
     if (empty($user_id) || empty($photoset_id)) {
         return false;
@@ -478,17 +419,9 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
     }
 
     $body = wp_remote_retrieve_body($response);
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: photosets.getInfo API response: ' . $body);
-    }
-
     $data = json_decode($body, true);
 
     if (json_last_error() !== JSON_ERROR_NONE || !isset($data['photoset'])) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: photosets.getInfo JSON error or no photoset data. Error: ' . json_last_error_msg());
-        }
         return false;
     }
 
@@ -497,11 +430,6 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
         'description' => isset($data['photoset']['description']['_content']) ? sanitize_textarea_field($data['photoset']['description']['_content']) : '',
         'photo_count' => isset($data['photoset']['count_photos']) ? intval($data['photoset']['count_photos']) : 0,
     ];
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Extracted photoset info: ' . json_encode($photoset_info));
-        error_log('Flickr Justified Block: Raw title data: ' . json_encode($data['photoset']['title'] ?? 'MISSING'));
-    }
 
     // Cache the result for 6 hours
     set_transient($cache_key, $photoset_info, 6 * HOUR_IN_SECONDS);
@@ -515,13 +443,10 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
  * @param string $user_id Flickr user ID or username
  * @param string $photoset_id Flickr photoset ID
  * @param int $page Page number (1-based)
- * @param int $per_page Photos per page (max 500)
+ * @param int $per_page Photos per page (default 50, max 500)
  * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title'
  */
-function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 500) {
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: flickr_justified_get_photoset_photos_paginated called - user_id: ' . $user_id . ', photoset_id: ' . $photoset_id . ', page: ' . $page);
-    }
+function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 50) {
 
     // Validate inputs
     if (empty($user_id) || empty($photoset_id) || !is_string($user_id) || !is_string($photoset_id)) {
@@ -537,9 +462,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     // Resolve username to numeric user ID if needed
     $resolved_user_id = flickr_justified_resolve_user_id($user_id);
     if (!$resolved_user_id) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: Failed to resolve user ID for: ' . $user_id);
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -547,10 +469,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
             'page' => 1,
             'pages' => 1
         ];
-    }
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Using resolved user ID: ' . $resolved_user_id . ' (from: ' . $user_id . ')');
     }
 
     $page = max(1, intval($page));
@@ -562,14 +480,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     // Check cache first
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: Returning cached result for photoset: ' . $photoset_id . ' - ' . json_encode($cached_result));
-        }
         return $cached_result;
-    }
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: No cache found, proceeding with API call for photoset: ' . $photoset_id);
     }
 
     // Get API key from settings
@@ -579,9 +490,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     }
 
     if (empty($api_key)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: No API key found for photoset: ' . $photoset_id);
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -589,10 +497,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
             'page' => $page,
             'pages' => 1
         ];
-    }
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Making photoset API call for set: ' . $photoset_id . ' user: ' . $resolved_user_id . ' (original: ' . $user_id . ') page: ' . $page);
     }
 
     // Make API call to get photos in the set
@@ -614,9 +518,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     ]);
 
     if (is_wp_error($response)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: Photoset API request error: ' . $response->get_error_message());
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -628,9 +529,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     $body = wp_remote_retrieve_body($response);
     if (empty($body)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: Empty response body from photoset API');
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -642,9 +540,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     $data = json_decode($body, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: JSON decode error: ' . json_last_error_msg() . '. Response: ' . $body);
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -656,10 +551,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     // Check for API errors first
     if (isset($data['stat']) && $data['stat'] === 'fail') {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            $error_msg = isset($data['message']) ? $data['message'] : 'Unknown API error';
-            error_log('Flickr Justified Block: API error for photoset ' . $photoset_id . ': ' . $error_msg);
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -671,9 +562,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     // Check if photoset data exists and has photos
     if (!isset($data['photoset']) || empty($data['photoset']['photo']) || !is_array($data['photoset']['photo'])) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: No photos found in photoset ' . $photoset_id . '. Response: ' . $body);
-        }
         return [
             'photos' => [],
             'has_more' => false,
@@ -691,20 +579,10 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     // Get album title using separate API call (only for first page to avoid redundant calls)
     $album_title = '';
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Checking if should get album title - page: ' . $page);
-    }
     if ($page === 1) {
         $photoset_info = flickr_justified_get_photoset_info($user_id, $photoset_id);
         if ($photoset_info && !empty($photoset_info['title'])) {
             $album_title = $photoset_info['title'];
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr Justified Block: Retrieved album title: ' . $album_title);
-            }
-        } else {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr Justified Block: Failed to retrieve album title for photoset: ' . $photoset_id);
-            }
         }
     }
 
@@ -730,10 +608,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         'pages' => $total_pages,
         'album_title' => $album_title
     ];
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Flickr Justified Block: Retrieved ' . count($photo_urls) . ' photos from set: ' . $photoset_id . ' (page ' . $current_page . ' of ' . $total_pages . ')');
-    }
 
     if (!empty($photo_urls)) {
         // Cache the results (shorter cache for paginated results)
@@ -795,22 +669,6 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
             ];
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
 
-            // Debug: Log what we got back from API for this URL
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                // Extract photo ID for clearer logging
-                $photo_id_match = preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $url, $matches);
-                $photo_id_for_log = $photo_id_match ? $matches[1] : 'unknown';
-
-                error_log('Flickr Justified Block: URL processed: ' . $url);
-                error_log('Flickr Justified Block: Photo ID extracted: ' . $photo_id_for_log);
-                error_log('Flickr Justified Block: Image data count: ' . count($image_data));
-                if (empty($image_data)) {
-                    error_log('Flickr Justified Block: ❌ FAILED - NO IMAGE DATA for Photo ID: ' . $photo_id_for_log . ' URL: ' . $url);
-                } else {
-                    error_log('Flickr Justified Block: ✅ SUCCESS - Photo ID: ' . $photo_id_for_log . ' Available sizes: ' . implode(', ', array_keys($image_data)));
-                }
-            }
-
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
 
@@ -823,24 +681,10 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $selected_width = $image_data[$best_lightbox_size]['width'];
                 if ($selected_width < 3000) {
                     $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
-                    error_log("PhotoSwipe DEBUG: Selected size too small ({$selected_width}px), using largest: {$best_lightbox_size}");
-                } else {
-                    error_log("PhotoSwipe DEBUG: Using appropriate size for high-res display: {$best_lightbox_size} ({$selected_width}px)");
                 }
             } else {
                 $best_lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX);
-                error_log("PhotoSwipe DEBUG: Fallback to largest available: {$best_lightbox_size}");
             }
-
-            // Debug: Show ALL raw Flickr API data to see what sizes are actually available
-            error_log("PhotoSwipe DEBUG: FULL RAW IMAGE DATA: " . json_encode($image_data, JSON_PRETTY_PRINT));
-
-            // Debug: Show available image sizes with dimensions
-            $debug_sizes = [];
-            foreach($image_data as $size => $data) {
-                $debug_sizes[$size] = $data['width'] . 'x' . $data['height'];
-            }
-            error_log("PhotoSwipe DEBUG: Available image sizes: " . json_encode($debug_sizes));
 
             $lightbox_src = '';
             if ($best_lightbox_size && isset($image_data[$best_lightbox_size]['url'])) {
@@ -861,9 +705,6 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
                 if ($error_mode === 'show_nothing') {
                     // Skip this photo and continue with the next one
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('Flickr Justified Block: Skipping failed photo (show_nothing mode): ' . $url);
-                    }
                     continue;
                 } else {
                     // Add an error placeholder for this specific photo
@@ -895,16 +736,10 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $lightbox_dimensions = null;
                 if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
                     $lightbox_dimensions = $image_data[$best_lightbox_size];
-                    error_log("PhotoSwipe DEBUG: Found lightbox dimensions for size '{$best_lightbox_size}': " . json_encode($lightbox_dimensions));
-                } else {
-                    error_log("PhotoSwipe DEBUG: No lightbox dimensions found - best_lightbox_size: '{$best_lightbox_size}', image_data keys: " . json_encode(array_keys($image_data)));
                 }
 
                 if ($lightbox_dimensions) {
                     $data_attrs = sprintf(' data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
-                    error_log("PhotoSwipe DEBUG: Setting data attrs: {$data_attrs}");
-                } else {
-                    error_log("PhotoSwipe DEBUG: No data attrs set - lightbox_dimensions is null");
                 }
 
                 // Use PhotoSwipe lightbox settings
@@ -1073,11 +908,8 @@ function flickr_justified_render_block($attributes) {
     foreach ($url_lines as $url) {
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr Justified Block: Parsing set URL: ' . $url . ' -> user_id: ' . $set_info['user_id'] . ', photoset_id: ' . $set_info['photoset_id']);
-            }
             // This is a Flickr set/album URL - get first page of photos
-            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 500);
+            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 50);
             if (!empty($set_result['photos'])) {
                 $expanded_urls = array_merge($expanded_urls, $set_result['photos']);
 
@@ -1091,21 +923,11 @@ function flickr_justified_render_block($attributes) {
                     'loaded_photos' => count($set_result['photos']),
                     'has_more' => isset($set_result['has_more']) ? $set_result['has_more'] : false
                 ];
-
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr Justified Block: Expanded set ' . $set_info['photoset_id'] . ' to ' . count($set_result['photos']) . ' photos (page 1 of ' . $set_result['pages'] . ')');
-                }
             } else {
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr Justified Block: Failed to expand set: ' . $url . ' - Result: ' . json_encode($set_result));
-                }
                 // Keep the original URL if set expansion failed
                 $expanded_urls[] = $url;
             }
         } else {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr Justified Block: URL not recognized as set/album: ' . $url);
-            }
             // Regular photo URL or direct image URL
             $expanded_urls[] = $url;
         }
@@ -1114,9 +936,6 @@ function flickr_justified_render_block($attributes) {
     $url_lines = array_filter($expanded_urls);
 
     if (empty($url_lines)) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr Justified Block: No URLs to process after expansion. Final URLs: ' . json_encode($url_lines));
-        }
         return '';
     }
 
