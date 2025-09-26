@@ -420,13 +420,86 @@ function flickr_justified_resolve_user_id($username) {
 }
 
 /**
+ * Get Flickr photoset information (title, description, etc.)
+ *
+ * @param string $user_id Flickr user ID or username
+ * @param string $photoset_id Flickr photoset ID
+ * @return array|false Array with photoset info or false on failure
+ */
+function flickr_justified_get_photoset_info($user_id, $photoset_id) {
+    if (empty($user_id) || empty($photoset_id)) {
+        return false;
+    }
+
+    // Resolve username to numeric user ID if needed
+    $resolved_user_id = flickr_justified_resolve_user_id($user_id);
+    if (!$resolved_user_id) {
+        return false;
+    }
+
+    // Check cache first
+    $cache_key = 'flickr_justified_set_info_' . md5($resolved_user_id . '_' . $photoset_id);
+    $cached_info = get_transient($cache_key);
+    if (!empty($cached_info) && is_array($cached_info)) {
+        return $cached_info;
+    }
+
+    // Get API key
+    $api_key = '';
+    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
+        $api_key = FlickrJustifiedAdminSettings::get_api_key();
+    }
+
+    if (empty($api_key)) {
+        return false;
+    }
+
+    // Make API call to get photoset info
+    $api_url = add_query_arg([
+        'method' => 'flickr.photosets.getInfo',
+        'api_key' => $api_key,
+        'photoset_id' => $photoset_id,
+        'user_id' => $resolved_user_id,
+        'format' => 'json',
+        'nojsoncallback' => 1,
+    ], 'https://api.flickr.com/services/rest/');
+
+    $response = wp_remote_get($api_url, [
+        'timeout' => 10,
+        'user-agent' => 'WordPress Flickr Justified Block'
+    ]);
+
+    if (is_wp_error($response)) {
+        return false;
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE || !isset($data['photoset'])) {
+        return false;
+    }
+
+    $photoset_info = [
+        'title' => isset($data['photoset']['title']['_content']) ? sanitize_text_field($data['photoset']['title']['_content']) : '',
+        'description' => isset($data['photoset']['description']['_content']) ? sanitize_textarea_field($data['photoset']['description']['_content']) : '',
+        'photo_count' => isset($data['photoset']['count_photos']) ? intval($data['photoset']['count_photos']) : 0,
+    ];
+
+    // Cache the result for 6 hours
+    set_transient($cache_key, $photoset_info, 6 * HOUR_IN_SECONDS);
+
+    return $photoset_info;
+}
+
+/**
  * Get photos from a Flickr set with pagination support
  *
  * @param string $user_id Flickr user ID or username
  * @param string $photoset_id Flickr photoset ID
  * @param int $page Page number (1-based)
  * @param int $per_page Photos per page (max 500)
- * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages'
+ * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title'
  */
 function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 500) {
     // Validate inputs
@@ -582,12 +655,27 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         ];
     }
 
-    // Extract pagination info and album title
+    // Extract pagination info
     $total_photos = isset($data['photoset']['total']) ? intval($data['photoset']['total']) : 0;
     $current_page = isset($data['photoset']['page']) ? intval($data['photoset']['page']) : $page;
     $total_pages = isset($data['photoset']['pages']) ? intval($data['photoset']['pages']) : 1;
     $photos_on_page = isset($data['photoset']['photo']) ? count($data['photoset']['photo']) : 0;
-    $album_title = isset($data['photoset']['title']) ? sanitize_text_field($data['photoset']['title']) : '';
+
+    // Get album title using separate API call (only for first page to avoid redundant calls)
+    $album_title = '';
+    if ($page === 1) {
+        $photoset_info = flickr_justified_get_photoset_info($user_id, $photoset_id);
+        if ($photoset_info && !empty($photoset_info['title'])) {
+            $album_title = $photoset_info['title'];
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: Retrieved album title: ' . $album_title);
+            }
+        } else {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr Justified Block: Failed to retrieve album title for photoset: ' . $photoset_id);
+            }
+        }
+    }
 
     // Convert photos to individual photo page URLs
     $photo_urls = [];
