@@ -232,8 +232,14 @@ function initFlickrAlbumLazyLoading() {
 
         // Create and observe a trigger element at the bottom of the gallery
         const trigger = document.createElement('div');
-        trigger.style.height = '1px';
-        trigger.style.width = '100%';
+        trigger.style.cssText = `
+            height: 10px;
+            width: 100%;
+            clear: both;
+            visibility: hidden;
+            position: relative;
+            display: block;
+        `;
         trigger.className = 'flickr-lazy-trigger';
         gallery.appendChild(trigger);
         observer.observe(trigger);
@@ -349,8 +355,14 @@ function initFlickrAlbumLazyLoading() {
             if (!triggerElement) {
                 console.log('🆕 Creating trigger element before reinitialization');
                 triggerElement = document.createElement('div');
-                triggerElement.style.height = '1px';
-                triggerElement.style.width = '100%';
+                triggerElement.style.cssText = `
+                    height: 10px;
+                    width: 100%;
+                    clear: both;
+                    visibility: hidden;
+                    position: relative;
+                    display: block;
+                `;
                 triggerElement.className = 'flickr-lazy-trigger';
                 gallery.appendChild(triggerElement);
             } else {
@@ -361,8 +373,8 @@ function initFlickrAlbumLazyLoading() {
             setTimeout(() => {
                 console.log('📐 Waiting for images to load before reinitialization...');
 
-                // Get all newly added images that might still be loading
-                const newImages = gallery.querySelectorAll('img[loading="lazy"]');
+                // Get all images that might still be loading (not just lazy ones)
+                const newImages = gallery.querySelectorAll('.flickr-card img');
                 let loadedCount = 0;
                 const totalImages = newImages.length;
 
@@ -388,10 +400,14 @@ function initFlickrAlbumLazyLoading() {
                     if (img.complete && img.naturalWidth > 0) {
                         // Image already loaded
                         checkAllLoaded();
-                    } else {
-                        // Wait for image to load
+                    } else if (!img.hasAttribute('data-load-listener-added')) {
+                        // Wait for image to load - avoid duplicate listeners
                         img.addEventListener('load', checkAllLoaded, { once: true });
                         img.addEventListener('error', checkAllLoaded, { once: true }); // Count errors too
+                        img.setAttribute('data-load-listener-added', 'true');
+                    } else {
+                        // Listener already added but image not loaded, count anyway
+                        checkAllLoaded();
                     }
                 });
 
@@ -414,26 +430,56 @@ function initFlickrAlbumLazyLoading() {
 
                     // Re-initialize PhotoSwipe lightbox for new images
                     console.log('🔦 Re-initializing PhotoSwipe lightbox for new images...');
-                    setTimeout(() => {
-                        // Trigger PhotoSwipe re-initialization by dispatching a custom event
+
+                    // Multiple attempts to ensure PhotoSwipe integration
+                    const triggerPhotoSwipeUpdate = () => {
                         const photoswipeEvent = new CustomEvent('flickr-gallery-updated', {
                             detail: { gallery: gallery }
                         });
                         document.dispatchEvent(photoswipeEvent);
-                    }, 50); // Small delay to ensure DOM is fully updated
+                    };
 
-                    // Check if trigger survived the reinitialization
-                    const survivingTrigger = gallery.querySelector('.flickr-lazy-trigger');
-                    console.log(`🔍 Checking for trigger after reinitialization: ${survivingTrigger ? 'SURVIVED' : 'DESTROYED'}`);
+                    // Immediate trigger
+                    triggerPhotoSwipeUpdate();
 
-                    let finalTriggerElement = survivingTrigger;
-                    if (!survivingTrigger) {
-                        console.log('🔄 Re-creating trigger element after gallery destroyed it');
+                    // Delayed trigger to ensure DOM is fully updated
+                    setTimeout(triggerPhotoSwipeUpdate, 50);
+
+                    // Final trigger after potential layout changes
+                    setTimeout(triggerPhotoSwipeUpdate, 200);
+
+                    // Always ensure we have a valid trigger element
+                    let finalTriggerElement = gallery.querySelector('.flickr-lazy-trigger');
+
+                    // Check if the trigger is valid (has proper dimensions and is attached)
+                    const isValidTrigger = finalTriggerElement &&
+                                         finalTriggerElement.parentNode === gallery &&
+                                         finalTriggerElement.offsetHeight > 0 &&
+                                         finalTriggerElement.offsetWidth > 0;
+
+                    console.log(`🔍 Checking for trigger after reinitialization: ${finalTriggerElement ? (isValidTrigger ? 'VALID' : 'INVALID') : 'DESTROYED'}`);
+
+                    if (!isValidTrigger) {
+                        // Remove any invalid trigger elements first
+                        const oldTriggers = gallery.querySelectorAll('.flickr-lazy-trigger');
+                        oldTriggers.forEach(trigger => trigger.remove());
+
+                        console.log('🔄 Creating new trigger element with proper dimensions');
                         finalTriggerElement = document.createElement('div');
-                        finalTriggerElement.style.height = '1px';
-                        finalTriggerElement.style.width = '100%';
+                        finalTriggerElement.style.cssText = `
+                            height: 10px;
+                            width: 100%;
+                            clear: both;
+                            visibility: hidden;
+                            position: relative;
+                            display: block;
+                        `;
                         finalTriggerElement.className = 'flickr-lazy-trigger';
                         gallery.appendChild(finalTriggerElement);
+
+                        // Force reflow to ensure element has dimensions
+                        const rect = finalTriggerElement.getBoundingClientRect();
+                        console.log(`✅ New trigger dimensions: ${rect.width}x${rect.height}, positioned at ${rect.top}`);
                     }
 
                     // ALWAYS re-observe the trigger element
@@ -477,6 +523,10 @@ function initFlickrAlbumLazyLoading() {
         } finally {
             // Always reset loading flag
             gallery._flickrLoading = false;
+
+            // Ensure any orphaned loading indicators are removed
+            const orphanedIndicators = gallery.querySelectorAll('.flickr-loading-indicator');
+            orphanedIndicators.forEach(indicator => indicator.remove());
         }
     }
 
