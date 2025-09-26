@@ -294,6 +294,23 @@ function initFlickrAlbumLazyLoading() {
 
                 // Re-initialize gallery layout
                 window.initJustifiedGallery();
+
+                // Re-add trigger element after reinitialization (it gets lost during layout)
+                const existingTrigger = gallery.querySelector('.flickr-lazy-trigger');
+                if (!existingTrigger) {
+                    console.log('🔄 Re-adding trigger element after gallery reinitialization');
+                    const newTrigger = document.createElement('div');
+                    newTrigger.style.height = '1px';
+                    newTrigger.style.width = '100%';
+                    newTrigger.className = 'flickr-lazy-trigger';
+                    gallery.appendChild(newTrigger);
+
+                    // Re-observe the new trigger
+                    const observer = gallery._flickrLazyObserver;
+                    if (observer) {
+                        observer.observe(newTrigger);
+                    }
+                }
             }, 100);
 
         } catch (error) {
