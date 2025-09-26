@@ -206,3 +206,17 @@
         transition: none;
     }
 }
+
+/* PhotoSwipe theme protection and mobile enhancements */
+
+/* Keep PhotoSwipe slide images from inheriting global img rules */
+.pswp img {
+    max-width: none !important;
+    height: auto;
+}
+
+/* Respect notches / dynamic islands */
+.pswp {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+}

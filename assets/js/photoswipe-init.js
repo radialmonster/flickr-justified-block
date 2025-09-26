@@ -159,32 +159,30 @@
                 loop: true,
                 pinchToClose: true,
                 closeOnVerticalDrag: true,
-                padding: { top: 0, bottom: 0, left: 0, right: 0 },
-                // Dynamic sizing based on viewport
-                maxZoomLevel: 3,
+
+                // let PS size things; don't hardcode toolbar/viewport
+                initialZoomLevel: 'fit',
                 secondaryZoomLevel: 2,
-                initialZoomLevel: 'fit', // Fit to screen initially, allow zoom for detail
-                // Use actual user viewport size for optimal image sizing
-                getViewportSizeFn: (options, pswp) => {
-                    return {
-                        x: window.innerWidth, // Use full screen width
-                        y: window.innerHeight // Use full screen height
-                    };
+                maxZoomLevel: 3,
+
+                // Give PS dynamic padding that works on mobile
+                paddingFn: (viewportSize, itemData, index) => {
+                    const isSmall = Math.min(viewportSize.x, viewportSize.y) <= 600;
+                    // iOS safe-area insets (0 on non-notch devices/browsers)
+                    const safeTop = parseInt(getComputedStyle(document.documentElement)
+                        .getPropertyValue('env(safe-area-inset-top)') || '0', 10) || 0;
+                    const safeBottom = parseInt(getComputedStyle(document.documentElement)
+                        .getPropertyValue('env(safe-area-inset-bottom)') || '0', 10) || 0;
+
+                    // Reserve a bit more top room for the toolbar on small screens.
+                    const topPad = isSmall ? (56 + safeTop) : (48 + safeTop);
+                    // Small bottom gap so image appears visually centered with the top bar shown.
+                    const bottomPad = isSmall ? (16 + safeBottom) : (16 + safeBottom);
+
+                    return { top: topPad, bottom: bottomPad, left: 0, right: 0 };
                 }
             });
 
-            // Make top bar slightly more compact
-            lightbox.on('afterInit', function() {
-                // Wait for DOM to be ready, then make top bar compact
-                setTimeout(() => {
-                    const topBar = document.querySelector('.pswp__top-bar');
-                    if (topBar) {
-                        // Only reduce top bar height slightly
-                        topBar.style.height = '55px';
-                        topBar.style.minHeight = '55px';
-                    }
-                }, 100);
-            });
 
             // Add Flickr attribution button
             lightbox.on('uiRegister', function() {
@@ -193,7 +191,7 @@
 
                 lightbox.ui.registerElement({
                     name: 'flickr-attribution',
-                    order: 9, // After zoom button, before close button (back to right side)
+                    order: 9,
                     isButton: true,
                     tagName: 'a',
                     html: attributionSettings.text,
@@ -202,39 +200,28 @@
                     onInit: (el, pswp) => {
                         el.setAttribute('target', '_blank');
                         el.setAttribute('rel', 'noopener noreferrer');
-                        el.style.fontSize = '14px';
+
+                        // Make it compact & non-wrapping on mobile
+                        el.style.fontSize = '13px';
                         el.style.textDecoration = 'underline';
                         el.style.color = '#fff';
-                        el.style.padding = '6px 12px';
+                        el.style.padding = '6px 10px';
                         el.style.backgroundColor = 'rgba(0,0,0,0.3)';
                         el.style.borderRadius = '4px';
                         el.style.transition = 'background-color 0.2s';
                         el.style.whiteSpace = 'nowrap';
-                        el.style.minWidth = 'auto';
+                        el.style.textOverflow = 'ellipsis';
+                        el.style.overflow = 'hidden';
+                        el.style.maxWidth = '35vw';       // prevent bar expansion on narrow screens
+                        el.style.flex = '0 1 auto';       // allow shrink
                         el.style.marginRight = '8px';
-                        el.style.flexShrink = '0';
-                        el.style.maxWidth = 'none';
-                        el.style.overflow = 'visible';
-                        el.style.display = 'block';
-                        el.style.width = 'auto';
-                        el.style.height = 'auto';
 
                         // Hover effect
-                        el.addEventListener('mouseenter', () => {
-                            el.style.backgroundColor = 'rgba(0,0,0,0.6)';
-                        });
+                        el.addEventListener('mouseenter', () => el.style.backgroundColor = 'rgba(0,0,0,0.6)');
+                        el.addEventListener('mouseleave', () => el.style.backgroundColor = 'rgba(0,0,0,0.3)');
 
-                        el.addEventListener('mouseleave', () => {
-                            el.style.backgroundColor = 'rgba(0,0,0,0.3)';
-                        });
-
-                        // Set initial URL
                         updateAttributionUrl(el, pswp);
-
-                        // Update URL when slide changes
-                        pswp.on('change', () => {
-                            updateAttributionUrl(el, pswp);
-                        });
+                        pswp.on('change', () => updateAttributionUrl(el, pswp));
                     }
                 });
             });
