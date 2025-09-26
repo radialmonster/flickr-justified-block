@@ -284,19 +284,25 @@ function initFlickrAlbumLazyLoading() {
         const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
 
         try {
+            console.log(`⏳ Waiting for ${loadPromises.length} page load promises to complete...`);
             await Promise.all(loadPromises);
+            console.log('✅ All page load promises completed successfully');
 
             // Re-initialize the justified layout with new photos
+            console.log('🔄 Starting gallery reinitialization...');
             gallery.classList.remove('justified-initialized');
             setTimeout(() => {
+                console.log('📐 Dispatching gallery reorganized event...');
                 const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
                 document.dispatchEvent(event);
 
                 // Re-initialize gallery layout
+                console.log('🏗️ Re-initializing gallery layout...');
                 window.initJustifiedGallery();
 
                 // Re-add trigger element after reinitialization (it gets lost during layout)
                 const existingTrigger = gallery.querySelector('.flickr-lazy-trigger');
+                console.log(`🔍 Checking for existing trigger: ${existingTrigger ? 'FOUND' : 'NOT FOUND'}`);
                 if (!existingTrigger) {
                     console.log('🔄 Re-adding trigger element after gallery reinitialization');
                     const newTrigger = document.createElement('div');
@@ -308,9 +314,15 @@ function initFlickrAlbumLazyLoading() {
                     // Re-observe the new trigger
                     const observer = gallery._flickrLazyObserver;
                     if (observer) {
+                        console.log('👁️ Re-observing new trigger element');
                         observer.observe(newTrigger);
+                    } else {
+                        console.log('⚠️ No observer found to re-observe trigger!');
                     }
+                } else {
+                    console.log('✅ Existing trigger found, no need to re-add');
                 }
+                console.log('🏁 Gallery reinitialization complete');
             }, 100);
 
         } catch (error) {
