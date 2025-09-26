@@ -259,10 +259,9 @@
 }
 
 
-/* Mobile: allow a second row so "View on Flickr" can breathe */
+/* Mobile: keep controls compact without forcing a second row */
 @media (max-width: 768px) {
   .pswp__top-bar {
-    flex-wrap: wrap;
     align-items: center;
     gap: 8px 10px;
     padding: 10px;
@@ -289,10 +288,8 @@
 
   .pswp__button--flickr-attribution {
     order: 3;
-    flex: 1 0 100%;
     margin-right: 0;
-    white-space: normal;
-    text-align: center;
+    white-space: nowrap;
     justify-content: center;
     padding: 8px 12px;
   }

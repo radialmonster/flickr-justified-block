@@ -284,7 +284,7 @@ class FlickrJustifiedAdminSettings {
         // Sanitize attribution text
         if (isset($input['attribution_text'])) {
             $text = sanitize_text_field($input['attribution_text']);
-            $sanitized['attribution_text'] = !empty($text) ? $text : 'View on Flickr';
+            $sanitized['attribution_text'] = !empty($text) ? $text : 'Flickr';
         }
 
         // Sanitize attribution position
@@ -545,7 +545,7 @@ class FlickrJustifiedAdminSettings {
         echo '<ul style="list-style: disc; margin-left: 20px;">';
         echo '<li><strong>' . __('Data attributes:', 'flickr-justified-block') . '</strong> ' . __('Stores Flickr URLs in HTML attributes for lightbox plugins to use', 'flickr-justified-block') . '</li>';
         echo '<li><strong>' . __('Caption overlay:', 'flickr-justified-block') . '</strong> ' . __('Shows attribution link as overlay on gallery thumbnails', 'flickr-justified-block') . '</li>';
-        echo '<li><strong>' . __('Lightbox button:', 'flickr-justified-block') . '</strong> ' . __('Adds "View on Flickr" button to supported lightbox plugins', 'flickr-justified-block') . '</li>';
+        echo '<li><strong>' . __('Lightbox button:', 'flickr-justified-block') . '</strong> ' . __('Adds "Flickr" button to supported lightbox plugins', 'flickr-justified-block') . '</li>';
         echo '<li><strong>' . __('Disabled:', 'flickr-justified-block') . '</strong> ' . __('No attribution (may violate Flickr terms)', 'flickr-justified-block') . '</li>';
         echo '</ul>';
     }
@@ -555,11 +555,11 @@ class FlickrJustifiedAdminSettings {
      */
     public static function attribution_text_callback() {
         $options = get_option('flickr_justified_options', []);
-        $text = isset($options['attribution_text']) ? $options['attribution_text'] : 'View on Flickr';
+        $text = isset($options['attribution_text']) ? $options['attribution_text'] : 'Flickr';
 
         echo '<input type="text" name="flickr_justified_options[attribution_text]" id="attribution_text" value="' . esc_attr($text) . '" class="regular-text" />';
-        echo '<p class="description">' . __('Text to display for Flickr attribution links. Default: "View on Flickr"', 'flickr-justified-block') . '</p>';
-        echo '<p class="description">' . __('Examples: "View on Flickr", "Source", "Original", "📷 Flickr"', 'flickr-justified-block') . '</p>';
+        echo '<p class="description">' . __('Text to display for Flickr attribution links. Default: "Flickr"', 'flickr-justified-block') . '</p>';
+        echo '<p class="description">' . __('Examples: "Flickr", "View on Flickr", "Source", "Original", "📷 Flickr"', 'flickr-justified-block') . '</p>';
     }
 
     /**
@@ -659,7 +659,7 @@ class FlickrJustifiedAdminSettings {
     public static function get_attribution_text() {
         $options = get_option('flickr_justified_options', []);
         $text = isset($options['attribution_text']) ? trim($options['attribution_text']) : '';
-        return !empty($text) ? $text : 'View on Flickr';
+        return !empty($text) ? $text : 'Flickr';
     }
 
     /**
