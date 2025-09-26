@@ -291,6 +291,20 @@ function initFlickrAlbumLazyLoading() {
             // Re-initialize the justified layout with new photos
             console.log('🔄 Starting gallery reinitialization...');
             gallery.classList.remove('justified-initialized');
+
+            // Create trigger BEFORE reinitialization to ensure it's always there
+            let triggerElement = gallery.querySelector('.flickr-lazy-trigger');
+            if (!triggerElement) {
+                console.log('🆕 Creating trigger element before reinitialization');
+                triggerElement = document.createElement('div');
+                triggerElement.style.height = '1px';
+                triggerElement.style.width = '100%';
+                triggerElement.className = 'flickr-lazy-trigger';
+                gallery.appendChild(triggerElement);
+            } else {
+                console.log('✅ Trigger element already exists');
+            }
+
             setTimeout(() => {
                 console.log('📐 Dispatching gallery reorganized event...');
                 const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
@@ -300,36 +314,42 @@ function initFlickrAlbumLazyLoading() {
                 console.log('🏗️ Re-initializing gallery layout...');
                 window.initJustifiedGallery();
 
-                // Ensure trigger element exists and is properly observed
-                let triggerElement = gallery.querySelector('.flickr-lazy-trigger');
-                console.log(`🔍 Checking for existing trigger: ${triggerElement ? 'FOUND' : 'NOT FOUND'}`);
+                // Check if trigger survived the reinitialization
+                const survivingTrigger = gallery.querySelector('.flickr-lazy-trigger');
+                console.log(`🔍 Checking for trigger after reinitialization: ${survivingTrigger ? 'SURVIVED' : 'DESTROYED'}`);
 
-                if (!triggerElement) {
-                    console.log('🔄 Re-adding trigger element after gallery reinitialization');
-                    triggerElement = document.createElement('div');
-                    triggerElement.style.height = '1px';
-                    triggerElement.style.width = '100%';
-                    triggerElement.className = 'flickr-lazy-trigger';
-                    gallery.appendChild(triggerElement);
-                } else {
-                    console.log('✅ Existing trigger found, but will re-observe anyway');
+                let finalTriggerElement = survivingTrigger;
+                if (!survivingTrigger) {
+                    console.log('🔄 Re-creating trigger element after gallery destroyed it');
+                    finalTriggerElement = document.createElement('div');
+                    finalTriggerElement.style.height = '1px';
+                    finalTriggerElement.style.width = '100%';
+                    finalTriggerElement.className = 'flickr-lazy-trigger';
+                    gallery.appendChild(finalTriggerElement);
                 }
 
-                // ALWAYS re-observe the trigger element (connection may be broken by reinitialization)
+                // ALWAYS re-observe the trigger element
                 const observer = gallery._flickrLazyObserver;
-                if (observer && triggerElement) {
+                if (observer && finalTriggerElement) {
                     console.log('👁️ Re-observing trigger element (required after gallery reinitialization)');
                     // First unobserve in case it's still connected to avoid duplicate observations
-                    observer.unobserve(triggerElement);
-                    observer.observe(triggerElement);
+                    try {
+                        observer.unobserve(finalTriggerElement);
+                    } catch (e) {
+                        // Element might not have been observed before
+                    }
+                    observer.observe(finalTriggerElement);
 
                     // Debug: Check trigger element positioning
-                    const rect = triggerElement.getBoundingClientRect();
-                    const galleryRect = gallery.getBoundingClientRect();
-                    console.log(`📏 Trigger position: top=${rect.top}, bottom=${rect.bottom}, height=${rect.height}`);
-                    console.log(`📏 Gallery position: top=${galleryRect.top}, bottom=${galleryRect.bottom}, height=${galleryRect.height}`);
-                    console.log(`📏 Viewport height: ${window.innerHeight}`);
-                    console.log(`📏 Is trigger visible in viewport: ${rect.top < window.innerHeight && rect.bottom > 0}`);
+                    setTimeout(() => {
+                        const rect = finalTriggerElement.getBoundingClientRect();
+                        const galleryRect = gallery.getBoundingClientRect();
+                        console.log(`📏 Trigger position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, height=${rect.height}`);
+                        console.log(`📏 Gallery position: top=${Math.round(galleryRect.top)}, bottom=${Math.round(galleryRect.bottom)}, height=${Math.round(galleryRect.height)}`);
+                        console.log(`📏 Viewport height: ${window.innerHeight}`);
+                        console.log(`📏 Is trigger visible: ${rect.top < window.innerHeight && rect.bottom > 0}`);
+                        console.log(`📏 Distance to trigger: ${Math.round(rect.top - window.innerHeight)} pixels`);
+                    }, 50);
                 } else {
                     console.log('⚠️ No observer or trigger element found for re-observation!');
                 }
