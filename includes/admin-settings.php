@@ -585,7 +585,7 @@ class FlickrJustifiedAdminSettings {
             <div class="notice notice-info">
                 <p>
                     <strong><?php _e('How to use:', 'flickr-justified-block'); ?></strong>
-                    <?php _e('Add the "Flickr Justified" block to any post or page, then paste image URLs (one per line) in the block settings.', 'flickr-justified-block'); ?>
+                    <?php _e('Add the "Flickr Justified" block to any post or page, then paste Flickr photo links, album URLs, or direct image links (one per line) in the block settings.', 'flickr-justified-block'); ?>
                 </p>
             </div>
 
@@ -609,11 +609,12 @@ class FlickrJustifiedAdminSettings {
 
 
             <div class="card" style="margin-top: 20px;">
-                <h2><?php _e('Supported URL Formats', 'flickr-justified-block'); ?></h2>
+                <h2><?php _e('Supported Sources', 'flickr-justified-block'); ?></h2>
                 <ul style="list-style: disc; margin-left: 20px;">
                     <li><strong><?php _e('Flickr Photo Pages:', 'flickr-justified-block'); ?></strong> https://www.flickr.com/photos/username/1234567890/</li>
+                    <li><strong><?php _e('Flickr Albums/Sets:', 'flickr-justified-block'); ?></strong> https://www.flickr.com/photos/username/albums/72177720301234567</li>
                     <li><strong><?php _e('Direct Images:', 'flickr-justified-block'); ?></strong> https://example.com/image.jpg</li>
-                    <li><strong><?php _e('Supported Formats:', 'flickr-justified-block'); ?></strong> JPG, PNG, WebP, AVIF, GIF, SVG</li>
+                    <li><strong><?php _e('Supported File Types:', 'flickr-justified-block'); ?></strong> JPG, PNG, WebP, AVIF, GIF, SVG</li>
                 </ul>
             </div>
         </div>
