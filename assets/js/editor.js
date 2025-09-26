@@ -72,6 +72,7 @@
                 }
             }).then((response) => {
                 if (!isCancelled) {
+                    console.log('Flickr Justified Block: Editor received response:', response);
                     if (response.success) {
                         setImageData(response);
                         setError(null);
@@ -168,7 +169,10 @@
                                 }
                             }, '📸'),
                             // Show album title if available, otherwise show generic label
-                            imageData.album_title ? el('div', {
+                            (() => {
+                                console.log('Flickr Justified Block: Album title value:', imageData.album_title);
+                                return imageData.album_title;
+                            })() ? el('div', {
                                 style: {
                                     fontWeight: 'bold',
                                     marginBottom: '4px',

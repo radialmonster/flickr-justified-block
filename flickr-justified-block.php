@@ -229,7 +229,7 @@ class FlickrJustifiedBlock {
 
             $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 500);
             if (!empty($set_result['photos'])) {
-                return [
+                $response_data = [
                     'success' => true,
                     'image_url' => '', // We'll show a set indicator instead
                     'is_flickr' => true,
@@ -242,6 +242,12 @@ class FlickrJustifiedBlock {
                     'album_title' => !empty($set_result['album_title']) ? sanitize_text_field($set_result['album_title']) : '',
                     'first_photo' => !empty($set_result['photos'][0]) ? esc_url_raw($set_result['photos'][0]) : ''
                 ];
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr Justified Block: REST API returning album data: ' . json_encode($response_data));
+                }
+
+                return $response_data;
             } else {
                 return new WP_Error('set_error', 'Could not fetch Flickr set data', ['status' => 404]);
             }
