@@ -146,32 +146,55 @@
                     },
                         el('div', {
                             style: {
-                                padding: '20px',
+                                padding: '24px 20px',
                                 border: '2px solid #0073aa',
-                                borderRadius: '4px',
-                                backgroundColor: '#f0f6fc',
+                                borderRadius: '8px',
+                                backgroundColor: '#f7fbff',
                                 textAlign: 'center',
-                                color: '#0073aa'
+                                color: '#0073aa',
+                                position: 'relative',
+                                minHeight: '120px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                boxShadow: '0 2px 8px rgba(0,115,170,0.1)'
                             }
                         },
                             el('div', {
                                 style: {
-                                    fontSize: '24px',
-                                    marginBottom: '8px'
+                                    fontSize: '32px',
+                                    marginBottom: '12px',
+                                    lineHeight: '1'
                                 }
-                            }, '📁'),
+                            }, '📸'),
                             el('div', {
                                 style: {
                                     fontWeight: 'bold',
-                                    marginBottom: '4px'
+                                    marginBottom: '8px',
+                                    fontSize: '16px'
                                 }
-                            }, __('Flickr Album/Set', 'flickr-justified-block')),
+                            }, (() => {
+                                const urlTrimmed = url.trim();
+                                if (/(?:www\.)?flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+\/with\/\d+/i.test(urlTrimmed)) {
+                                    return __('Flickr Album (with specific photo)', 'flickr-justified-block');
+                                } else {
+                                    return __('Flickr Album', 'flickr-justified-block');
+                                }
+                            })()),
                             el('div', {
                                 style: {
                                     fontSize: '14px',
-                                    opacity: '0.8'
+                                    opacity: '0.7',
+                                    marginBottom: '8px'
                                 }
-                            }, imageData.photo_count + ' ' + __('photos', 'flickr-justified-block'))
+                            }, imageData.photo_count + ' ' + __('photos will be displayed', 'flickr-justified-block')),
+                            el('div', {
+                                style: {
+                                    fontSize: '12px',
+                                    opacity: '0.6',
+                                    fontStyle: 'italic'
+                                }
+                            }, __('Photos will load from your Flickr album', 'flickr-justified-block'))
                         )
                     )
                 );
