@@ -753,8 +753,8 @@ function initFlickrAlbumLazyLoading() {
                 console.log(`📦 Stored ${result.photos.length} photos for insertion after reinitialization`);
             }
 
-            // Update set metadata
-            setData.current_page = result.page;
+            // Update set metadata - use nextPage since that's what we requested
+            setData.current_page = nextPage; // Use nextPage instead of result.page for reliability
             setData.loaded_photos = (setData.loaded_photos || 0) + result.photos.length;
             setData.isLoading = false;
 
