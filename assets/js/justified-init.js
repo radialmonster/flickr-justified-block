@@ -253,32 +253,32 @@ function initFlickrAlbumLazyLoading() {
             setData.loadingError = false;
         });
 
-        // Create intersection observer to detect when user scrolls near bottom
+        // Create intersection observer to detect when last image comes into view
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 console.log('👁️ Intersection observer triggered. Is intersecting:', entry.isIntersecting);
                 if (entry.isIntersecting) {
-                    console.log('✨ Trigger element is visible, calling loadNextPages');
+                    console.log('✨ Last image is visible, calling loadNextPages');
                     loadNextPages(gallery, setMetadata);
                 }
             });
         }, {
-            rootMargin: '1000px' // Load when 1000px from bottom (increased for large galleries)
+            rootMargin: '500px' // Load when last image is 500px from view
         });
 
-        // Create and observe a trigger element at the bottom of the gallery
-        const trigger = document.createElement('div');
-        trigger.style.cssText = `
-            height: 10px;
-            width: 100%;
-            clear: both;
-            visibility: hidden;
-            position: relative;
-            display: block;
-        `;
-        trigger.className = 'flickr-lazy-trigger';
-        gallery.appendChild(trigger);
-        observer.observe(trigger);
+        // Find and observe the last image in the gallery
+        function observeLastImage() {
+            const lastImage = gallery.querySelector('.flickr-card:last-child img');
+            if (lastImage) {
+                observer.observe(lastImage);
+                gallery._lastObservedImage = lastImage;
+                console.log('👁️ Now observing last image for lazy loading');
+            } else {
+                console.warn('⚠️ No last image found to observe');
+            }
+        }
+
+        observeLastImage();
 
         // Store observer reference for cleanup
         gallery._flickrLazyObserver = observer;
@@ -335,17 +335,16 @@ function initFlickrAlbumLazyLoading() {
 
         console.log(`Found ${setsToLoad.length} sets to load`);
         if (setsToLoad.length === 0) {
-            // No more pages to load, clean up observer and remove trigger
-            const trigger = gallery.querySelector('.flickr-lazy-trigger');
-            if (trigger) {
-                // Get the observer from gallery data if it exists
-                const observer = gallery._flickrLazyObserver;
-                if (observer) {
-                    observer.unobserve(trigger);
-                    observer.disconnect();
-                    delete gallery._flickrLazyObserver;
+            // No more pages to load, clean up observer
+            const observer = gallery._flickrLazyObserver;
+            if (observer) {
+                if (gallery._lastObservedImage) {
+                    observer.unobserve(gallery._lastObservedImage);
                 }
-                trigger.remove();
+                observer.disconnect();
+                delete gallery._flickrLazyObserver;
+                delete gallery._lastObservedImage;
+                console.log('🧹 Cleaned up lazy loading observer - no more pages to load');
             }
             gallery._flickrLoading = false;
             return;
@@ -373,20 +372,9 @@ function initFlickrAlbumLazyLoading() {
 
         console.log('🔔 Creating loading indicator...');
 
-        // Insert loading indicator safely
-        const trigger = gallery.querySelector('.flickr-lazy-trigger');
-        if (trigger && trigger.parentNode === gallery) {
-            console.log('🔔 Inserting loading indicator before trigger');
-            try {
-                gallery.insertBefore(loadingIndicator, trigger);
-            } catch (e) {
-                console.log('🔔 Trigger insertion failed, appending to gallery end');
-                gallery.appendChild(loadingIndicator);
-            }
-        } else {
-            console.log('🔔 No valid trigger found, appending loading indicator to gallery end');
-            gallery.appendChild(loadingIndicator);
-        }
+        // Insert loading indicator at the end of the gallery
+        console.log('🔔 Appending loading indicator to gallery end');
+        gallery.appendChild(loadingIndicator);
 
         // Force the indicator to be visible immediately
         setTimeout(() => {
@@ -413,23 +401,11 @@ function initFlickrAlbumLazyLoading() {
             console.log('🔄 Starting gallery reinitialization...');
             gallery.classList.remove('justified-initialized');
 
-            // Create trigger BEFORE reinitialization to ensure it's always there
-            let triggerElement = gallery.querySelector('.flickr-lazy-trigger');
-            if (!triggerElement) {
-                console.log('🆕 Creating trigger element before reinitialization');
-                triggerElement = document.createElement('div');
-                triggerElement.style.cssText = `
-                    height: 10px;
-                    width: 100%;
-                    clear: both;
-                    visibility: hidden;
-                    position: relative;
-                    display: block;
-                `;
-                triggerElement.className = 'flickr-lazy-trigger';
-                gallery.appendChild(triggerElement);
-            } else {
-                console.log('✅ Trigger element already exists');
+            // Stop observing the old last image before reinitialization
+            const observer = gallery._flickrLazyObserver;
+            if (observer && gallery._lastObservedImage) {
+                observer.unobserve(gallery._lastObservedImage);
+                console.log('👁️ Stopped observing old last image');
             }
 
             // Wait for all images to load before reinitialization to prevent layout thrashing
@@ -501,13 +477,7 @@ function initFlickrAlbumLazyLoading() {
                             const card = createPhotoCard(photoData, gallery);
                             if (card) {
                                 try {
-                                    // Insert before any existing trigger elements to maintain order
-                                    const trigger = gallery.querySelector('.flickr-lazy-trigger');
-                                    if (trigger) {
-                                        gallery.insertBefore(card, trigger);
-                                    } else {
-                                        gallery.appendChild(card);
-                                    }
+                                    gallery.appendChild(card);
                                     console.log(`✅ Successfully inserted photo ${index + 1}/${gallery._pendingPhotos.length}`);
                                 } catch (e) {
                                     console.error(`❌ Failed to insert photo ${index + 1}:`, e);
@@ -528,32 +498,17 @@ function initFlickrAlbumLazyLoading() {
 
                     // Wait for DOM to stabilize after complete rebuild
                     setTimeout(() => {
-                        // Ensure trigger is properly positioned after gallery rebuild
-                        let postReinitTrigger = gallery.querySelector('.flickr-lazy-trigger');
-                        if (!postReinitTrigger) {
-                            console.log('🔧 Trigger missing after reinitialization, creating new one');
-                            postReinitTrigger = document.createElement('div');
-                            postReinitTrigger.style.cssText = `
-                                height: 10px;
-                                width: 100%;
-                                clear: both;
-                                visibility: hidden;
-                                position: relative;
-                                display: block;
-                                margin-top: 100px;
-                            `;
-                            postReinitTrigger.className = 'flickr-lazy-trigger';
-                            gallery.appendChild(postReinitTrigger);
-                        } else {
-                            // Add margin to existing trigger to push it down
-                            postReinitTrigger.style.marginTop = '100px';
-                        }
-
-                        // Re-observe the properly positioned trigger
+                        // Re-observe the new last image
                         const observer = gallery._flickrLazyObserver;
-                        if (observer && postReinitTrigger) {
-                            observer.observe(postReinitTrigger);
-                            console.log('🔧 Re-observed trigger after proper positioning');
+                        if (observer) {
+                            const newLastImage = gallery.querySelector('.flickr-card:last-child img');
+                            if (newLastImage) {
+                                observer.observe(newLastImage);
+                                gallery._lastObservedImage = newLastImage;
+                                console.log('👁️ Re-observing new last image after reinitialization');
+                            } else {
+                                console.warn('⚠️ No new last image found after reinitialization');
+                            }
                         }
                     }, 100);
 
@@ -577,105 +532,6 @@ function initFlickrAlbumLazyLoading() {
                     // Final trigger after potential layout changes
                     setTimeout(triggerPhotoSwipeUpdate, 200);
 
-                    // Always ensure we have a valid trigger element
-                    let finalTriggerElement = gallery.querySelector('.flickr-lazy-trigger');
-
-                    // Check if the trigger is valid (has proper dimensions and is attached)
-                    const isValidTrigger = finalTriggerElement &&
-                                         finalTriggerElement.parentNode === gallery &&
-                                         finalTriggerElement.offsetHeight > 0 &&
-                                         finalTriggerElement.offsetWidth > 0;
-
-                    console.log(`🔍 Checking for trigger after reinitialization: ${finalTriggerElement ? (isValidTrigger ? 'VALID' : 'INVALID') : 'DESTROYED'}`);
-
-                    if (!isValidTrigger) {
-                        // Remove any invalid trigger elements first
-                        const oldTriggers = gallery.querySelectorAll('.flickr-lazy-trigger');
-                        oldTriggers.forEach(trigger => trigger.remove());
-
-                        console.log('🔄 Creating new trigger element with proper dimensions');
-                        finalTriggerElement = document.createElement('div');
-                        finalTriggerElement.style.cssText = `
-                            height: 10px;
-                            width: 100%;
-                            clear: both;
-                            visibility: hidden;
-                            position: relative;
-                            display: block;
-                        `;
-                        finalTriggerElement.className = 'flickr-lazy-trigger';
-
-                        // Add buffer space to account for layout compression when images arrange into rows
-                        const bufferSpace = document.createElement('div');
-                        bufferSpace.style.cssText = `
-                            height: 2000px;
-                            width: 100%;
-                            visibility: hidden;
-                            position: relative;
-                            display: block;
-                        `;
-                        bufferSpace.className = 'flickr-layout-buffer';
-
-                        // Ensure trigger is placed at the very end of the gallery with buffer
-                        const allCards = gallery.querySelectorAll('.flickr-card');
-                        if (allCards.length > 0) {
-                            // Insert buffer and trigger after the last card
-                            const lastCard = allCards[allCards.length - 1];
-                            lastCard.parentNode.insertBefore(bufferSpace, lastCard.nextSibling);
-                            lastCard.parentNode.insertBefore(finalTriggerElement, bufferSpace.nextSibling);
-                        } else {
-                            // Fallback: append to gallery
-                            gallery.appendChild(bufferSpace);
-                            gallery.appendChild(finalTriggerElement);
-                        }
-
-                        // Remove buffer after layout stabilizes
-                        setTimeout(() => {
-                            if (bufferSpace.parentNode) {
-                                bufferSpace.remove();
-                                console.log('🗑️ Removed layout buffer after stabilization');
-                            }
-                        }, 1000);
-
-                        // Force reflow to ensure element has dimensions and correct position
-                        setTimeout(() => {
-                            const rect = finalTriggerElement.getBoundingClientRect();
-                            console.log(`✅ New trigger dimensions: ${rect.width}x${rect.height}, positioned at ${rect.top}`);
-
-                            // Verify trigger is below viewport
-                            if (rect.top <= window.innerHeight) {
-                                console.log(`⚠️ WARNING: Trigger is too high (${rect.top}px), may cause infinite loading`);
-                            } else {
-                                console.log(`✅ Trigger properly positioned ${Math.round(rect.top - window.innerHeight)}px below viewport`);
-                            }
-                        }, 10);
-                    }
-
-                    // ALWAYS re-observe the trigger element
-                    const observer = gallery._flickrLazyObserver;
-                    if (observer && finalTriggerElement) {
-                        console.log('👁️ Re-observing trigger element (required after gallery reinitialization)');
-                        // First unobserve in case it's still connected to avoid duplicate observations
-                        try {
-                            observer.unobserve(finalTriggerElement);
-                        } catch (e) {
-                            // Element might not have been observed before
-                        }
-                        observer.observe(finalTriggerElement);
-
-                        // Debug: Check trigger element positioning
-                        setTimeout(() => {
-                            const rect = finalTriggerElement.getBoundingClientRect();
-                            const galleryRect = gallery.getBoundingClientRect();
-                            console.log(`📏 Trigger position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, height=${rect.height}`);
-                            console.log(`📏 Gallery position: top=${Math.round(galleryRect.top)}, bottom=${Math.round(galleryRect.bottom)}, height=${Math.round(galleryRect.height)}`);
-                            console.log(`📏 Viewport height: ${window.innerHeight}`);
-                            console.log(`📏 Is trigger visible: ${rect.top < window.innerHeight && rect.bottom > 0}`);
-                            console.log(`📏 Distance to trigger: ${Math.round(rect.top - window.innerHeight)} pixels`);
-                        }, 50);
-                    } else {
-                        console.log('⚠️ No observer or trigger element found for re-observation!');
-                    }
 
                     // Set timestamp to prevent immediate re-triggering after layout changes
                     gallery._lastReinit = Date.now();
