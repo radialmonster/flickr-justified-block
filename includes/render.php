@@ -11,28 +11,117 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * Safely retrieve a value from the admin settings class.
+ *
+ * @param string $method  Method name to call on FlickrJustifiedAdminSettings.
+ * @param mixed  $default Default value to return when the method is unavailable.
+ * @return mixed
+ */
+function flickr_justified_get_admin_setting($method, $default = null) {
+    if (!is_string($method) || empty($method)) {
+        return $default;
+    }
+
+    if (!class_exists('FlickrJustifiedAdminSettings')) {
+        return $default;
+    }
+
+    if (!is_callable(['FlickrJustifiedAdminSettings', $method])) {
+        return $default;
+    }
+
+    $value = call_user_func(['FlickrJustifiedAdminSettings', $method]);
+
+    return null === $value ? $default : $value;
+}
+
+/**
+ * Retrieve the configured Flickr API key.
+ *
+ * @return string
+ */
+function flickr_justified_get_api_key() {
+    static $api_key = null;
+
+    if (null !== $api_key) {
+        return $api_key;
+    }
+
+    $raw_key = flickr_justified_get_admin_setting('get_api_key', '');
+    $api_key = is_string($raw_key) ? trim($raw_key) : '';
+
+    return $api_key;
+}
+
+/**
+ * Get the Flickr size label mapping used throughout the renderer.
+ *
+ * @return array
+ */
+function flickr_justified_get_size_label_map() {
+    static $size_mapping = null;
+
+    if (null === $size_mapping) {
+        $size_mapping = [
+            'original'    => ['Original'],
+            'large6k'     => ['Large 6144', 'Original'],
+            'large5k'     => ['Large 5120', 'Large 6144', 'Original'],
+            'largef'      => ['Large 4096', 'Large 5120', 'Original'],
+            'large4k'     => ['Large 4096', 'Large 5120', 'Original'],
+            'large3k'     => ['Large 3072', 'Large 4096', 'Original'],
+            'large2048'   => ['Large 2048', 'Large 3072', 'Original'],
+            'large1600'   => ['Large 1600', 'Large 2048', 'Original'],
+            'large1024'   => ['Large 1024', 'Large 1600', 'Original'],
+            'large'       => ['Large', 'Large 1024', 'Original'],
+            'medium800'   => ['Medium 800', 'Large', 'Original'],
+            'medium640'   => ['Medium 640', 'Medium 800', 'Large'],
+            'medium500'   => ['Medium', 'Medium 640', 'Large'],
+            'medium'      => ['Medium', 'Medium 640', 'Large'],
+            'small400'    => ['Small 400', 'Medium'],
+            'small320'    => ['Small 320', 'Small 400', 'Medium'],
+            'small240'    => ['Small', 'Small 320', 'Medium'],
+        ];
+    }
+
+    return $size_mapping;
+}
+
+/**
+ * Encode data for safe output within HTML attributes.
+ *
+ * @param mixed $data Data to encode.
+ * @return string
+ */
+function flickr_justified_encode_json_attr($data) {
+    $encoded = function_exists('wp_json_encode') ? wp_json_encode($data) : json_encode($data);
+
+    return is_string($encoded) ? $encoded : '';
+}
+
+/**
+ * Provide a consistent empty response for paginated photoset requests.
+ *
+ * @param int $page Requested page number.
+ * @return array
+ */
+function flickr_justified_empty_photoset_result($page = 1) {
+    $page = max(1, (int) $page);
+
+    return [
+        'photos'      => [],
+        'has_more'    => false,
+        'total'       => 0,
+        'page'        => $page,
+        'pages'       => 1,
+        'album_title' => '',
+    ];
+}
+
+/**
  * Fallback: Map API sizes directly to requested sizes (when direct URL construction fails)
  */
 function flickr_justified_map_api_sizes_to_requested($api_sizes, $requested_sizes) {
-    $size_mapping = [
-        'original' => ['Original'],
-        'large6k' => ['Large 6144', 'Original'],
-        'large5k' => ['Large 5120', 'Large 6144', 'Original'],
-        'largef' => ['Large 4096', 'Large 5120', 'Original'],
-        'large4k' => ['Large 4096', 'Large 5120', 'Original'],
-        'large3k' => ['Large 3072', 'Large 4096', 'Original'],
-        'large2048' => ['Large 2048', 'Large 3072', 'Original'],
-        'large1600' => ['Large 1600', 'Large 2048', 'Original'],
-        'large1024' => ['Large 1024', 'Large 1600', 'Original'],
-        'large' => ['Large', 'Large 1024', 'Original'],
-        'medium800' => ['Medium 800', 'Large', 'Original'],
-        'medium640' => ['Medium 640', 'Medium 800', 'Large'],
-        'medium500' => ['Medium', 'Medium 640', 'Large'],
-        'medium' => ['Medium', 'Medium 640', 'Large'],
-        'small400' => ['Small 400', 'Medium'],
-        'small320' => ['Small 320', 'Small 400', 'Medium'],
-        'small240' => ['Small', 'Small 320', 'Medium']
-    ];
+    $size_mapping = flickr_justified_get_size_label_map();
 
     $result = [];
 
@@ -134,10 +223,7 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     }
 
     // Get API key from settings
-    $api_key = '';
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
-        $api_key = FlickrJustifiedAdminSettings::get_api_key();
-    }
+    $api_key = flickr_justified_get_api_key();
 
     if (empty($api_key)) {
         return [];
@@ -162,6 +248,11 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
         return [];
     }
 
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    if ($response_code < 200 || $response_code >= 300) {
+        return [];
+    }
+
     $body = wp_remote_retrieve_body($response);
     $data = json_decode($body, true);
 
@@ -175,9 +266,9 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
 
     if (!empty($result)) {
         // Cache the results
-        $cache_duration = WEEK_IN_SECONDS;
-        if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_cache_duration')) {
-            $cache_duration = FlickrJustifiedAdminSettings::get_cache_duration();
+        $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
+        if ($cache_duration <= 0) {
+            $cache_duration = WEEK_IN_SECONDS;
         }
         set_transient($cache_key, $result, $cache_duration);
     }
@@ -189,25 +280,7 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
  * Map API sizes to requested sizes including dimensions
  */
 function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requested_sizes) {
-    $size_mapping = [
-        'original' => ['Original'],
-        'large6k' => ['Large 6144', 'Original'],
-        'large5k' => ['Large 5120', 'Large 6144', 'Original'],
-        'largef' => ['Large 4096', 'Large 5120', 'Original'],
-        'large4k' => ['Large 4096', 'Large 5120', 'Original'],
-        'large3k' => ['Large 3072', 'Large 4096', 'Original'],
-        'large2048' => ['Large 2048', 'Large 3072', 'Original'],
-        'large1600' => ['Large 1600', 'Large 2048', 'Original'],
-        'large1024' => ['Large 1024', 'Large 1600', 'Original'],
-        'large' => ['Large', 'Large 1024', 'Original'],
-        'medium800' => ['Medium 800', 'Large', 'Original'],
-        'medium640' => ['Medium 640', 'Medium 800', 'Large'],
-        'medium500' => ['Medium', 'Medium 640', 'Large'],
-        'medium' => ['Medium', 'Medium 640', 'Large'],
-        'small400' => ['Small 400', 'Medium'],
-        'small320' => ['Small 320', 'Small 400', 'Medium'],
-        'small240' => ['Small', 'Small 320', 'Medium']
-    ];
+    $size_mapping = flickr_justified_get_size_label_map();
 
     $result = [];
 
@@ -321,10 +394,7 @@ function flickr_justified_resolve_user_id($username) {
     }
 
     // Get API key
-    $api_key = '';
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
-        $api_key = FlickrJustifiedAdminSettings::get_api_key();
-    }
+    $api_key = flickr_justified_get_api_key();
 
     if (empty($api_key)) {
         return false;
@@ -345,6 +415,11 @@ function flickr_justified_resolve_user_id($username) {
     ]);
 
     if (is_wp_error($response)) {
+        return false;
+    }
+
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    if ($response_code < 200 || $response_code >= 300) {
         return false;
     }
 
@@ -390,10 +465,7 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
     }
 
     // Get API key
-    $api_key = '';
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
-        $api_key = FlickrJustifiedAdminSettings::get_api_key();
-    }
+    $api_key = flickr_justified_get_api_key();
 
     if (empty($api_key)) {
         return false;
@@ -415,6 +487,11 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
     ]);
 
     if (is_wp_error($response)) {
+        return false;
+    }
+
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    if ($response_code < 200 || $response_code >= 300) {
         return false;
     }
 
@@ -448,31 +525,19 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
  */
 function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 50) {
 
+    $page = max(1, (int) $page);
+    $per_page = max(1, min(500, (int) $per_page)); // Flickr max is 500
+
     // Validate inputs
     if (empty($user_id) || empty($photoset_id) || !is_string($user_id) || !is_string($photoset_id)) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => 1,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
     }
 
     // Resolve username to numeric user ID if needed
     $resolved_user_id = flickr_justified_resolve_user_id($user_id);
     if (!$resolved_user_id) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => 1,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
     }
-
-    $page = max(1, intval($page));
-    $per_page = max(1, min(500, intval($per_page))); // Flickr max is 500
 
     // Cache key includes page number and version for album title feature - use resolved user ID for consistency
     $cache_key = 'flickr_justified_set_page_v2_' . md5($resolved_user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page);
@@ -484,19 +549,9 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     }
 
     // Get API key from settings
-    $api_key = '';
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
-        $api_key = FlickrJustifiedAdminSettings::get_api_key();
-    }
-
+    $api_key = flickr_justified_get_api_key();
     if (empty($api_key)) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => $page,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
     }
 
     // Make API call to get photos in the set
@@ -518,70 +573,44 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     ]);
 
     if (is_wp_error($response)) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => $page,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
+    }
+
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    if ($response_code < 200 || $response_code >= 300) {
+        return flickr_justified_empty_photoset_result($page);
     }
 
     $body = wp_remote_retrieve_body($response);
     if (empty($body)) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => $page,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
     }
 
     $data = json_decode($body, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => $page,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
     }
 
     // Check for API errors first
-    if (isset($data['stat']) && $data['stat'] === 'fail') {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => $page,
-            'pages' => 1
-        ];
+    if (isset($data['stat']) && 'fail' === $data['stat']) {
+        return flickr_justified_empty_photoset_result($page);
     }
 
     // Check if photoset data exists and has photos
     if (!isset($data['photoset']) || empty($data['photoset']['photo']) || !is_array($data['photoset']['photo'])) {
-        return [
-            'photos' => [],
-            'has_more' => false,
-            'total' => 0,
-            'page' => $page,
-            'pages' => 1
-        ];
+        return flickr_justified_empty_photoset_result($page);
     }
 
     // Extract pagination info
-    $total_photos = isset($data['photoset']['total']) ? intval($data['photoset']['total']) : 0;
-    $current_page = isset($data['photoset']['page']) ? intval($data['photoset']['page']) : $page;
-    $total_pages = isset($data['photoset']['pages']) ? intval($data['photoset']['pages']) : 1;
-    $photos_on_page = isset($data['photoset']['photo']) ? count($data['photoset']['photo']) : 0;
+    $total_photos = isset($data['photoset']['total']) ? (int) $data['photoset']['total'] : 0;
+    $current_page = isset($data['photoset']['page']) ? (int) $data['photoset']['page'] : $page;
+    $total_pages = isset($data['photoset']['pages']) ? (int) $data['photoset']['pages'] : 1;
 
     // Get album title using separate API call (only for first page to avoid redundant calls)
     $album_title = '';
-    if ($page === 1) {
+    if (1 === $page) {
         $photoset_info = flickr_justified_get_photoset_info($user_id, $photoset_id);
-        if ($photoset_info && !empty($photoset_info['title'])) {
+        if (!empty($photoset_info) && !empty($photoset_info['title'])) {
             $album_title = $photoset_info['title'];
         }
     }
@@ -589,15 +618,18 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     // Convert photos to individual photo page URLs
     $photo_urls = [];
     foreach ($data['photoset']['photo'] as $photo) {
-        if (isset($photo['id']) && !empty($photo['id']) && is_string($photo['id'])) {
-            // Sanitize the photo ID (should be numeric)
-            $photo_id = preg_replace('/[^0-9]/', '', $photo['id']);
-            if (!empty($photo_id)) {
-                // Create the standard photo page URL format that our existing functions can handle
-                $photo_url = "https://flickr.com/photos/" . urlencode($user_id) . "/" . $photo_id . "/";
-                $photo_urls[] = $photo_url;
-            }
+        if (empty($photo['id']) || !is_string($photo['id'])) {
+            continue;
         }
+
+        $photo_id = preg_replace('/[^0-9]/', '', $photo['id']);
+        if (empty($photo_id)) {
+            continue;
+        }
+
+        // Create the standard photo page URL format that our existing functions can handle
+        $photo_url = 'https://flickr.com/photos/' . rawurlencode($user_id) . '/' . $photo_id . '/';
+        $photo_urls[] = $photo_url;
     }
 
     $result = [
@@ -606,14 +638,15 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         'total' => $total_photos,
         'page' => $current_page,
         'pages' => $total_pages,
-        'album_title' => $album_title
+        'album_title' => $album_title,
     ];
 
     if (!empty($photo_urls)) {
         // Cache the results (shorter cache for paginated results)
         $cache_duration = HOUR_IN_SECONDS * 6; // 6 hours for individual pages
-        if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_cache_duration')) {
-            $cache_duration = max(HOUR_IN_SECONDS, FlickrJustifiedAdminSettings::get_cache_duration() / 4); // 1/4 of main cache duration, min 1 hour
+        $configured_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', 0);
+        if ($configured_duration > 0) {
+            $cache_duration = max(HOUR_IN_SECONDS, (int) floor($configured_duration / 4)); // 1/4 of main cache duration, min 1 hour
         }
         set_transient($cache_key, $result, $cache_duration);
     }
@@ -628,25 +661,21 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment, $set_metadata = []) {
 
     // Get admin breakpoints
-    $breakpoints = [];
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_breakpoints')) {
-        $breakpoints = FlickrJustifiedAdminSettings::get_breakpoints();
-    }
+    $breakpoints = flickr_justified_get_admin_setting('get_breakpoints', []);
 
     // Get attribution text for consistent PhotoSwipe button labeling
-    $attribution_text = 'Flickr';
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_attribution_text')) {
-        $attribution_text = FlickrJustifiedAdminSettings::get_attribution_text();
-    }
+    $attribution_text = flickr_justified_get_admin_setting('get_attribution_text', 'Flickr');
 
     // Generate simple structure - JavaScript will organize into responsive rows
-    $set_metadata_attr = !empty($set_metadata) ? esc_attr(json_encode($set_metadata)) : '';
+    $responsive_attr = esc_attr(flickr_justified_encode_json_attr($responsive_settings));
+    $breakpoints_attr = esc_attr(flickr_justified_encode_json_attr($breakpoints));
+    $set_metadata_attr = !empty($set_metadata) ? esc_attr(flickr_justified_encode_json_attr($set_metadata)) : '';
     $output = sprintf(
         '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-use-builtin-lightbox="%s" data-set-metadata="%s" data-attribution-text="%s">',
         esc_attr($block_id),
         (int) $gap,
-        esc_attr(json_encode($responsive_settings)),
-        esc_attr(json_encode($breakpoints)),
+        $responsive_attr,
+        $breakpoints_attr,
         esc_attr($row_height_mode),
         (int) $row_height,
         (int) $max_viewport_height,
@@ -704,7 +733,7 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
 
             // If API failed to get any images from Flickr URLs, handle based on settings
             if (empty($display_src)) {
-                $error_mode = FlickrJustifiedAdminSettings::get_privacy_error_mode();
+                $error_mode = flickr_justified_get_admin_setting('get_privacy_error_mode', 'show_placeholder');
 
                 if ($error_mode === 'show_nothing') {
                     // Skip this photo and continue with the next one
@@ -814,10 +843,8 @@ function flickr_justified_render_block($attributes) {
     $image_size = isset($attributes['imageSize']) ? $attributes['imageSize'] : 'large';
     // PhotoSwipe automatically selects optimal image sizes
     // Get configured default responsive settings from admin, with fallback
-    $default_responsive = [];
-    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_configured_default_responsive_settings')) {
-        $default_responsive = FlickrJustifiedAdminSettings::get_configured_default_responsive_settings();
-    } else {
+    $default_responsive = flickr_justified_get_admin_setting('get_configured_default_responsive_settings', []);
+    if (empty($default_responsive)) {
         $default_responsive = [
             'mobile' => 1,
             'mobile_landscape' => 1,
