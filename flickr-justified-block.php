@@ -154,7 +154,7 @@ class FlickrJustifiedBlock {
                 'flickr-justified-layout',
                 FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/justified-init.js',
                 [],
-                $init_js_ver ? $init_js_ver : FLICKR_JUSTIFIED_VERSION,
+                ($init_js_ver ? $init_js_ver : FLICKR_JUSTIFIED_VERSION) . '_' . time(), // Force cache bust
                 true
             );
         }
