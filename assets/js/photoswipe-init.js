@@ -24,7 +24,7 @@
         if (!gallery && !firstItem) return null;
 
         return {
-            text: firstItem ? (firstItem.getAttribute('data-flickr-attribution-text') || 'View on Flickr') : 'View on Flickr',
+            text: firstItem ? (firstItem.getAttribute('data-flickr-attribution-text') || 'Flickr') : 'Flickr',
             mode: gallery ? gallery.getAttribute('data-attribution-mode') : 'data_attributes'
         };
     }
