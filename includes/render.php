@@ -250,11 +250,252 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
     return $result;
 }
 
+/**
+ * Parse Flickr set/album URL to extract photoset_id and user_id
+ *
+ * @param string $url Flickr set URL
+ * @return array|false Array with photoset_id and user_id, or false if invalid
+ */
+function flickr_justified_parse_set_url($url) {
+    // Handle different Flickr set URL formats:
+    // http://flickr.com/photos/username/sets/72157600268349682/
+    // https://www.flickr.com/photos/username/albums/72157600268349682/
+    // https://flickr.com/photos/username/sets/72157600268349682
+
+    if (empty($url) || !is_string($url)) {
+        return false;
+    }
+
+    $patterns = [
+        // Standard sets format: /photos/username/sets/photoset_id
+        '#flickr\.com/photos/([^/]+)/sets/(\d+)#i',
+        // Albums format: /photos/username/albums/photoset_id
+        '#flickr\.com/photos/([^/]+)/albums/(\d+)#i'
+    ];
+
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $url, $matches)) {
+            // Validate that we got the expected matches
+            if (isset($matches[1], $matches[2]) && !empty($matches[1]) && !empty($matches[2])) {
+                return [
+                    'user_id' => trim($matches[1]),
+                    'photoset_id' => $matches[2],
+                    'url' => $url
+                ];
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Get all photos from a Flickr set/album using the API
+ *
+ * @param string $user_id Flickr user ID or username
+ * @param string $photoset_id Flickr photoset ID
+ * @param string $set_url Original set URL for caching
+ * @return array Array of photo URLs or empty array on failure
+ */
+function flickr_justified_get_photoset_photos($user_id, $photoset_id, $set_url = '') {
+    // Use the paginated function to get first page
+    $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 1, 500);
+    return $result['photos'];
+}
+
+/**
+ * Get photos from a Flickr set with pagination support
+ *
+ * @param string $user_id Flickr user ID or username
+ * @param string $photoset_id Flickr photoset ID
+ * @param int $page Page number (1-based)
+ * @param int $per_page Photos per page (max 500)
+ * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages'
+ */
+function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 500) {
+    // Validate inputs
+    if (empty($user_id) || empty($photoset_id) || !is_string($user_id) || !is_string($photoset_id)) {
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => 1,
+            'pages' => 1
+        ];
+    }
+
+    $page = max(1, intval($page));
+    $per_page = max(1, min(500, intval($per_page))); // Flickr max is 500
+
+    // Cache key includes page number
+    $cache_key = 'flickr_justified_set_page_' . md5($user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page);
+
+    // Check cache first
+    $cached_result = get_transient($cache_key);
+    if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
+        return $cached_result;
+    }
+
+    // Get API key from settings
+    $api_key = '';
+    if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_api_key')) {
+        $api_key = FlickrJustifiedAdminSettings::get_api_key();
+    }
+
+    if (empty($api_key)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: No API key found for photoset: ' . $photoset_id);
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => $page,
+            'pages' => 1
+        ];
+    }
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Making photoset API call for set: ' . $photoset_id . ' user: ' . $user_id . ' page: ' . $page);
+    }
+
+    // Make API call to get photos in the set
+    $api_url = add_query_arg([
+        'method' => 'flickr.photosets.getPhotos',
+        'api_key' => $api_key,
+        'photoset_id' => $photoset_id,
+        'user_id' => $user_id,
+        'per_page' => $per_page,
+        'page' => $page,
+        'extras' => 'url_m,url_l,url_o', // Get multiple size URLs
+        'format' => 'json',
+        'nojsoncallback' => 1,
+    ], 'https://api.flickr.com/services/rest/');
+
+    $response = wp_remote_get($api_url, [
+        'timeout' => 15,
+        'user-agent' => 'WordPress Flickr Justified Block'
+    ]);
+
+    if (is_wp_error($response)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: Photoset API request error: ' . $response->get_error_message());
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => $page,
+            'pages' => 1
+        ];
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    if (empty($body)) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: Empty response body from photoset API');
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => $page,
+            'pages' => 1
+        ];
+    }
+
+    $data = json_decode($body, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: JSON decode error: ' . json_last_error_msg() . '. Response: ' . $body);
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => $page,
+            'pages' => 1
+        ];
+    }
+
+    // Check for API errors first
+    if (isset($data['stat']) && $data['stat'] === 'fail') {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $error_msg = isset($data['message']) ? $data['message'] : 'Unknown API error';
+            error_log('Flickr Justified Block: API error for photoset ' . $photoset_id . ': ' . $error_msg);
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => $page,
+            'pages' => 1
+        ];
+    }
+
+    // Check if photoset data exists and has photos
+    if (!isset($data['photoset']) || empty($data['photoset']['photo']) || !is_array($data['photoset']['photo'])) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: No photos found in photoset ' . $photoset_id . '. Response: ' . $body);
+        }
+        return [
+            'photos' => [],
+            'has_more' => false,
+            'total' => 0,
+            'page' => $page,
+            'pages' => 1
+        ];
+    }
+
+    // Extract pagination info
+    $total_photos = isset($data['photoset']['total']) ? intval($data['photoset']['total']) : 0;
+    $current_page = isset($data['photoset']['page']) ? intval($data['photoset']['page']) : $page;
+    $total_pages = isset($data['photoset']['pages']) ? intval($data['photoset']['pages']) : 1;
+    $photos_on_page = isset($data['photoset']['photo']) ? count($data['photoset']['photo']) : 0;
+
+    // Convert photos to individual photo page URLs
+    $photo_urls = [];
+    foreach ($data['photoset']['photo'] as $photo) {
+        if (isset($photo['id']) && !empty($photo['id']) && is_string($photo['id'])) {
+            // Sanitize the photo ID (should be numeric)
+            $photo_id = preg_replace('/[^0-9]/', '', $photo['id']);
+            if (!empty($photo_id)) {
+                // Create the standard photo page URL format that our existing functions can handle
+                $photo_url = "https://flickr.com/photos/" . urlencode($user_id) . "/" . $photo_id . "/";
+                $photo_urls[] = $photo_url;
+            }
+        }
+    }
+
+    $result = [
+        'photos' => $photo_urls,
+        'has_more' => $current_page < $total_pages,
+        'total' => $total_photos,
+        'page' => $current_page,
+        'pages' => $total_pages
+    ];
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: Retrieved ' . count($photo_urls) . ' photos from set: ' . $photoset_id . ' (page ' . $current_page . ' of ' . $total_pages . ')');
+    }
+
+    if (!empty($photo_urls)) {
+        // Cache the results (shorter cache for paginated results)
+        $cache_duration = HOUR_IN_SECONDS * 6; // 6 hours for individual pages
+        if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_cache_duration')) {
+            $cache_duration = max(HOUR_IN_SECONDS, FlickrJustifiedAdminSettings::get_cache_duration() / 4); // 1/4 of main cache duration, min 1 hour
+        }
+        set_transient($cache_key, $result, $cache_duration);
+    }
+
+    return $result;
+}
+
 
 /**
  * Render with justified gallery layout
  */
-function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment) {
+function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment, $set_metadata = []) {
 
     // Get admin breakpoints
     $breakpoints = [];
@@ -266,8 +507,9 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
     $attribution_mode = FlickrJustifiedAdminSettings::get_flickr_attribution_mode();
 
     // Generate simple structure - JavaScript will organize into responsive rows
+    $set_metadata_attr = !empty($set_metadata) ? esc_attr(json_encode($set_metadata)) : '';
     $output = sprintf(
-        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-attribution-mode="%s" data-use-builtin-lightbox="%s">',
+        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-attribution-mode="%s" data-use-builtin-lightbox="%s" data-set-metadata="%s">',
         esc_attr($block_id),
         (int) $gap,
         esc_attr(json_encode($responsive_settings)),
@@ -277,7 +519,8 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         (int) $max_viewport_height,
         esc_attr($single_image_alignment),
         esc_attr($attribution_mode),
-        '1'
+        '1',
+        $set_metadata_attr
     );
 
     foreach ($url_lines as $url) {
@@ -546,8 +789,68 @@ function flickr_justified_render_block($attributes) {
         return '';
     }
 
-    // Split URLs by lines and clean them
+    // Split URLs by lines and clean them, then handle multiple URLs on same line
     $url_lines = array_filter(array_map('trim', preg_split('/\R/u', $urls)));
+
+    // Further split any lines that contain multiple URLs (common when copy-pasting)
+    $final_urls = [];
+    foreach ($url_lines as $line) {
+        // Check if line contains multiple URLs by looking for http/https patterns
+        if (preg_match_all('/https?:\/\/[^\s]+/i', $line, $matches)) {
+            foreach ($matches[0] as $url) {
+                $final_urls[] = trim($url);
+            }
+        } else if (!empty($line)) {
+            // Single URL or non-URL content
+            $final_urls[] = $line;
+        }
+    }
+    $url_lines = array_filter($final_urls);
+
+    if (empty($url_lines)) {
+        return '';
+    }
+
+    // Process any Flickr sets/albums and expand them to individual photo URLs
+    $expanded_urls = [];
+    $set_metadata = []; // Store metadata for lazy loading
+    foreach ($url_lines as $url) {
+        $set_info = flickr_justified_parse_set_url($url);
+        if ($set_info) {
+            // This is a Flickr set/album URL - get first page of photos
+            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 500);
+            if (!empty($set_result['photos'])) {
+                $expanded_urls = array_merge($expanded_urls, $set_result['photos']);
+
+                // Store metadata for lazy loading if there are more pages
+                if (isset($set_result['has_more']) && $set_result['has_more']) {
+                    $set_metadata[] = [
+                        'user_id' => $set_info['user_id'],
+                        'photoset_id' => $set_info['photoset_id'],
+                        'current_page' => 1,
+                        'total_pages' => isset($set_result['pages']) ? $set_result['pages'] : 1,
+                        'total_photos' => isset($set_result['total']) ? $set_result['total'] : 0,
+                        'loaded_photos' => count($set_result['photos'])
+                    ];
+                }
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr Justified Block: Expanded set ' . $set_info['photoset_id'] . ' to ' . count($set_result['photos']) . ' photos (page 1 of ' . $set_result['pages'] . ')');
+                }
+            } else {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr Justified Block: Failed to expand set: ' . $url);
+                }
+                // Keep the original URL if set expansion failed
+                $expanded_urls[] = $url;
+            }
+        } else {
+            // Regular photo URL or direct image URL
+            $expanded_urls[] = $url;
+        }
+    }
+
+    $url_lines = array_filter($expanded_urls);
 
     if (empty($url_lines)) {
         return '';
@@ -558,6 +861,6 @@ function flickr_justified_render_block($attributes) {
 
     // Use justified gallery layout
     return flickr_justified_render_justified_gallery(
-        $url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment
+        $url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment, $set_metadata
     );
 }

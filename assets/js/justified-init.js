@@ -178,5 +178,187 @@
         });
         observer.observe(document.body, { childList: true, subtree: false });
     }
+
+    // Initialize lazy loading for Flickr albums
+    initFlickrAlbumLazyLoading();
 })();
+
+/**
+ * Lazy loading for Flickr albums/sets - loads additional pages when user scrolls
+ */
+function initFlickrAlbumLazyLoading() {
+    'use strict';
+
+    // Find galleries with set metadata (indicating they have more pages to load)
+    const galleriesWithSets = document.querySelectorAll('.flickr-justified-grid[data-set-metadata]');
+
+    galleriesWithSets.forEach(gallery => {
+        const metadataAttr = gallery.getAttribute('data-set-metadata');
+        if (!metadataAttr) return;
+
+        let setMetadata;
+        try {
+            setMetadata = JSON.parse(metadataAttr);
+        } catch (e) {
+            console.warn('Failed to parse set metadata:', e);
+            return;
+        }
+
+        if (!Array.isArray(setMetadata) || setMetadata.length === 0) return;
+
+        // Track loading state for each set
+        setMetadata.forEach(setData => {
+            setData.isLoading = false;
+            setData.loadingError = false;
+        });
+
+        // Create intersection observer to detect when user scrolls near bottom
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    loadNextPages(gallery, setMetadata);
+                }
+            });
+        }, {
+            rootMargin: '200px' // Load when 200px from bottom
+        });
+
+        // Create and observe a trigger element at the bottom of the gallery
+        const trigger = document.createElement('div');
+        trigger.style.height = '1px';
+        trigger.style.width = '100%';
+        trigger.className = 'flickr-lazy-trigger';
+        gallery.appendChild(trigger);
+        observer.observe(trigger);
+    });
+
+    async function loadNextPages(gallery, setMetadata) {
+        // Find sets that have more pages to load
+        const setsToLoad = setMetadata.filter(setData =>
+            !setData.isLoading &&
+            !setData.loadingError &&
+            setData.current_page < setData.total_pages
+        );
+
+        if (setsToLoad.length === 0) {
+            // No more pages to load, remove the trigger
+            const trigger = gallery.querySelector('.flickr-lazy-trigger');
+            if (trigger) trigger.remove();
+            return;
+        }
+
+        // Load next page for each set (in parallel)
+        const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData));
+
+        try {
+            await Promise.all(loadPromises);
+
+            // Re-initialize the justified layout with new photos
+            gallery.classList.remove('justified-initialized');
+            setTimeout(() => {
+                const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
+                document.dispatchEvent(event);
+
+                // Re-initialize gallery layout
+                initJustifiedGallery();
+            }, 100);
+
+        } catch (error) {
+            console.error('Failed to load album pages:', error);
+        }
+    }
+
+    async function loadSetPage(gallery, setData) {
+        setData.isLoading = true;
+        const nextPage = setData.current_page + 1;
+
+        console.log(`Loading page ${nextPage} for set ${setData.photoset_id}`);
+
+        try {
+            const response = await fetch('/wp-json/flickr-justified/v1/load-album-page', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: setData.user_id,
+                    photoset_id: setData.photoset_id,
+                    page: nextPage
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (!result.success || !result.photos || !Array.isArray(result.photos)) {
+                throw new Error('Invalid response format');
+            }
+
+            console.log(`Loaded ${result.photos.length} photos from page ${nextPage}`);
+
+            // Add new photos to the gallery
+            result.photos.forEach(photoData => {
+                const card = createPhotoCard(photoData);
+                // Insert before the lazy trigger
+                const trigger = gallery.querySelector('.flickr-lazy-trigger');
+                if (trigger) {
+                    gallery.insertBefore(card, trigger);
+                } else {
+                    gallery.appendChild(card);
+                }
+            });
+
+            // Update set metadata
+            setData.current_page = result.page;
+            setData.loaded_photos = (setData.loaded_photos || 0) + result.photos.length;
+            setData.isLoading = false;
+
+            // Update the data attribute on the gallery with all set metadata
+            gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
+
+        } catch (error) {
+            console.error(`Failed to load page ${nextPage} for set ${setData.photoset_id}:`, error);
+            setData.loadingError = true;
+            setData.isLoading = false;
+        }
+    }
+
+    function createPhotoCard(photoData) {
+        const card = document.createElement('article');
+        card.className = 'flickr-card';
+
+        const link = document.createElement('a');
+        link.className = 'flickr-justified-item flickr-builtin-lightbox';
+        link.href = photoData.image_url;
+        // Get the gallery ID from the existing gallery structure
+        const existingItems = gallery.querySelectorAll('.flickr-justified-item[data-gallery]');
+        const galleryId = existingItems.length > 0 ?
+            existingItems[0].getAttribute('data-gallery') :
+            'flickr-gallery-' + Date.now();
+        link.setAttribute('data-gallery', galleryId);
+
+        if (photoData.is_flickr && photoData.flickr_page) {
+            link.setAttribute('data-flickr-page', photoData.flickr_page);
+            link.setAttribute('data-flickr-attribution-text', 'View on Flickr');
+        }
+
+        if (photoData.width && photoData.height) {
+            link.setAttribute('data-width', photoData.width);
+            link.setAttribute('data-height', photoData.height);
+        }
+
+        const img = document.createElement('img');
+        img.src = photoData.image_url;
+        img.alt = '';
+        img.loading = 'lazy';
+
+        link.appendChild(img);
+        card.appendChild(link);
+
+        return card;
+    }
+}
 

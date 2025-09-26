@@ -178,6 +178,29 @@ class FlickrJustifiedBlock {
                 ]
             ]
         ]);
+
+        register_rest_route('flickr-justified/v1', '/load-album-page', [
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'load_album_page'],
+            'permission_callback' => '__return_true', // Public endpoint for frontend lazy loading
+            'args' => [
+                'user_id' => [
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field'
+                ],
+                'photoset_id' => [
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field'
+                ],
+                'page' => [
+                    'required' => true,
+                    'type' => 'integer',
+                    'sanitize_callback' => 'absint'
+                ]
+            ]
+        ]);
     }
 
     /**
@@ -191,6 +214,37 @@ class FlickrJustifiedBlock {
         }
 
         $is_flickr = strpos($url, 'flickr.com/photos/') !== false;
+
+        // Check if this is a Flickr set/album URL
+        if (!function_exists('flickr_justified_parse_set_url')) {
+            return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
+        }
+
+        $set_info = flickr_justified_parse_set_url($url);
+        if ($set_info) {
+            // This is a Flickr set - get the first photo for preview
+            if (!function_exists('flickr_justified_get_photoset_photos')) {
+                return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
+            }
+
+            $set_photos = flickr_justified_get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $url);
+            if (!empty($set_photos)) {
+                return [
+                    'success' => true,
+                    'image_url' => '', // We'll show a set indicator instead
+                    'is_flickr' => true,
+                    'is_set' => true,
+                    'set_info' => [
+                        'user_id' => sanitize_text_field($set_info['user_id']),
+                        'photoset_id' => sanitize_text_field($set_info['photoset_id'])
+                    ],
+                    'photo_count' => count($set_photos),
+                    'first_photo' => !empty($set_photos[0]) ? esc_url_raw($set_photos[0]) : ''
+                ];
+            } else {
+                return new WP_Error('set_error', 'Could not fetch Flickr set data', ['status' => 404]);
+            }
+        }
 
         if ($is_flickr) {
             // Get Flickr image data
@@ -240,6 +294,106 @@ class FlickrJustifiedBlock {
         }
 
         return new WP_Error('unsupported_url', 'Unsupported URL type', ['status' => 400]);
+    }
+
+    /**
+     * Load additional page from Flickr album/set for lazy loading
+     */
+    public static function load_album_page($request) {
+        $user_id = $request->get_param('user_id');
+        $photoset_id = $request->get_param('photoset_id');
+        $page = $request->get_param('page');
+
+        if (empty($user_id) || empty($photoset_id) || $page < 1) {
+            return new WP_Error('invalid_params', 'Invalid parameters provided', ['status' => 400]);
+        }
+
+        // Check if required functions are available
+        if (!function_exists('flickr_justified_get_photoset_photos_paginated')) {
+            return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
+        }
+
+        // Get the photos for this page
+        $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, 500);
+
+        if (!is_array($result) || empty($result['photos'])) {
+            return new WP_Error('no_photos', 'No photos found for this page', ['status' => 404]);
+        }
+
+        // Return the photos as gallery HTML items
+        $gallery_items = [];
+        foreach ($result['photos'] as $photo_url) {
+            $photo_url = esc_url($photo_url);
+            if (empty($photo_url)) continue;
+
+            $is_flickr = strpos($photo_url, 'flickr.com/photos/') !== false;
+
+            if ($is_flickr) {
+                // Get image data for this photo
+                if (!function_exists('flickr_justified_get_flickr_image_sizes_with_dimensions')) {
+                    continue;
+                }
+
+                $available_sizes = [
+                    'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
+                    'large2048', 'large1600', 'large1024', 'large',
+                    'medium800', 'medium640', 'medium500', 'medium',
+                    'small400', 'small320', 'small240',
+                ];
+                $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes);
+
+                if (!empty($image_data)) {
+                    $preferred_size = 'large';
+                    if (isset($image_data[$preferred_size]) && isset($image_data[$preferred_size]['url'])) {
+                        $gallery_items[] = [
+                            'url' => $photo_url,
+                            'image_url' => $image_data[$preferred_size]['url'],
+                            'width' => $image_data[$preferred_size]['width'],
+                            'height' => $image_data[$preferred_size]['height'],
+                            'flickr_page' => $photo_url,
+                            'is_flickr' => true
+                        ];
+                    } else {
+                        // Fallback: use first available size
+                        $first_size = array_keys($image_data)[0] ?? null;
+                        if ($first_size && isset($image_data[$first_size]['url'])) {
+                            $gallery_items[] = [
+                                'url' => $photo_url,
+                                'image_url' => $image_data[$first_size]['url'],
+                                'width' => $image_data[$first_size]['width'] ?? 0,
+                                'height' => $image_data[$first_size]['height'] ?? 0,
+                                'flickr_page' => $photo_url,
+                                'is_flickr' => true
+                            ];
+                        }
+                    }
+                } else {
+                    // Fallback: use original photo URL (might not work but better than skipping)
+                    $gallery_items[] = [
+                        'url' => $photo_url,
+                        'image_url' => $photo_url,
+                        'flickr_page' => $photo_url,
+                        'is_flickr' => true
+                    ];
+                }
+            } else {
+                // Direct image URL
+                $gallery_items[] = [
+                    'url' => $photo_url,
+                    'image_url' => $photo_url,
+                    'is_flickr' => false
+                ];
+            }
+        }
+
+        return [
+            'success' => true,
+            'photos' => $gallery_items,
+            'page' => $result['page'],
+            'has_more' => $result['has_more'],
+            'total_pages' => $result['pages'],
+            'total_photos' => $result['total']
+        ];
     }
 }
 

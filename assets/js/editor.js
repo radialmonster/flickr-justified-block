@@ -44,8 +44,11 @@
                 return;
             }
 
-            // Check if it's a Flickr URL
-            const isFlickrUrl = trimmedUrl.indexOf('flickr.com/photos/') !== -1;
+            // Check if it's a Flickr URL (photo or set/album)
+            const isFlickrPhoto = /flickr\.com\/photos\/[^/]+\/\d+/i.test(trimmedUrl);
+            const isFlickrSet = /flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+/i.test(trimmedUrl);
+            const isFlickrUrl = isFlickrPhoto || isFlickrSet;
+
             if (!isFlickrUrl) {
                 if (!isCancelled) {
                     setImageData(null);
@@ -118,6 +121,62 @@
         }
 
         if (imageData && imageData.success) {
+            // Check if this is a Flickr set/album
+            if (imageData.is_set) {
+                return el('div', {
+                    key: index,
+                    className: 'flickr-justified-item-preview',
+                    style: {
+                        display: 'inline-block',
+                        width: '100%',
+                        marginBottom: 'var(--fm-gap)',
+                        breakInside: 'avoid'
+                    }
+                },
+                    el('a', {
+                        href: url.trim(),
+                        onClick: function(e) {
+                            e.preventDefault();
+                        },
+                        style: {
+                            display: 'block',
+                            textDecoration: 'none'
+                        }
+                    },
+                        el('div', {
+                            style: {
+                                padding: '20px',
+                                border: '2px solid #0073aa',
+                                borderRadius: '4px',
+                                backgroundColor: '#f0f6fc',
+                                textAlign: 'center',
+                                color: '#0073aa'
+                            }
+                        },
+                            el('div', {
+                                style: {
+                                    fontSize: '24px',
+                                    marginBottom: '8px'
+                                }
+                            }, '📁'),
+                            el('div', {
+                                style: {
+                                    fontWeight: 'bold',
+                                    marginBottom: '4px'
+                                }
+                            }, __('Flickr Album/Set', 'flickr-justified-block')),
+                            el('div', {
+                                style: {
+                                    fontSize: '14px',
+                                    opacity: '0.8'
+                                }
+                            }, imageData.photo_count + ' ' + __('photos', 'flickr-justified-block'))
+                        )
+                    )
+                );
+            }
+
+            // Regular single photo
             return el('div', {
                 key: index,
                 className: 'flickr-justified-item-preview',
@@ -184,9 +243,16 @@
                         backgroundColor: '#f9f9f9'
                     }
                 },
-                    url.trim().indexOf('flickr.com') !== -1 ?
-                        __('Flickr Photo: ', 'flickr-justified-block') + url.trim() :
-                        __('URL: ', 'flickr-justified-block') + url.trim()
+                    (() => {
+                        const urlTrimmed = url.trim();
+                        if (/flickr\.com\/photos\/[^/]+\/(sets|albums)\/\d+/i.test(urlTrimmed)) {
+                            return __('Flickr Set/Album: ', 'flickr-justified-block') + urlTrimmed;
+                        } else if (/flickr\.com\/photos\/[^/]+\/\d+/i.test(urlTrimmed)) {
+                            return __('Flickr Photo: ', 'flickr-justified-block') + urlTrimmed;
+                        } else {
+                            return __('URL: ', 'flickr-justified-block') + urlTrimmed;
+                        }
+                    })()
                 )
             )
         );
@@ -210,7 +276,24 @@
                 className: 'flickr-justified-block-editor'
             });
 
-            const urlArray = urls ? urls.split(/\r?\n/).filter(url => url.trim()) : [];
+            // Split URLs by lines, then handle multiple URLs on same line
+            let urlArray = urls ? urls.split(/\r?\n/).filter(url => url.trim()) : [];
+
+            // Further split any lines that contain multiple URLs (common when copy-pasting)
+            const finalUrls = [];
+            urlArray.forEach(line => {
+                // Check if line contains multiple URLs by looking for http/https patterns
+                const urlMatches = line.match(/https?:\/\/[^\s]+/gi);
+                if (urlMatches && urlMatches.length > 0) {
+                    urlMatches.forEach(url => {
+                        finalUrls.push(url.trim());
+                    });
+                } else if (line.trim()) {
+                    // Single URL or non-URL content
+                    finalUrls.push(line.trim());
+                }
+            });
+            urlArray = finalUrls;
 
             const sizeOptions = [
                 { label: __('Medium', 'flickr-justified-block'), value: 'medium' },
