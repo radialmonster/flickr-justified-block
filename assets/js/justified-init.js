@@ -220,7 +220,9 @@ function initFlickrAlbumLazyLoading() {
         // Create intersection observer to detect when user scrolls near bottom
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
+                console.log('👁️ Intersection observer triggered. Is intersecting:', entry.isIntersecting);
                 if (entry.isIntersecting) {
+                    console.log('✨ Trigger element is visible, calling loadNextPages');
                     loadNextPages(gallery, setMetadata);
                 }
             });
@@ -241,10 +243,13 @@ function initFlickrAlbumLazyLoading() {
     });
 
     async function loadNextPages(gallery, setMetadata) {
+        console.log('🔄 loadNextPages triggered by scroll');
         // Prevent rapid-fire loading by checking if we're already loading
         if (gallery._flickrLoading) {
+            console.log('⏸️ Already loading, skipping');
             return;
         }
+        console.log('🚀 Starting to load next pages');
         gallery._flickrLoading = true;
 
         // Find sets that have more pages to load
@@ -353,8 +358,10 @@ function initFlickrAlbumLazyLoading() {
                         // Insert before the lazy trigger
                         const trigger = gallery.querySelector('.flickr-lazy-trigger');
                         if (trigger) {
+                            console.log('📍 Inserting new photo card before trigger');
                             gallery.insertBefore(card, trigger);
                         } else {
+                            console.log('⚠️ No trigger found, appending card to end');
                             gallery.appendChild(card);
                         }
                     }
