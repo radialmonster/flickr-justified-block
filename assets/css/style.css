@@ -74,6 +74,11 @@
     contain-intrinsic-size: 300px 200px; /* pick a sensible average */
 }
 
+/* Staging container for new cards during layout */
+.flickr-staging {
+    display: none;
+}
+
 /* Make anchor fill the card (consistent click target) */
 .flickr-card > a {
     display: block;
