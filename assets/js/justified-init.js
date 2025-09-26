@@ -292,6 +292,30 @@ function initFlickrAlbumLazyLoading() {
             return;
         }
 
+        // Show loading indicator
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.className = 'flickr-loading-indicator';
+        loadingIndicator.style.cssText = `
+            text-align: center;
+            padding: 20px;
+            font-size: 16px;
+            color: #666;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        `;
+        loadingIndicator.textContent = 'Please Wait, Loading More Images...';
+
+        // Insert loading indicator before the trigger
+        const trigger = gallery.querySelector('.flickr-lazy-trigger');
+        if (trigger) {
+            gallery.insertBefore(loadingIndicator, trigger);
+        } else {
+            gallery.appendChild(loadingIndicator);
+        }
+
         // Load next page for each set (in parallel)
         const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
 
@@ -299,6 +323,11 @@ function initFlickrAlbumLazyLoading() {
             console.log(`⏳ Waiting for ${loadPromises.length} page load promises to complete...`);
             await Promise.all(loadPromises);
             console.log('✅ All page load promises completed successfully');
+
+            // Remove loading indicator
+            if (loadingIndicator && loadingIndicator.parentNode) {
+                loadingIndicator.remove();
+            }
 
             // Re-initialize the justified layout with new photos
             console.log('🔄 Starting gallery reinitialization...');
@@ -417,6 +446,10 @@ function initFlickrAlbumLazyLoading() {
 
         } catch (error) {
             console.error('Failed to load album pages:', error);
+            // Remove loading indicator on error
+            if (loadingIndicator && loadingIndicator.parentNode) {
+                loadingIndicator.remove();
+            }
         } finally {
             // Always reset loading flag
             gallery._flickrLoading = false;
