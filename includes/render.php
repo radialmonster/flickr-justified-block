@@ -822,17 +822,16 @@ function flickr_justified_render_block($attributes) {
             if (!empty($set_result['photos'])) {
                 $expanded_urls = array_merge($expanded_urls, $set_result['photos']);
 
-                // Store metadata for lazy loading if there are more pages
-                if (isset($set_result['has_more']) && $set_result['has_more']) {
-                    $set_metadata[] = [
-                        'user_id' => $set_info['user_id'],
-                        'photoset_id' => $set_info['photoset_id'],
-                        'current_page' => 1,
-                        'total_pages' => isset($set_result['pages']) ? $set_result['pages'] : 1,
-                        'total_photos' => isset($set_result['total']) ? $set_result['total'] : 0,
-                        'loaded_photos' => count($set_result['photos'])
-                    ];
-                }
+                // Always store metadata for sets, even single-page ones (for consistency)
+                $set_metadata[] = [
+                    'user_id' => $set_info['user_id'],
+                    'photoset_id' => $set_info['photoset_id'],
+                    'current_page' => 1,
+                    'total_pages' => isset($set_result['pages']) ? $set_result['pages'] : 1,
+                    'total_photos' => isset($set_result['total']) ? $set_result['total'] : 0,
+                    'loaded_photos' => count($set_result['photos']),
+                    'has_more' => isset($set_result['has_more']) ? $set_result['has_more'] : false
+                ];
 
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log('Flickr Justified Block: Expanded set ' . $set_info['photoset_id'] . ' to ' . count($set_result['photos']) . ' photos (page 1 of ' . $set_result['pages'] . ')');

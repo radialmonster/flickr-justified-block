@@ -300,6 +300,18 @@ class FlickrJustifiedBlock {
      * Load additional page from Flickr album/set for lazy loading
      */
     public static function load_album_page($request) {
+        // Simple rate limiting: limit to 10 requests per minute per IP
+        $client_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $rate_limit_key = 'flickr_lazy_load_' . md5($client_ip);
+        $current_requests = get_transient($rate_limit_key) ?: 0;
+
+        if ($current_requests >= 10) {
+            return new WP_Error('rate_limit_exceeded', 'Too many requests. Please wait a moment.', ['status' => 429]);
+        }
+
+        // Increment request counter
+        set_transient($rate_limit_key, $current_requests + 1, 60); // 60 seconds
+
         $user_id = $request->get_param('user_id');
         $photoset_id = $request->get_param('photoset_id');
         $page = $request->get_param('page');

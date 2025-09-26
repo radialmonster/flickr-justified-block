@@ -230,9 +230,18 @@ function initFlickrAlbumLazyLoading() {
         trigger.className = 'flickr-lazy-trigger';
         gallery.appendChild(trigger);
         observer.observe(trigger);
+
+        // Store observer reference for cleanup
+        gallery._flickrLazyObserver = observer;
     });
 
     async function loadNextPages(gallery, setMetadata) {
+        // Prevent rapid-fire loading by checking if we're already loading
+        if (gallery._flickrLoading) {
+            return;
+        }
+        gallery._flickrLoading = true;
+
         // Find sets that have more pages to load
         const setsToLoad = setMetadata.filter(setData =>
             !setData.isLoading &&
@@ -241,9 +250,19 @@ function initFlickrAlbumLazyLoading() {
         );
 
         if (setsToLoad.length === 0) {
-            // No more pages to load, remove the trigger
+            // No more pages to load, clean up observer and remove trigger
             const trigger = gallery.querySelector('.flickr-lazy-trigger');
-            if (trigger) trigger.remove();
+            if (trigger) {
+                // Get the observer from gallery data if it exists
+                const observer = gallery._flickrLazyObserver;
+                if (observer) {
+                    observer.unobserve(trigger);
+                    observer.disconnect();
+                    delete gallery._flickrLazyObserver;
+                }
+                trigger.remove();
+            }
+            gallery._flickrLoading = false;
             return;
         }
 
@@ -265,6 +284,9 @@ function initFlickrAlbumLazyLoading() {
 
         } catch (error) {
             console.error('Failed to load album pages:', error);
+        } finally {
+            // Always reset loading flag
+            gallery._flickrLoading = false;
         }
     }
 
@@ -284,11 +306,20 @@ function initFlickrAlbumLazyLoading() {
                     user_id: setData.user_id,
                     photoset_id: setData.photoset_id,
                     page: nextPage
-                })
+                }),
+                // Add timeout to prevent hanging requests (with fallback for older browsers)
+                signal: typeof AbortSignal.timeout === 'function' ?
+                    AbortSignal.timeout(30000) :
+                    (() => {
+                        const controller = new AbortController();
+                        setTimeout(() => controller.abort(), 30000);
+                        return controller.signal;
+                    })()
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
 
             const result = await response.json();
@@ -299,17 +330,27 @@ function initFlickrAlbumLazyLoading() {
 
             console.log(`Loaded ${result.photos.length} photos from page ${nextPage}`);
 
-            // Add new photos to the gallery
-            result.photos.forEach(photoData => {
-                const card = createPhotoCard(photoData);
-                // Insert before the lazy trigger
-                const trigger = gallery.querySelector('.flickr-lazy-trigger');
-                if (trigger) {
-                    gallery.insertBefore(card, trigger);
-                } else {
-                    gallery.appendChild(card);
-                }
-            });
+            // Add new photos to the gallery (only if we have photos)
+            if (result.photos && result.photos.length > 0) {
+                result.photos.forEach(photoData => {
+                    // Validate photo data before creating card
+                    if (!photoData || !photoData.image_url) {
+                        console.warn('Invalid photo data received:', photoData);
+                        return;
+                    }
+
+                    const card = createPhotoCard(photoData);
+                    if (card) {
+                        // Insert before the lazy trigger
+                        const trigger = gallery.querySelector('.flickr-lazy-trigger');
+                        if (trigger) {
+                            gallery.insertBefore(card, trigger);
+                        } else {
+                            gallery.appendChild(card);
+                        }
+                    }
+                });
+            }
 
             // Update set metadata
             setData.current_page = result.page;
@@ -321,18 +362,43 @@ function initFlickrAlbumLazyLoading() {
 
         } catch (error) {
             console.error(`Failed to load page ${nextPage} for set ${setData.photoset_id}:`, error);
-            setData.loadingError = true;
-            setData.isLoading = false;
+
+            // Implement retry logic for temporary network errors
+            if (!setData.retryCount) setData.retryCount = 0;
+
+            if (setData.retryCount < 2 && (error.name === 'AbortError' || error.message.includes('network'))) {
+                // Retry after delay for network errors
+                setData.retryCount++;
+                setData.isLoading = false;
+
+                setTimeout(() => {
+                    if (setData.retryCount <= 2) {
+                        console.log(`Retrying page ${nextPage} for set ${setData.photoset_id} (attempt ${setData.retryCount + 1})`);
+                        loadSetPage(gallery, setData);
+                    }
+                }, 2000 * setData.retryCount); // Exponential backoff
+            } else {
+                // Max retries reached or non-recoverable error
+                setData.loadingError = true;
+                setData.isLoading = false;
+            }
         }
     }
 
     function createPhotoCard(photoData) {
+        // Validate required photoData fields
+        if (!photoData || typeof photoData !== 'object' || !photoData.image_url) {
+            console.warn('Invalid photo data for card creation:', photoData);
+            return null;
+        }
+
         const card = document.createElement('article');
         card.className = 'flickr-card';
 
         const link = document.createElement('a');
         link.className = 'flickr-justified-item flickr-builtin-lightbox';
         link.href = photoData.image_url;
+
         // Get the gallery ID from the existing gallery structure
         const existingItems = gallery.querySelectorAll('.flickr-justified-item[data-gallery]');
         const galleryId = existingItems.length > 0 ?
