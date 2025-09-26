@@ -556,8 +556,8 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     $page = max(1, intval($page));
     $per_page = max(1, min(500, intval($per_page))); // Flickr max is 500
 
-    // Cache key includes page number - use resolved user ID for consistency
-    $cache_key = 'flickr_justified_set_page_' . md5($resolved_user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page);
+    // Cache key includes page number and version for album title feature - use resolved user ID for consistency
+    $cache_key = 'flickr_justified_set_page_v2_' . md5($resolved_user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page);
 
     // Check cache first
     $cached_result = get_transient($cache_key);
