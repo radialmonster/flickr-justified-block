@@ -562,7 +562,14 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     // Check cache first
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr Justified Block: Returning cached result for photoset: ' . $photoset_id . ' - ' . json_encode($cached_result));
+        }
         return $cached_result;
+    }
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: No cache found, proceeding with API call for photoset: ' . $photoset_id);
     }
 
     // Get API key from settings
