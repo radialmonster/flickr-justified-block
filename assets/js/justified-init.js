@@ -276,7 +276,7 @@ function initFlickrAlbumLazyLoading() {
         }
 
         // Load next page for each set (in parallel)
-        const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData));
+        const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
 
         try {
             await Promise.all(loadPromises);
@@ -299,7 +299,7 @@ function initFlickrAlbumLazyLoading() {
         }
     }
 
-    async function loadSetPage(gallery, setData) {
+    async function loadSetPage(gallery, setData, setMetadata) {
         setData.isLoading = true;
         const nextPage = setData.current_page + 1;
 
@@ -383,7 +383,7 @@ function initFlickrAlbumLazyLoading() {
                 setTimeout(() => {
                     if (setData.retryCount <= 2) {
                         console.log(`Retrying page ${nextPage} for set ${setData.photoset_id} (attempt ${setData.retryCount + 1})`);
-                        loadSetPage(gallery, setData);
+                        loadSetPage(gallery, setData, setMetadata);
                     }
                 }, 2000 * setData.retryCount); // Exponential backoff
             } else {
