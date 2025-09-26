@@ -259,6 +259,10 @@
 
 /* On very narrow phones, keep controls visible but reduce chrome */
 @media (max-width: 420px) {
+  .pswp__top-bar {
+    flex-wrap: wrap;
+  }
+
   .pswp__counter {
     order: 3;
     width: 100%;
