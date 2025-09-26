@@ -387,31 +387,37 @@ function initFlickrAlbumLazyLoading() {
             return;
         }
 
-        // Show loading indicator with better styling and positioning
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.className = 'flickr-loading-indicator';
-        loadingIndicator.style.cssText = `
-            text-align: center;
-            padding: 20px;
-            font-size: 18px;
-            color: #333;
-            font-weight: 600;
-            background: rgba(255, 255, 255, 0.95);
-            border: 2px solid #007cba;
-            border-radius: 8px;
-            margin: 20px auto;
-            max-width: 400px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            position: relative;
-            z-index: 1000;
-        `;
-        loadingIndicator.textContent = '⏳ Please Wait, Loading More Images...';
+        // Show (or reuse) loading indicator with better styling and positioning
+        const baseLoadingMessage = '⏳ Please Wait, Loading More Images...';
+        let loadingIndicator = gallery.querySelector('.flickr-loading-indicator');
+        if (!loadingIndicator) {
+            loadingIndicator = document.createElement('div');
+            loadingIndicator.className = 'flickr-loading-indicator';
+            loadingIndicator.style.cssText = `
+                text-align: center;
+                padding: 20px;
+                font-size: 18px;
+                color: #333;
+                font-weight: 600;
+                background: rgba(255, 255, 255, 0.95);
+                border: 2px solid #007cba;
+                border-radius: 8px;
+                margin: 20px auto;
+                max-width: 400px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                position: relative;
+                z-index: 1000;
+            `;
+            loadingIndicator.textContent = baseLoadingMessage;
 
-        console.log('🔔 Creating loading indicator...');
+            console.log('🔔 Creating loading indicator...');
 
-        // Insert loading indicator at the end of the gallery
-        console.log('🔔 Appending loading indicator to gallery end');
-        gallery.appendChild(loadingIndicator);
+            // Insert loading indicator at the end of the gallery
+            console.log('🔔 Appending loading indicator to gallery end');
+            gallery.appendChild(loadingIndicator);
+        } else {
+            loadingIndicator.textContent = baseLoadingMessage;
+        }
 
         // Force the indicator to be visible immediately
         setTimeout(() => {
@@ -424,26 +430,49 @@ function initFlickrAlbumLazyLoading() {
         // Load next page for each set (in parallel)
         const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
 
+        let indicatorShouldPersist = false;
+        let indicatorMessage = '';
+        let shouldRemoveIndicator = false;
+        let scheduledRetryDelay = null;
+
         try {
             // ⏳ Waiting done...
-            await Promise.all(loadPromises);
+            const results = await Promise.all(loadPromises);
 
-            // remove loading indicator...
-            if (loadingIndicator && loadingIndicator.parentNode) loadingIndicator.remove();
+            const hasSuccess = results.some(result => result && result.status === 'success');
+            const recoverableResults = results.filter(result => result && result.status === 'recoverable-error');
+            const hasRecoverable = recoverableResults.length > 0;
+            const pendingSets = setMetadata.some(set => !set.loadingError && set.current_page < set.total_pages);
 
-            // Re-initialize the justified layout with new photos
-            console.log('🔄 Starting gallery reinitialization...');
-            gallery.classList.remove('justified-initialized');
+            if (hasSuccess) {
+                // Re-initialize the justified layout with new photos
+                console.log('🔄 Starting gallery reinitialization...');
+                gallery.classList.remove('justified-initialized');
 
-            // Stop observing the old last image before reinitialization
-            const observer = gallery._flickrLazyObserver;
-            if (observer && gallery._lastObservedImage) {
-                observer.unobserve(gallery._lastObservedImage);
-                console.log('👁️ Stopped observing old last image');
+                // Stop observing the old last image before reinitialization
+                const observer = gallery._flickrLazyObserver;
+                if (observer && gallery._lastObservedImage) {
+                    observer.unobserve(gallery._lastObservedImage);
+                    console.log('👁️ Stopped observing old last image');
+                }
+
+                // Reinitialize immediately using aspect-ratio fallbacks (no decode wait)
+                reinitializeGallery();
             }
 
-            // Reinitialize immediately using aspect-ratio fallbacks (no decode wait)
-            reinitializeGallery();
+            if (hasRecoverable && pendingSets) {
+                indicatorShouldPersist = true;
+                const firstRecoverableMessage = recoverableResults.find(r => r.message)?.message;
+                indicatorMessage = firstRecoverableMessage || '⚠️ Temporary issue loading images. Retrying shortly...';
+                const retrySuggestion = recoverableResults.find(r => typeof r.retryDelay === 'number');
+                if (retrySuggestion) {
+                    scheduledRetryDelay = retrySuggestion.retryDelay;
+                }
+            } else if (!pendingSets) {
+                shouldRemoveIndicator = true;
+            } else if (hasSuccess && !hasRecoverable) {
+                shouldRemoveIndicator = true;
+            }
 
             function reinitializeGallery() {
                 console.log('📐 Dispatching gallery reorganized event...');
@@ -496,19 +525,43 @@ function initFlickrAlbumLazyLoading() {
                 console.log('🏁 Gallery reinitialization complete');
             }
 
+            if (indicatorShouldPersist && scheduledRetryDelay && !gallery._pendingRecoverableRetry) {
+                gallery._pendingRecoverableRetry = setTimeout(() => {
+                    delete gallery._pendingRecoverableRetry;
+                    loadNextPages(gallery, setMetadata);
+                }, scheduledRetryDelay);
+            } else if (shouldRemoveIndicator && gallery._pendingRecoverableRetry) {
+                clearTimeout(gallery._pendingRecoverableRetry);
+                delete gallery._pendingRecoverableRetry;
+            }
+
         } catch (error) {
             console.error('Failed to load album pages:', error);
-            // Remove loading indicator on error
-            if (loadingIndicator && loadingIndicator.parentNode) {
-                loadingIndicator.remove();
+            const stillExpectingPages = setMetadata.some(set => !set.loadingError && set.current_page < set.total_pages);
+            if (stillExpectingPages) {
+                indicatorShouldPersist = true;
+                indicatorMessage = '⚠️ Temporary issue loading images. Retrying shortly...';
+            } else {
+                if (gallery._pendingRecoverableRetry) {
+                    clearTimeout(gallery._pendingRecoverableRetry);
+                    delete gallery._pendingRecoverableRetry;
+                }
+
+                shouldRemoveIndicator = true;
             }
         } finally {
             // Always reset loading flag
             gallery._flickrLoading = false;
 
-            // Ensure any orphaned loading indicators are removed
-            const orphanedIndicators = gallery.querySelectorAll('.flickr-loading-indicator');
-            orphanedIndicators.forEach(indicator => indicator.remove());
+            if (loadingIndicator) {
+                if (indicatorShouldPersist) {
+                    if (indicatorMessage) {
+                        loadingIndicator.textContent = indicatorMessage;
+                    }
+                } else if (shouldRemoveIndicator && loadingIndicator.parentNode) {
+                    loadingIndicator.remove();
+                }
+            }
         }
     }
 
@@ -577,27 +630,56 @@ function initFlickrAlbumLazyLoading() {
             gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
             console.log('💾 Updated DOM with new metadata');
 
+            return { status: 'success' };
+
         } catch (error) {
             console.error(`Failed to load page ${nextPage} for set ${setData.photoset_id}:`, error);
 
             // Implement retry logic for temporary network errors
             if (!setData.retryCount) setData.retryCount = 0;
 
-            if (setData.retryCount < 2 && (error.name === 'AbortError' || error.message.includes('network'))) {
+            const statusMatch = /HTTP\s+(\d{3})/i.exec(error?.message || '');
+            const statusCode = error?.status || (statusMatch ? parseInt(statusMatch[1], 10) : null);
+            const recoverableStatusCodes = new Set([408, 425, 429, 500, 502, 503, 504]);
+            const isNetworkError = error.name === 'AbortError' || /network/i.test(error?.message || '');
+            const isRecoverableStatus = statusCode ? recoverableStatusCodes.has(statusCode) : false;
+            const isRecoverable = isNetworkError || isRecoverableStatus;
+
+            if (setData.retryCount < 2 && isNetworkError) {
                 // Retry after delay for network errors
                 setData.retryCount++;
                 setData.isLoading = false;
 
-                setTimeout(() => {
-                    if (setData.retryCount <= 2) {
-                        console.log(`Retrying page ${nextPage} for set ${setData.photoset_id} (attempt ${setData.retryCount + 1})`);
-                        loadSetPage(gallery, setData, setMetadata);
-                    }
-                }, 2000 * setData.retryCount); // Exponential backoff
+                const retryDelay = 2000 * setData.retryCount; // Exponential backoff
+
+                return {
+                    status: 'recoverable-error',
+                    recoverable: true,
+                    message: '⚠️ Temporary network issue. Retrying shortly...',
+                    retryDelay
+                };
+            } else if (isRecoverable) {
+                setData.isLoading = false;
+                const delay = Math.min(10000, 3000 * Math.max(1, setData.retryCount || 1));
+                setData.retryCount++;
+
+                return {
+                    status: 'recoverable-error',
+                    recoverable: true,
+                    statusCode,
+                    message: statusCode === 429 ? '⚠️ Rate limit hit. Waiting before retrying...' : '⚠️ Temporary issue loading images. Retrying shortly...',
+                    retryDelay: delay
+                };
             } else {
                 // Max retries reached or non-recoverable error
                 setData.loadingError = true;
                 setData.isLoading = false;
+                return {
+                    status: 'fatal-error',
+                    recoverable: false,
+                    statusCode,
+                    message: error?.message || 'Unknown error'
+                };
             }
         }
     }
