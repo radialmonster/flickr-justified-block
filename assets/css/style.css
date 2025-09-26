@@ -220,3 +220,53 @@
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
 }
+
+
+/* Mobile: keep everything on ONE row, ensure "View on Flickr" never truncates */
+@media (max-width: 768px) {
+  .pswp__top-bar {
+    flex-wrap: nowrap;         /* single row */
+    align-items: center;
+    gap: 6px;
+    height: 48px;              /* a bit tighter */
+    padding: 6px 8px;
+  }
+
+  /* Let counter yield space; it can shrink/ellipsis if needed */
+  .pswp__counter {
+    order: 0;
+    margin-right: auto;        /* pushes others right */
+    min-width: 0;              /* allow flex-box to shrink */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+  }
+
+  /* NEVER truncate attribution; keep it inline */
+  .pswp__button--flickr-attribution {
+    order: 1;
+    flex: 0 0 auto;            /* do not shrink */
+    min-width: max-content;    /* size to full text */
+    white-space: nowrap;       /* single line, no wrap */
+    overflow: visible;         /* no clipping */
+    text-overflow: clip;
+    margin-right: 6px;         /* small gap before icons */
+  }
+
+  /* Keep zoom/close visible but compact */
+  .pswp__button--zoom  { order: 2; }
+  .pswp__button--close { order: 3; }
+
+  /* Slightly smaller icons on mobile to buy space */
+  .pswp__button svg,
+  .pswp__preloader .pswp__icn {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* On very narrow phones, hide the counter to guarantee space for attribution */
+@media (max-width: 420px) {
+  .pswp__counter { display: none; }
+}
