@@ -1,14 +1,25 @@
 (function() {
     'use strict';
 
-    function calculateOptimalRowHeight(images, containerWidth, gap) {
-        let totalAspectRatio = 0;
-        images.forEach(img => {
-            const aspectRatio = img.naturalWidth / img.naturalHeight;
-            totalAspectRatio += aspectRatio;
-        });
-        const availableWidth = containerWidth - (gap * (images.length - 1));
+    function calculateOptimalRowHeight(aspectRatios, containerWidth, gap) {
+        const totalAspectRatio = aspectRatios.reduce((s, ar) => s + ar, 0);
+        const availableWidth = containerWidth - (gap * (aspectRatios.length - 1));
         return availableWidth / totalAspectRatio;
+    }
+
+    function getAspectRatioForCard(card) {
+        const img = card.querySelector('img');
+        if (!img) return 1; // safe default
+        const natW = img.naturalWidth, natH = img.naturalHeight;
+        if (natW > 0 && natH > 0) return natW / natH;
+
+        // fallback to data-* on img, <a>, or card
+        const a = card.querySelector('a');
+        const w = parseInt(img.getAttribute('data-width') || a?.getAttribute('data-width') || card.getAttribute('data-width') || 0, 10);
+        const h = parseInt(img.getAttribute('data-height') || a?.getAttribute('data-height') || card.getAttribute('data-height') || 0, 10);
+        if (w > 0 && h > 0) return w / h;
+
+        return 1.5; // sensible default for landscape-ish galleries
     }
 
     function getImagesPerRow(containerWidth, breakpoints, responsiveSettings) {
@@ -77,13 +88,14 @@
                 const imagesPerRow = getImagesPerRow(containerWidth, breakpoints, responsiveSettings);
                 const maxAllowedHeight = Math.max(50, Math.min(100, maxViewportHeight)) / 100 * window.innerHeight;
 
-                const allCards = Array.from(cards).filter(card => {
-                    const img = card.querySelector('img');
-                    return img && img.naturalWidth > 0 && img.naturalHeight > 0;
-                });
+                const allCards = Array.from(cards);
                 if (allCards.length === 0) return;
 
-                const cardsData = allCards.map(card => ({ element: card, img: card.querySelector('img') }));
+                const cardsData = allCards.map(card => ({
+                    element: card,
+                    img: card.querySelector('img'),
+                    ar: getAspectRatioForCard(card)
+                }));
                 grid.innerHTML = '';
 
                 if (cardsData.length > 1) {
@@ -94,20 +106,19 @@
                 let previousRowHeight = null;
                 for (let i = 0; i < cardsData.length; i += imagesPerRow) {
                     const rowCards = cardsData.slice(i, i + imagesPerRow);
-                    const rowImages = rowCards.map(cardData => cardData.img);
                     const isLastRow = i + imagesPerRow >= cardsData.length;
                     const isSingleImageLastRow = isLastRow && rowCards.length === 1 && previousRowHeight !== null;
 
                     let actualRowHeight;
                     if (isSingleImageLastRow) {
-                        const img = rowImages[0];
-                        const aspectRatio = img.naturalWidth / img.naturalHeight;
+                        const aspectRatio = rowCards[0].ar;
                         const maxHeight = previousRowHeight;
                         const maxWidth = containerWidth;
                         const heightFromWidth = maxWidth / aspectRatio;
                         actualRowHeight = Math.min(maxHeight, heightFromWidth, maxAllowedHeight);
                     } else if (rowHeightMode === 'auto') {
-                        const optimalHeight = calculateOptimalRowHeight(rowImages, containerWidth, gap);
+                        const aspectRatios = rowCards.map(c => c.ar);
+                        const optimalHeight = calculateOptimalRowHeight(aspectRatios, containerWidth, gap);
                         actualRowHeight = Math.min(optimalHeight, maxAllowedHeight);
                     } else {
                         actualRowHeight = Math.min(rowHeight, maxAllowedHeight);
@@ -118,8 +129,7 @@
                     row.className = 'flickr-row';
                     row.style.height = `${actualRowHeight}px`;
 
-                    rowCards.forEach(({ element: card, img }) => {
-                        const aspectRatio = img.naturalWidth / img.naturalHeight;
+                    rowCards.forEach(({ element: card, img, ar: aspectRatio }) => {
                         const width = actualRowHeight * aspectRatio;
                         card.style.width = `${width}px`;
                         card.style.height = `${actualRowHeight}px`;
@@ -130,6 +140,32 @@
                 }
 
                 grid.classList.add('justified-initialized');
+
+                // Optional refinement: relayout when images decode for pixel-perfect sizing
+                const imgsNeedingDecode = Array.from(grid.querySelectorAll('.flickr-card img'))
+                    .filter(img => !(img.complete && img.naturalWidth > 0));
+
+                if (imgsNeedingDecode.length > 0) {
+                    imgsNeedingDecode.forEach(img => {
+                        const relayout = () => {
+                            // schedule a single reflow per grid
+                            if (grid._pendingRelayout) return;
+                            grid._pendingRelayout = true;
+                            requestAnimationFrame(() => {
+                                grid.classList.remove('justified-initialized');
+                                initJustifiedGallery();
+                                grid._pendingRelayout = false;
+                            });
+                        };
+                        if (typeof img.decode === 'function') {
+                            img.decode().then(relayout).catch(relayout);
+                        } else {
+                            img.addEventListener('load', relayout, { once: true });
+                            img.addEventListener('error', relayout, { once: true });
+                        }
+                    });
+                }
+
                 const reinitEvent = new CustomEvent('flickrGalleryReorganized', { detail: { grid: grid } });
                 document.dispatchEvent(reinitEvent);
             }
@@ -655,18 +691,18 @@ function initFlickrAlbumLazyLoading() {
         link.className = 'flickr-builtin-lightbox';
         link.href = photoData.image_url;
 
+        // expose dimensions for layout before load
+        if (photoData.width && photoData.height) {
+            link.setAttribute('data-width', photoData.width);
+            link.setAttribute('data-height', photoData.height);
+        }
+
         // Get the gallery ID from the existing gallery structure
         const existingItems = gallery.querySelectorAll('.flickr-builtin-lightbox[data-gallery]');
         const galleryId = existingItems.length > 0 ?
             existingItems[0].getAttribute('data-gallery') :
             'flickr-gallery-' + Date.now();
         link.setAttribute('data-gallery', galleryId);
-
-        // Add dimensions for lightbox (required for proper lightbox functionality)
-        if (photoData.width && photoData.height) {
-            link.setAttribute('data-width', photoData.width);
-            link.setAttribute('data-height', photoData.height);
-        }
 
         // Add Flickr attribution attributes to match server-side structure
         if (photoData.is_flickr && photoData.flickr_page) {
@@ -684,9 +720,18 @@ function initFlickrAlbumLazyLoading() {
         img.alt = '';
         img.loading = 'lazy';
         img.setAttribute('decoding', 'async'); // Match server-side attributes
+        if (photoData.width && photoData.height) {
+            img.setAttribute('data-width', photoData.width);
+            img.setAttribute('data-height', photoData.height);
+        }
 
         link.appendChild(img);
         card.appendChild(link);
+
+        // Give the card a provisional box that matches aspect-ratio
+        if (photoData.width && photoData.height) {
+            card.style.aspectRatio = `${photoData.width} / ${photoData.height}`;
+        }
 
         return card;
     }
