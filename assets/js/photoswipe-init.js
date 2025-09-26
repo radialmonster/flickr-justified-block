@@ -201,22 +201,43 @@
                         el.setAttribute('target', '_blank');
                         el.setAttribute('rel', 'noopener noreferrer');
 
-                        // Make it compact & non-wrapping on mobile
-                        el.style.fontSize = '13px';
-                        el.style.textDecoration = 'underline';
-                        el.style.color = '#fff';
-                        el.style.padding = '6px 10px';
-                        el.style.backgroundColor = 'rgba(0,0,0,0.3)';
-                        el.style.borderRadius = '4px';
-                        el.style.transition = 'background-color 0.2s';
-                        el.style.whiteSpace = 'nowrap';
-                        el.style.textOverflow = 'ellipsis';
-                        el.style.overflow = 'hidden';
-                        el.style.maxWidth = '35vw';       // prevent bar expansion on narrow screens
-                        el.style.flex = '0 1 auto';       // allow shrink
-                        el.style.marginRight = '8px';
+                        // Base (mobile-first)
+                        const applySize = () => {
+                            const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
 
-                        // Hover effect
+                            // shared styles
+                            el.style.fontSize = '13px';
+                            el.style.textDecoration = 'underline';
+                            el.style.color = '#fff';
+                            el.style.padding = '6px 10px';
+                            el.style.backgroundColor = 'rgba(0,0,0,0.3)';
+                            el.style.borderRadius = '4px';
+                            el.style.transition = 'background-color 0.2s';
+                            el.style.whiteSpace = 'nowrap';
+                            el.style.marginRight = '8px';
+                            el.style.pointerEvents = 'auto';
+
+                            if (isDesktop) {
+                                // show full text on desktop
+                                el.style.maxWidth = 'none';
+                                el.style.overflow = 'visible';
+                                el.style.textOverflow = 'clip';
+                                el.style.flex = '0 0 auto';
+                            } else {
+                                // keep compact on mobile
+                                el.style.maxWidth = '40vw';
+                                el.style.overflow = 'hidden';
+                                el.style.textOverflow = 'ellipsis';
+                                el.style.flex = '0 1 auto';
+                            }
+                        };
+
+                        applySize();
+                        const onResize = () => applySize();
+                        window.addEventListener('resize', onResize);
+                        pswp.on('destroy', () => window.removeEventListener('resize', onResize));
+
+                        // Hover effect (desktop only, harmless on mobile)
                         el.addEventListener('mouseenter', () => el.style.backgroundColor = 'rgba(0,0,0,0.6)');
                         el.addEventListener('mouseleave', () => el.style.backgroundColor = 'rgba(0,0,0,0.3)');
 
