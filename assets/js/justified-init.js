@@ -206,6 +206,8 @@ function initFlickrAlbumLazyLoading() {
 
         if (!Array.isArray(setMetadata) || setMetadata.length === 0) return;
 
+        console.log('Lazy loading initialized for gallery with metadata:', setMetadata);
+
         // Track loading state for each set
         setMetadata.forEach(setData => {
             setData.isLoading = false;
@@ -243,12 +245,16 @@ function initFlickrAlbumLazyLoading() {
         gallery._flickrLoading = true;
 
         // Find sets that have more pages to load
-        const setsToLoad = setMetadata.filter(setData =>
-            !setData.isLoading &&
-            !setData.loadingError &&
-            setData.current_page < setData.total_pages
-        );
+        console.log('Checking for sets to load. Current metadata:', setMetadata);
+        const setsToLoad = setMetadata.filter(setData => {
+            const canLoad = !setData.isLoading &&
+                !setData.loadingError &&
+                setData.current_page < setData.total_pages;
+            console.log(`Set ${setData.photoset_id}: current_page=${setData.current_page}, total_pages=${setData.total_pages}, can_load=${canLoad}`);
+            return canLoad;
+        });
 
+        console.log(`Found ${setsToLoad.length} sets to load`);
         if (setsToLoad.length === 0) {
             // No more pages to load, clean up observer and remove trigger
             const trigger = gallery.querySelector('.flickr-lazy-trigger');
