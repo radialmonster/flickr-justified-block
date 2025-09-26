@@ -519,6 +519,10 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
  * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title'
  */
 function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 500) {
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('Flickr Justified Block: flickr_justified_get_photoset_photos_paginated called - user_id: ' . $user_id . ', photoset_id: ' . $photoset_id . ', page: ' . $page);
+    }
+
     // Validate inputs
     if (empty($user_id) || empty($photoset_id) || !is_string($user_id) || !is_string($photoset_id)) {
         return [
