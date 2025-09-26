@@ -179,6 +179,9 @@
         observer.observe(document.body, { childList: true, subtree: false });
     }
 
+    // Make initJustifiedGallery accessible to lazy loading function
+    window.initJustifiedGallery = initJustifiedGallery;
+
     // Initialize lazy loading for Flickr albums
     initFlickrAlbumLazyLoading();
 })();
@@ -285,7 +288,7 @@ function initFlickrAlbumLazyLoading() {
                 document.dispatchEvent(event);
 
                 // Re-initialize gallery layout
-                initJustifiedGallery();
+                window.initJustifiedGallery();
             }, 100);
 
         } catch (error) {
@@ -345,7 +348,7 @@ function initFlickrAlbumLazyLoading() {
                         return;
                     }
 
-                    const card = createPhotoCard(photoData);
+                    const card = createPhotoCard(photoData, gallery);
                     if (card) {
                         // Insert before the lazy trigger
                         const trigger = gallery.querySelector('.flickr-lazy-trigger');
@@ -391,7 +394,7 @@ function initFlickrAlbumLazyLoading() {
         }
     }
 
-    function createPhotoCard(photoData) {
+    function createPhotoCard(photoData, gallery) {
         // Validate required photoData fields
         if (!photoData || typeof photoData !== 'object' || !photoData.image_url) {
             console.warn('Invalid photo data for card creation:', photoData);
