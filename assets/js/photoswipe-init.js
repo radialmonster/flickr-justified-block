@@ -88,6 +88,41 @@
         });
     }
 
+    /**
+     * Delegated click handler for PhotoSwipe
+     */
+    function delegatedClickHandler(event) {
+        const clickedItem = event.target.closest('a.flickr-builtin-lightbox');
+        if (!clickedItem) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const gallery = clickedItem.closest('.flickr-justified-grid');
+        const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
+        const index = parseInt(clickedItem.getAttribute('data-pswp-index'), 10) || 0;
+
+        console.log('PhotoSwipe click handler triggered for index:', index);
+
+        const galleryData = Array.from(items).map((item, idx) => {
+            const img = item.querySelector('img');
+            const flickrPage = item.getAttribute('data-flickr-page');
+            const width = parseInt(item.getAttribute('data-width'), 10) || (img?.naturalWidth || 1200);
+            const height = parseInt(item.getAttribute('data-height'), 10) || (img?.naturalHeight || 800);
+
+            return {
+                src: item.href,
+                width,
+                height,
+                flickrPage,
+                element: item
+            };
+        });
+
+        console.log('Opening PhotoSwipe with', galleryData.length, 'images');
+        openPhotoSwipe(galleryData, index);
+    }
+
     // Prepare gallery data for PhotoSwipe
     function prepareGalleryData() {
         const galleries = document.querySelectorAll('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
@@ -95,70 +130,19 @@
         console.log('Found', galleries.length, 'galleries with built-in lightbox enabled');
 
         galleries.forEach(gallery => {
-            const items = gallery.querySelectorAll('.flickr-card a');
-
+            // Avoid attaching twice
+            if (!gallery._pswpBound) {
+                gallery.addEventListener('click', delegatedClickHandler, true); // one listener per gallery
+                gallery._pswpBound = true;
+            }
+            // Reindex after any DOM changes (cheap)
+            const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
             console.log('Preparing', items.length, 'items in gallery');
-
-            // Mark gallery as PhotoSwipe enabled
+            items.forEach((item, idx) => item.setAttribute('data-pswp-index', idx));
             gallery.setAttribute('data-photoswipe-initialized', 'true');
-
-            items.forEach((item, index) => {
-                item.setAttribute('data-pswp-index', index);
-
-                // Add our click handler with high priority
-                item.addEventListener('click', handleItemClick, true); // Capture phase
-            });
         });
     }
 
-    // Handle click on gallery item
-    function handleItemClick(event) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const clickedItem = event.currentTarget;
-        const gallery = clickedItem.closest('.flickr-justified-grid');
-        const items = gallery.querySelectorAll('.flickr-card a');
-        const index = parseInt(clickedItem.getAttribute('data-pswp-index'));
-
-        console.log('PhotoSwipe click handler triggered for index:', index);
-
-        // Prepare gallery data for PhotoSwipe
-        const galleryData = Array.from(items).map((item, idx) => {
-            const img = item.querySelector('img');
-            const flickrPage = item.getAttribute('data-flickr-page');
-
-            const galleryItem = {
-                src: item.href, // Large image URL
-                width: parseInt(item.getAttribute('data-width')) || img.naturalWidth || 1200,
-                height: parseInt(item.getAttribute('data-height')) || img.naturalHeight || 800,
-                flickrPage: flickrPage,
-                element: item // Reference to original element
-            };
-
-            console.log(`Image ${idx} DETAILED:`, {
-                href: item.href,
-                imgSrc: img.src,
-                dataWidth: item.getAttribute('data-width'),
-                dataHeight: item.getAttribute('data-height'),
-                dataWidthParsed: parseInt(item.getAttribute('data-width')),
-                dataHeightParsed: parseInt(item.getAttribute('data-height')),
-                naturalWidth: img.naturalWidth,
-                naturalHeight: img.naturalHeight,
-                finalWidth: galleryItem.width,
-                finalHeight: galleryItem.height,
-                screenSize: `${window.innerWidth}x${window.innerHeight}`,
-                allDataAttrs: Array.from(item.attributes).filter(attr => attr.name.startsWith('data-'))
-            });
-
-            return galleryItem;
-        });
-
-        console.log('Opening PhotoSwipe with', galleryData.length, 'images');
-
-        // Open PhotoSwipe
-        openPhotoSwipe(galleryData, index);
-    }
 
     // Open PhotoSwipe gallery
     function openPhotoSwipe(galleryData, index) {
@@ -283,10 +267,17 @@
         }
     }
 
+    let initializedOnce = false;
+
     // Initialize when DOM is ready
     function init() {
         if (!isBuiltinLightboxEnabled()) {
             console.log('Built-in PhotoSwipe lightbox not enabled');
+            return;
+        }
+        if (initializedOnce) {
+            // Still re-run prepare to reindex dynamic items, but skip heavy work
+            prepareGalleryData();
             return;
         }
 
@@ -294,6 +285,7 @@
         setTimeout(() => {
             prepareGalleryData();
             console.log('PhotoSwipe built-in lightbox initialized');
+            initializedOnce = true;
         }, 100);
     }
 
@@ -330,9 +322,20 @@
     document.addEventListener('flickr-gallery-updated', function(event) {
         console.log('PhotoSwipe: Received gallery update event, re-initializing...');
         setTimeout(() => {
-            prepareGalleryData();
+            prepareGalleryData(); // re-indexes items; no duplicate listeners
             console.log('PhotoSwipe: Re-initialization complete');
         }, 100);
+    });
+
+    // Keyboard activation for accessibility
+    document.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target instanceof Element) {
+            const a = e.target.closest('a.flickr-builtin-lightbox');
+            if (a) {
+                e.preventDefault();
+                a.click();
+            }
+        }
     });
 
 })();
