@@ -633,13 +633,15 @@ function initFlickrAlbumLazyLoading() {
 
         // Add Flickr attribution attributes to match server-side structure
         if (photoData.is_flickr && photoData.flickr_page) {
+            const attributionText = gallery?.dataset?.attributionText || 'Flickr';
+
             link.setAttribute('data-flickr-page', photoData.flickr_page);
-            link.setAttribute('data-flickr-attribution-text', 'Flickr');
+            link.setAttribute('data-flickr-attribution-text', attributionText);
 
             // Add additional lightbox caption attributes (matches server-side)
-            link.setAttribute('data-caption', 'Flickr');
-            link.setAttribute('data-title', 'Flickr');
-            link.setAttribute('title', 'Flickr');
+            link.setAttribute('data-caption', attributionText);
+            link.setAttribute('data-title', attributionText);
+            link.setAttribute('title', attributionText);
         }
 
         const img = document.createElement('img');

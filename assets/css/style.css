@@ -163,50 +163,6 @@
     }
 }
 
-/* Flickr Attribution Overlay */
-.flickr-attribution-overlay {
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.flickr-card:hover .flickr-attribution-overlay,
-.flickr-card:focus-within .flickr-attribution-overlay {
-    opacity: 1;
-}
-
-.flickr-attribution-overlay a {
-    font-size: 12px !important;
-    line-height: 1.2;
-}
-
-.flickr-attribution-overlay a:hover,
-.flickr-attribution-overlay a:focus {
-    text-decoration: underline !important;
-    color: #ffffff !important;
-}
-
-/* Responsive adjustments for attribution */
-@media (max-width: 768px) {
-    .flickr-attribution-overlay {
-        opacity: 1; /* Always visible on mobile */
-    }
-}
-
-/* Attribution overlay high contrast support */
-@media (prefers-contrast: high) {
-    .flickr-attribution-overlay {
-        background: rgba(0,0,0,0.9) !important;
-        border: 1px solid currentColor;
-    }
-}
-
-/* Attribution overlay reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-    .flickr-attribution-overlay {
-        transition: none;
-    }
-}
-
 /* PhotoSwipe theme protection and mobile enhancements */
 
 /* Keep PhotoSwipe slide images from inheriting global img rules */

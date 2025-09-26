@@ -18,14 +18,16 @@
 
     // Get attribution settings
     function getAttributionSettings() {
-        const gallery = document.querySelector('.flickr-justified-grid[data-attribution-mode]');
+        const gallery = document.querySelector('.flickr-justified-grid');
         const firstItem = document.querySelector('.flickr-card a[data-flickr-attribution-text]');
 
         if (!gallery && !firstItem) return null;
 
+        const galleryText = gallery ? (gallery.getAttribute('data-attribution-text') || '') : '';
+        const buttonText = firstItem ? (firstItem.getAttribute('data-flickr-attribution-text') || '') : '';
+
         return {
-            text: firstItem ? (firstItem.getAttribute('data-flickr-attribution-text') || 'Flickr') : 'Flickr',
-            mode: gallery ? gallery.getAttribute('data-attribution-mode') : 'data_attributes'
+            text: buttonText || galleryText || 'Flickr'
         };
     }
 
