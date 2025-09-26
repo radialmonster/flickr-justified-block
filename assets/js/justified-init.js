@@ -322,6 +322,14 @@ function initFlickrAlbumLazyLoading() {
                     // First unobserve in case it's still connected to avoid duplicate observations
                     observer.unobserve(triggerElement);
                     observer.observe(triggerElement);
+
+                    // Debug: Check trigger element positioning
+                    const rect = triggerElement.getBoundingClientRect();
+                    const galleryRect = gallery.getBoundingClientRect();
+                    console.log(`📏 Trigger position: top=${rect.top}, bottom=${rect.bottom}, height=${rect.height}`);
+                    console.log(`📏 Gallery position: top=${galleryRect.top}, bottom=${galleryRect.bottom}, height=${galleryRect.height}`);
+                    console.log(`📏 Viewport height: ${window.innerHeight}`);
+                    console.log(`📏 Is trigger visible in viewport: ${rect.top < window.innerHeight && rect.bottom > 0}`);
                 } else {
                     console.log('⚠️ No observer or trigger element found for re-observation!');
                 }
