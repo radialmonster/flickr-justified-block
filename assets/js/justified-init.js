@@ -317,55 +317,102 @@ function initFlickrAlbumLazyLoading() {
                 console.log('✅ Trigger element already exists');
             }
 
+            // Wait for all images to load before reinitialization to prevent layout thrashing
             setTimeout(() => {
-                console.log('📐 Dispatching gallery reorganized event...');
-                const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
-                document.dispatchEvent(event);
+                console.log('📐 Waiting for images to load before reinitialization...');
 
-                // Re-initialize gallery layout
-                console.log('🏗️ Re-initializing gallery layout...');
-                window.initJustifiedGallery();
+                // Get all newly added images that might still be loading
+                const newImages = gallery.querySelectorAll('img[loading="lazy"]');
+                let loadedCount = 0;
+                const totalImages = newImages.length;
 
-                // Check if trigger survived the reinitialization
-                const survivingTrigger = gallery.querySelector('.flickr-lazy-trigger');
-                console.log(`🔍 Checking for trigger after reinitialization: ${survivingTrigger ? 'SURVIVED' : 'DESTROYED'}`);
-
-                let finalTriggerElement = survivingTrigger;
-                if (!survivingTrigger) {
-                    console.log('🔄 Re-creating trigger element after gallery destroyed it');
-                    finalTriggerElement = document.createElement('div');
-                    finalTriggerElement.style.height = '1px';
-                    finalTriggerElement.style.width = '100%';
-                    finalTriggerElement.className = 'flickr-lazy-trigger';
-                    gallery.appendChild(finalTriggerElement);
+                if (totalImages === 0) {
+                    // No lazy loading images, proceed immediately
+                    reinitializeGallery();
+                    return;
                 }
 
-                // ALWAYS re-observe the trigger element
-                const observer = gallery._flickrLazyObserver;
-                if (observer && finalTriggerElement) {
-                    console.log('👁️ Re-observing trigger element (required after gallery reinitialization)');
-                    // First unobserve in case it's still connected to avoid duplicate observations
-                    try {
-                        observer.unobserve(finalTriggerElement);
-                    } catch (e) {
-                        // Element might not have been observed before
+                console.log(`📸 Waiting for ${totalImages} images to load...`);
+
+                const checkAllLoaded = () => {
+                    loadedCount++;
+                    console.log(`📸 Image loaded (${loadedCount}/${totalImages})`);
+                    if (loadedCount >= totalImages) {
+                        console.log('📸 All images loaded, reinitializing gallery...');
+                        reinitializeGallery();
                     }
-                    observer.observe(finalTriggerElement);
+                };
 
-                    // Debug: Check trigger element positioning
-                    setTimeout(() => {
-                        const rect = finalTriggerElement.getBoundingClientRect();
-                        const galleryRect = gallery.getBoundingClientRect();
-                        console.log(`📏 Trigger position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, height=${rect.height}`);
-                        console.log(`📏 Gallery position: top=${Math.round(galleryRect.top)}, bottom=${Math.round(galleryRect.bottom)}, height=${Math.round(galleryRect.height)}`);
-                        console.log(`📏 Viewport height: ${window.innerHeight}`);
-                        console.log(`📏 Is trigger visible: ${rect.top < window.innerHeight && rect.bottom > 0}`);
-                        console.log(`📏 Distance to trigger: ${Math.round(rect.top - window.innerHeight)} pixels`);
-                    }, 50);
-                } else {
-                    console.log('⚠️ No observer or trigger element found for re-observation!');
+                // Add load listeners to all new images
+                newImages.forEach((img, index) => {
+                    if (img.complete && img.naturalWidth > 0) {
+                        // Image already loaded
+                        checkAllLoaded();
+                    } else {
+                        // Wait for image to load
+                        img.addEventListener('load', checkAllLoaded, { once: true });
+                        img.addEventListener('error', checkAllLoaded, { once: true }); // Count errors too
+                    }
+                });
+
+                // Fallback timeout in case some images never load
+                setTimeout(() => {
+                    if (loadedCount < totalImages) {
+                        console.log(`⏰ Timeout reached, reinitializing anyway (${loadedCount}/${totalImages} loaded)`);
+                        reinitializeGallery();
+                    }
+                }, 5000);
+
+                function reinitializeGallery() {
+                    console.log('📐 Dispatching gallery reorganized event...');
+                    const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
+                    document.dispatchEvent(event);
+
+                    // Re-initialize gallery layout
+                    console.log('🏗️ Re-initializing gallery layout...');
+                    window.initJustifiedGallery();
+
+                    // Check if trigger survived the reinitialization
+                    const survivingTrigger = gallery.querySelector('.flickr-lazy-trigger');
+                    console.log(`🔍 Checking for trigger after reinitialization: ${survivingTrigger ? 'SURVIVED' : 'DESTROYED'}`);
+
+                    let finalTriggerElement = survivingTrigger;
+                    if (!survivingTrigger) {
+                        console.log('🔄 Re-creating trigger element after gallery destroyed it');
+                        finalTriggerElement = document.createElement('div');
+                        finalTriggerElement.style.height = '1px';
+                        finalTriggerElement.style.width = '100%';
+                        finalTriggerElement.className = 'flickr-lazy-trigger';
+                        gallery.appendChild(finalTriggerElement);
+                    }
+
+                    // ALWAYS re-observe the trigger element
+                    const observer = gallery._flickrLazyObserver;
+                    if (observer && finalTriggerElement) {
+                        console.log('👁️ Re-observing trigger element (required after gallery reinitialization)');
+                        // First unobserve in case it's still connected to avoid duplicate observations
+                        try {
+                            observer.unobserve(finalTriggerElement);
+                        } catch (e) {
+                            // Element might not have been observed before
+                        }
+                        observer.observe(finalTriggerElement);
+
+                        // Debug: Check trigger element positioning
+                        setTimeout(() => {
+                            const rect = finalTriggerElement.getBoundingClientRect();
+                            const galleryRect = gallery.getBoundingClientRect();
+                            console.log(`📏 Trigger position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, height=${rect.height}`);
+                            console.log(`📏 Gallery position: top=${Math.round(galleryRect.top)}, bottom=${Math.round(galleryRect.bottom)}, height=${Math.round(galleryRect.height)}`);
+                            console.log(`📏 Viewport height: ${window.innerHeight}`);
+                            console.log(`📏 Is trigger visible: ${rect.top < window.innerHeight && rect.bottom > 0}`);
+                            console.log(`📏 Distance to trigger: ${Math.round(rect.top - window.innerHeight)} pixels`);
+                        }, 50);
+                    } else {
+                        console.log('⚠️ No observer or trigger element found for re-observation!');
+                    }
+                    console.log('🏁 Gallery reinitialization complete');
                 }
-                console.log('🏁 Gallery reinitialization complete');
             }, 100);
 
         } catch (error) {
