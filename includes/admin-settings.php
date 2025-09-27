@@ -607,6 +607,15 @@ class FlickrJustifiedAdminSettings {
                 </form>
             </div>
 
+            <div class="card" style="margin-top: 20px;">
+                <h2><?php _e('Support This Plugin', 'flickr-justified-block'); ?></h2>
+                <p><?php _e('Enjoying this plugin? A small donation helps me keep improving it. Totally optional, but your support means a lot!', 'flickr-justified-block'); ?></p>
+                <p>
+                    <a href="https://radialmonster.github.io/send-a-virtual-gift/" target="_blank" rel="noopener noreferrer" class="button button-primary">
+                        <?php _e('Send a Virtual Gift', 'flickr-justified-block'); ?>
+                    </a>
+                </p>
+            </div>
 
             <div class="card" style="margin-top: 20px;">
                 <h2><?php _e('Supported Sources', 'flickr-justified-block'); ?></h2>
