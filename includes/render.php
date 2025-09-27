@@ -872,6 +872,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $total_photos = 0;
     $album_title = '';
     $last_has_more = false;
+    $pages_fetched = 0;
 
     while (true) {
         $page_result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, $per_page);
@@ -894,6 +895,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         }
 
         $all_photos = array_merge($all_photos, array_values($page_result['photos']));
+        $pages_fetched++;
 
         $last_has_more = !empty($page_result['has_more']);
         if (!$last_has_more) {
@@ -914,16 +916,28 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         }
     }
 
+    $loaded_photos_count = count($all_photos);
+
     $full_result = [
         'photos' => $all_photos,
         'has_more' => (bool) $last_has_more,
-        'total' => $total_photos > 0 ? $total_photos : count($all_photos),
+        'total' => $total_photos > 0 ? $total_photos : $loaded_photos_count,
         'page' => 1,
         'pages' => max(1, $total_pages),
         'album_title' => $album_title,
     ];
+    $expected_pages = max(1, (int) $total_pages);
+    $fetched_all_pages = false;
 
-    if (!$full_result['has_more'] && !empty($all_photos)) {
+    if ($pages_fetched > 0) {
+        if ($total_photos > 0 && $loaded_photos_count >= $total_photos) {
+            $fetched_all_pages = true;
+        } elseif (!$last_has_more && $pages_fetched >= $expected_pages) {
+            $fetched_all_pages = true;
+        }
+    }
+
+    if (!$full_result['has_more'] && $fetched_all_pages && !empty($all_photos)) {
         $cache_duration = 6 * HOUR_IN_SECONDS;
         $configured_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', 0);
         if ($configured_duration > 0) {
