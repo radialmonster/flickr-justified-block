@@ -3,22 +3,26 @@
 
     const SORT_VIEWS_DESC = 'views_desc';
 
-    function getPhotoLimit(gallery) {
-        const value = parseInt(gallery?.dataset?.photoLimit || '0', 10);
-        return Number.isFinite(value) && value > 0 ? value : 0;
-    }
+    const flickrGalleryHelpers = {
+        getPhotoLimit(gallery) {
+            const value = parseInt(gallery?.dataset?.photoLimit || '0', 10);
+            return Number.isFinite(value) && value > 0 ? value : 0;
+        },
 
-    function getLoadedCount(gallery) {
-        const fromDataset = parseInt(gallery?.dataset?.loadedCount || '', 10);
-        if (Number.isFinite(fromDataset)) {
-            return Math.max(0, fromDataset);
+        getLoadedCount(gallery) {
+            const fromDataset = parseInt(gallery?.dataset?.loadedCount || '', 10);
+            if (Number.isFinite(fromDataset)) {
+                return Math.max(0, fromDataset);
+            }
+            return gallery.querySelectorAll('.flickr-card').length;
+        },
+
+        setLoadedCount(gallery, value) {
+            gallery.dataset.loadedCount = String(Math.max(0, value));
         }
-        return gallery.querySelectorAll('.flickr-card').length;
-    }
+    };
 
-    function setLoadedCount(gallery, value) {
-        gallery.dataset.loadedCount = String(Math.max(0, value));
-    }
+    const { getPhotoLimit, getLoadedCount, setLoadedCount } = flickrGalleryHelpers;
 
     function calculateOptimalRowHeight(aspectRatios, containerWidth, gap) {
         const totalAspectRatio = aspectRatios.reduce((s, ar) => s + ar, 0);
@@ -248,8 +252,9 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // Make initJustifiedGallery accessible to lazy loading function
+    // Make initJustifiedGallery and shared helpers accessible to lazy loading function
     window.initJustifiedGallery = initJustifiedGallery;
+    window.flickrJustifiedHelpers = flickrGalleryHelpers;
 
     /**
      * Lazy loading for Flickr albums/sets - loads additional pages when user scrolls
