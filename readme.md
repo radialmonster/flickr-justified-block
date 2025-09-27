@@ -22,6 +22,7 @@ Whether you're showcasing a single album or curating images from multiple source
 * **Flickr photo & album support** – Works with individual photo URLs _and_ full albums/sets. Albums expand automatically and continue loading as visitors scroll.
 * **Direct image compatibility** – Mix Flickr content with JPG, PNG, WebP, AVIF, GIF, or SVG links hosted anywhere.
 * **Built-in PhotoSwipe lightbox** – Optimized for Retina/4K displays with automatic "View on Flickr" attribution buttons.
+* **Per-gallery controls** – Limit how many images load for a block and optionally sort Flickr photos by cached daily view counts.
 * **Responsive control** – Choose images-per-row per breakpoint in the editor; define default breakpoints and column counts globally in Settings → Flickr Justified.
 * **Row height options** – Use automatic height for perfectly justified rows or switch to a fixed pixel height for uniform stripes.
 * **Viewport guard** – Limit image height relative to the visitor’s screen so tall images never overflow.
@@ -78,6 +79,8 @@ Whether you're showcasing a single album or curating images from multiple source
    * **Row Height** – Pick a fixed pixel height when using the fixed mode.
    * **Max Viewport Height** – Keep large images within a percentage of the browser height.
    * **Single Image Alignment** – Choose how a lone image should align within the block.
+   * **Show how many images** – Leave at 0 for unlimited or enter a maximum number of photos to render and lazy-load for this block.
+   * **Sort images** – Keep the original entry order or use cached Flickr view counts to show the most popular photos first.
    * **Responsive Settings** – Override images-per-row per breakpoint for this gallery.
 4. Preview the block. Each URL will display a thumbnail or album card inside the editor so you can verify the feed.
 5. Publish. On the front end visitors get a responsive justified layout, PhotoSwipe lightbox, and auto-loading albums.
@@ -112,7 +115,7 @@ Absolutely. Every gallery automatically uses the bundled PhotoSwipe lightbox. No
 
 = How does caching work? =
 
-Flickr API responses (photo data, album pages, user lookups) are cached in WordPress to reduce API usage and speed up pages. You can change the cache duration in the plugin settings.
+Flickr API responses (photo data, per-day photo stats, album pages, user lookups) are cached in WordPress to reduce API usage and speed up pages. You can change the cache duration in the plugin settings, and clear the cache manually if you need to force a refresh.
 
 == Support ==
 

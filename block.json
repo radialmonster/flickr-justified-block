@@ -60,6 +60,15 @@
       "type": "string",
       "default": "center",
       "enum": ["left", "center", "right"]
+    },
+    "maxPhotos": {
+      "type": "number",
+      "default": 0
+    },
+    "sortOrder": {
+      "type": "string",
+      "default": "input",
+      "enum": ["input", "views_desc"]
     }
   }
 }
