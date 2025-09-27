@@ -197,13 +197,6 @@
                             })()),
                             el('div', {
                                 style: {
-                                    fontSize: '14px',
-                                    opacity: '0.7',
-                                    marginBottom: '8px'
-                                }
-                            }, imageData.photo_count + ' ' + __('photos will be displayed', 'flickr-justified-block')),
-                            el('div', {
-                                style: {
                                     fontSize: '12px',
                                     opacity: '0.6',
                                     fontStyle: 'italic'
