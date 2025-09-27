@@ -638,6 +638,15 @@ function initFlickrAlbumLazyLoading() {
             // Implement retry logic for temporary network errors
             if (!setData.retryCount) setData.retryCount = 0;
 
+            const persistMetadata = (reason) => {
+                try {
+                    gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
+                    console.log(`💾 Updated DOM with metadata after ${reason}`);
+                } catch (metadataError) {
+                    console.warn('Failed to persist metadata after error handling:', metadataError);
+                }
+            };
+
             const statusMatch = /HTTP\s+(\d{3})/i.exec(error?.message || '');
             const statusCode = error?.status || (statusMatch ? parseInt(statusMatch[1], 10) : null);
             const recoverableStatusCodes = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -652,6 +661,8 @@ function initFlickrAlbumLazyLoading() {
 
                 const retryDelay = 2000 * setData.retryCount; // Exponential backoff
 
+                persistMetadata('network error retry preparation');
+
                 return {
                     status: 'recoverable-error',
                     recoverable: true,
@@ -662,6 +673,8 @@ function initFlickrAlbumLazyLoading() {
                 setData.isLoading = false;
                 const delay = Math.min(10000, 3000 * Math.max(1, setData.retryCount || 1));
                 setData.retryCount++;
+
+                persistMetadata('recoverable error handling');
 
                 return {
                     status: 'recoverable-error',
@@ -674,6 +687,9 @@ function initFlickrAlbumLazyLoading() {
                 // Max retries reached or non-recoverable error
                 setData.loadingError = true;
                 setData.isLoading = false;
+
+                persistMetadata('fatal error handling');
+
                 return {
                     status: 'fatal-error',
                     recoverable: false,
