@@ -490,6 +490,14 @@
                 const pendingSets = setMetadata.some(set => !set.loadingError && set.current_page < set.total_pages);
 
                 if (hasSuccess) {
+                    // Capture the current viewport position of the last visible card
+                    const anchorCard = (() => {
+                        const lastRowCard = gallery.querySelector(':scope > .flickr-row:last-of-type .flickr-card:last-of-type');
+                        if (lastRowCard) return lastRowCard;
+                        return gallery.querySelector(':scope > .flickr-card:last-of-type');
+                    })();
+                    const anchorViewportTop = anchorCard ? anchorCard.getBoundingClientRect().top : null;
+
                     // Re-initialize the justified layout with new photos
                     console.log('🔄 Starting gallery reinitialization...');
                     gallery.classList.remove('justified-initialized');
@@ -502,7 +510,7 @@
                     }
 
                     // Reinitialize immediately using aspect-ratio fallbacks (no decode wait)
-                    reinitializeGallery();
+                    reinitializeGallery(anchorCard, anchorViewportTop);
                 }
 
                 if (hasRecoverable && pendingSets) {
@@ -519,7 +527,7 @@
                     shouldRemoveIndicator = true;
                 }
 
-                function reinitializeGallery() {
+                function reinitializeGallery(anchorCard, anchorViewportTop) {
                     console.log('📐 Dispatching gallery reorganized event...');
                     const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
                     document.dispatchEvent(event);
@@ -573,6 +581,18 @@
                     // Rebuild rows immediately
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
+
+                    if (anchorCard && typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop)) {
+                        requestAnimationFrame(() => {
+                            if (!anchorCard.isConnected) return;
+                            const rect = anchorCard.getBoundingClientRect();
+                            if (!rect) return;
+                            const delta = rect.top - anchorViewportTop;
+                            if (Math.abs(delta) > 1) {
+                                window.scrollBy(0, delta);
+                            }
+                        });
+                    }
 
                     // Re-observe new last image
                     setTimeout(() => {
