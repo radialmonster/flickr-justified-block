@@ -115,7 +115,7 @@ Absolutely. Every gallery automatically uses the bundled PhotoSwipe lightbox. No
 
 = How does caching work? =
 
-Flickr API responses (photo data, per-day photo stats, album pages, user lookups) are cached in WordPress to reduce API usage and speed up pages. You can change the cache duration in the plugin settings, and clear the cache manually if you need to force a refresh.
+Flickr API responses (photo data, detailed per-photo info such as view/comment/favorite counts, album pages, user lookups) are cached in WordPress to reduce API usage and speed up pages. You can change the cache duration in the plugin settings, and clear the cache manually if you need to force a refresh.
 
 == Support ==
 

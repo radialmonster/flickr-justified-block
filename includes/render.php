@@ -297,7 +297,12 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $result = flickr_justified_map_api_sizes_to_requested_with_dims($data['sizes']['size'], $requested_sizes);
 
     if (!empty($result)) {
-        $stats = flickr_justified_get_photo_stats($photo_id);
+        $photo_info = flickr_justified_get_photo_info($photo_id);
+        if (!empty($photo_info)) {
+            $result['_photo_info'] = $photo_info;
+        }
+
+        $stats = flickr_justified_extract_photo_stats_from_info($photo_info ?? []);
         if (!empty($stats)) {
             $result['_stats'] = $stats;
         }
@@ -349,21 +354,33 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
  * @param string|null $date Date string (YYYY-MM-DD). Defaults to current day in UTC.
  * @return array Associative array with views, comments, and favorites (empty on failure).
  */
-function flickr_justified_get_photo_stats($photo_id, $date = null) {
-    $photo_id = trim((string) $photo_id);
+function flickr_justified_get_photo_stats($photo_id) {
+    $photo_info = flickr_justified_get_photo_info($photo_id);
 
-    if ($photo_id === '') {
+    if (empty($photo_info)) {
         return [];
     }
 
-    if (null === $date) {
-        $date = gmdate('Y-m-d');
+    return flickr_justified_extract_photo_stats_from_info($photo_info);
+}
+
+/**
+ * Retrieve extended Flickr photo information via the API.
+ *
+ * @param string $photo_id Flickr photo ID.
+ * @return array Associative array of photo data from flickr.photos.getInfo.
+ */
+function flickr_justified_get_photo_info($photo_id) {
+    $photo_id = trim((string) $photo_id);
+
+    if ('' === $photo_id) {
+        return [];
     }
 
-    $cache_key = 'flickr_justified_photo_stats_' . $photo_id . '_' . md5($date);
-    $cached_stats = get_transient($cache_key);
-    if (is_array($cached_stats)) {
-        return $cached_stats;
+    $cache_key = 'flickr_justified_photo_info_' . $photo_id;
+    $cached = get_transient($cache_key);
+    if (is_array($cached)) {
+        return $cached;
     }
 
     $api_key = flickr_justified_get_api_key();
@@ -372,25 +389,22 @@ function flickr_justified_get_photo_stats($photo_id, $date = null) {
     }
 
     $query_args = [
-        'method' => 'flickr.stats.getPhotoStats',
+        'method' => 'flickr.photos.getInfo',
         'api_key' => $api_key,
         'photo_id' => $photo_id,
-        'date' => $date,
         'format' => 'json',
         'nojsoncallback' => 1,
     ];
 
     /**
-     * Filter the Flickr photo stats API request query arguments.
+     * Filter the Flickr photo info API request query arguments.
      *
-     * This allows advanced users to inject authentication tokens or signatures
-     * required for private stats endpoints.
+     * Allows advanced integrations to supply authentication tokens or request extras.
      *
-     * @param array $query_args Request query arguments.
-     * @param string $photo_id Flickr photo ID.
-     * @param string $date Date string (YYYY-MM-DD).
+     * @param array  $query_args Request query arguments.
+     * @param string $photo_id   Flickr photo ID.
      */
-    $query_args = apply_filters('flickr_justified_photo_stats_query_args', $query_args, $photo_id, $date);
+    $query_args = apply_filters('flickr_justified_photo_info_query_args', $query_args, $photo_id);
 
     $api_url = add_query_arg($query_args, 'https://api.flickr.com/services/rest/');
 
@@ -411,24 +425,69 @@ function flickr_justified_get_photo_stats($photo_id, $date = null) {
     $body = wp_remote_retrieve_body($response);
     $data = json_decode($body, true);
 
-    if (empty($data['stats']) || !is_array($data['stats'])) {
+    if (empty($data['photo']) || !is_array($data['photo'])) {
         return [];
     }
 
-    $stats = [
-        'views' => isset($data['stats']['views']) ? (int) $data['stats']['views'] : 0,
-        'comments' => isset($data['stats']['comments']) ? (int) $data['stats']['comments'] : 0,
-        'favorites' => isset($data['stats']['favorites']) ? (int) $data['stats']['favorites'] : 0,
-        'date' => $date,
-    ];
+    $photo_info = $data['photo'];
 
     $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
     if ($cache_duration <= 0) {
         $cache_duration = WEEK_IN_SECONDS;
     }
-    set_transient($cache_key, $stats, $cache_duration);
 
-    return $stats;
+    set_transient($cache_key, $photo_info, $cache_duration);
+
+    return $photo_info;
+}
+
+/**
+ * Extract view, comment, and favorite counts from cached photo info.
+ *
+ * @param array $photo_info Photo information retrieved from flickr.photos.getInfo.
+ * @return array
+ */
+function flickr_justified_extract_photo_stats_from_info($photo_info) {
+    if (!is_array($photo_info) || empty($photo_info)) {
+        return [];
+    }
+
+    $views = isset($photo_info['views']) ? max(0, (int) $photo_info['views']) : 0;
+
+    $comments = 0;
+    if (isset($photo_info['comments'])) {
+        if (is_array($photo_info['comments']) && isset($photo_info['comments']['_content'])) {
+            $comments = (int) $photo_info['comments']['_content'];
+        } elseif (isset($photo_info['comments']) && is_scalar($photo_info['comments'])) {
+            $comments = (int) $photo_info['comments'];
+        }
+    }
+
+    $favorites = 0;
+    if (isset($photo_info['count_faves'])) {
+        $favorites = (int) $photo_info['count_faves'];
+    } elseif (isset($photo_info['favorites'])) {
+        if (is_array($photo_info['favorites']) && isset($photo_info['favorites']['_content'])) {
+            $favorites = (int) $photo_info['favorites']['_content'];
+        } elseif (is_scalar($photo_info['favorites'])) {
+            $favorites = (int) $photo_info['favorites'];
+        }
+    }
+
+    $date = '';
+    if (isset($photo_info['dates']['lastupdate'])) {
+        $timestamp = (int) $photo_info['dates']['lastupdate'];
+        if ($timestamp > 0) {
+            $date = gmdate('Y-m-d', $timestamp);
+        }
+    }
+
+    return [
+        'views' => $views,
+        'comments' => max(0, $comments),
+        'favorites' => max(0, $favorites),
+        'date' => $date,
+    ];
 }
 
 /**
