@@ -309,7 +309,9 @@
                 rowHeightMode,
                 rowHeight,
                 maxViewportHeight,
-                singleImageAlignment
+                singleImageAlignment,
+                maxPhotos,
+                sortOrder
             } = attributes;
 
             const blockProps = useBlockProps({
@@ -366,6 +368,29 @@
                             options: sizeOptions,
                             onChange: function(value) {
                                 setAttributes({ imageSize: value });
+                            }
+                        }),
+                        el(TextControl, {
+                            label: __('Show how many images', 'flickr-justified-block'),
+                            help: __('Enter 0 to show all images. Use a positive number to limit how many images display for this block.', 'flickr-justified-block'),
+                            type: 'number',
+                            min: 0,
+                            value: typeof maxPhotos === 'number' ? maxPhotos : 0,
+                            onChange: function(value) {
+                                const parsed = parseInt(value, 10);
+                                setAttributes({ maxPhotos: isNaN(parsed) || parsed < 0 ? 0 : parsed });
+                            }
+                        }),
+                        el(SelectControl, {
+                            label: __('Sort images', 'flickr-justified-block'),
+                            help: __('Choose how to order the images that appear in this gallery.', 'flickr-justified-block'),
+                            value: sortOrder || 'input',
+                            options: [
+                                { label: __('As entered', 'flickr-justified-block'), value: 'input' },
+                                { label: __('Views (high to low)', 'flickr-justified-block'), value: 'views_desc' }
+                            ],
+                            onChange: function(value) {
+                                setAttributes({ sortOrder: value || 'input' });
                             }
                         }),
                         el('p', {

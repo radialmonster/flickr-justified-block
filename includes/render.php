@@ -99,6 +99,38 @@ function flickr_justified_encode_json_attr($data) {
 }
 
 /**
+ * Determine whether a URL points to a Flickr photo page.
+ *
+ * @param string $url Potential Flickr photo URL.
+ * @return bool
+ */
+function flickr_justified_is_flickr_photo_url($url) {
+    if (!is_string($url) || '' === $url) {
+        return false;
+    }
+
+    return (bool) preg_match('#(?:www\.)?flickr\.com/photos/[^/]+/\d+#i', $url);
+}
+
+/**
+ * Extract the Flickr photo ID from a photo URL.
+ *
+ * @param string $url Flickr photo URL.
+ * @return string Empty string when no ID can be located.
+ */
+function flickr_justified_extract_photo_id($url) {
+    if (!is_string($url) || '' === $url) {
+        return '';
+    }
+
+    if (preg_match('#flickr\.com/photos/[^/]+/(\d+)#i', $url, $matches) && isset($matches[1])) {
+        return $matches[1];
+    }
+
+    return '';
+}
+
+/**
  * Provide a consistent empty response for paginated photoset requests.
  *
  * @param int $page Requested page number.
@@ -265,6 +297,16 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $result = flickr_justified_map_api_sizes_to_requested_with_dims($data['sizes']['size'], $requested_sizes);
 
     if (!empty($result)) {
+        $photo_info = flickr_justified_get_photo_info($photo_id);
+        if (!empty($photo_info)) {
+            $result['_photo_info'] = $photo_info;
+        }
+
+        $stats = flickr_justified_extract_photo_stats_from_info($photo_info ?? []);
+        if (!empty($stats)) {
+            $result['_stats'] = $stats;
+        }
+
         // Cache the results
         $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
         if ($cache_duration <= 0) {
@@ -303,6 +345,149 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
     }
 
     return $result;
+}
+
+/**
+ * Retrieve view, comment, and favorite counts for a Flickr photo.
+ *
+ * @param string $photo_id Flickr photo ID.
+ * @param string|null $date Date string (YYYY-MM-DD). Defaults to current day in UTC.
+ * @return array Associative array with views, comments, and favorites (empty on failure).
+ */
+function flickr_justified_get_photo_stats($photo_id) {
+    $photo_info = flickr_justified_get_photo_info($photo_id);
+
+    if (empty($photo_info)) {
+        return [];
+    }
+
+    return flickr_justified_extract_photo_stats_from_info($photo_info);
+}
+
+/**
+ * Retrieve extended Flickr photo information via the API.
+ *
+ * @param string $photo_id Flickr photo ID.
+ * @return array Associative array of photo data from flickr.photos.getInfo.
+ */
+function flickr_justified_get_photo_info($photo_id) {
+    $photo_id = trim((string) $photo_id);
+
+    if ('' === $photo_id) {
+        return [];
+    }
+
+    $cache_key = 'flickr_justified_photo_info_' . $photo_id;
+    $cached = get_transient($cache_key);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
+    $api_key = flickr_justified_get_api_key();
+    if (empty($api_key)) {
+        return [];
+    }
+
+    $query_args = [
+        'method' => 'flickr.photos.getInfo',
+        'api_key' => $api_key,
+        'photo_id' => $photo_id,
+        'format' => 'json',
+        'nojsoncallback' => 1,
+    ];
+
+    /**
+     * Filter the Flickr photo info API request query arguments.
+     *
+     * Allows advanced integrations to supply authentication tokens or request extras.
+     *
+     * @param array  $query_args Request query arguments.
+     * @param string $photo_id   Flickr photo ID.
+     */
+    $query_args = apply_filters('flickr_justified_photo_info_query_args', $query_args, $photo_id);
+
+    $api_url = add_query_arg($query_args, 'https://api.flickr.com/services/rest/');
+
+    $response = wp_remote_get($api_url, [
+        'timeout' => 10,
+        'user-agent' => 'WordPress Flickr Justified Block'
+    ]);
+
+    if (is_wp_error($response)) {
+        return [];
+    }
+
+    $response_code = (int) wp_remote_retrieve_response_code($response);
+    if ($response_code < 200 || $response_code >= 300) {
+        return [];
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+
+    if (empty($data['photo']) || !is_array($data['photo'])) {
+        return [];
+    }
+
+    $photo_info = $data['photo'];
+
+    $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
+    if ($cache_duration <= 0) {
+        $cache_duration = WEEK_IN_SECONDS;
+    }
+
+    set_transient($cache_key, $photo_info, $cache_duration);
+
+    return $photo_info;
+}
+
+/**
+ * Extract view, comment, and favorite counts from cached photo info.
+ *
+ * @param array $photo_info Photo information retrieved from flickr.photos.getInfo.
+ * @return array
+ */
+function flickr_justified_extract_photo_stats_from_info($photo_info) {
+    if (!is_array($photo_info) || empty($photo_info)) {
+        return [];
+    }
+
+    $views = isset($photo_info['views']) ? max(0, (int) $photo_info['views']) : 0;
+
+    $comments = 0;
+    if (isset($photo_info['comments'])) {
+        if (is_array($photo_info['comments']) && isset($photo_info['comments']['_content'])) {
+            $comments = (int) $photo_info['comments']['_content'];
+        } elseif (isset($photo_info['comments']) && is_scalar($photo_info['comments'])) {
+            $comments = (int) $photo_info['comments'];
+        }
+    }
+
+    $favorites = 0;
+    if (isset($photo_info['count_faves'])) {
+        $favorites = (int) $photo_info['count_faves'];
+    } elseif (isset($photo_info['favorites'])) {
+        if (is_array($photo_info['favorites']) && isset($photo_info['favorites']['_content'])) {
+            $favorites = (int) $photo_info['favorites']['_content'];
+        } elseif (is_scalar($photo_info['favorites'])) {
+            $favorites = (int) $photo_info['favorites'];
+        }
+    }
+
+    $date = '';
+    if (isset($photo_info['dates']['lastupdate'])) {
+        $timestamp = (int) $photo_info['dates']['lastupdate'];
+        if ($timestamp > 0) {
+            $date = gmdate('Y-m-d', $timestamp);
+        }
+    }
+
+    return [
+        'views' => $views,
+        'comments' => max(0, $comments),
+        'favorites' => max(0, $favorites),
+        'date' => $date,
+    ];
 }
 
 /**
@@ -658,7 +843,11 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 /**
  * Render with justified gallery layout
  */
-function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment, $set_metadata = []) {
+function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment, $set_metadata = [], $context = []) {
+
+    $photo_limit = isset($context['photo_limit']) ? max(0, (int) $context['photo_limit']) : 0;
+    $sort_order = isset($context['sort_order']) && 'views_desc' === $context['sort_order'] ? 'views_desc' : 'input';
+    $loaded_count = is_array($photos) ? count($photos) : 0;
 
     // Get admin breakpoints
     $breakpoints = flickr_justified_get_admin_setting('get_breakpoints', []);
@@ -671,7 +860,7 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
     $breakpoints_attr = esc_attr(flickr_justified_encode_json_attr($breakpoints));
     $set_metadata_attr = !empty($set_metadata) ? esc_attr(flickr_justified_encode_json_attr($set_metadata)) : '';
     $output = sprintf(
-        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-use-builtin-lightbox="%s" data-set-metadata="%s" data-attribution-text="%s">',
+        '<div id="%s" class="flickr-justified-grid" style="--gap: %dpx;" data-responsive-settings="%s" data-breakpoints="%s" data-row-height-mode="%s" data-row-height="%d" data-max-viewport-height="%d" data-single-image-alignment="%s" data-use-builtin-lightbox="%s" data-set-metadata="%s" data-attribution-text="%s" data-photo-limit="%d" data-sort-order="%s" data-loaded-count="%d">',
         esc_attr($block_id),
         (int) $gap,
         $responsive_attr,
@@ -682,14 +871,29 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
         esc_attr($single_image_alignment),
         '1',
         $set_metadata_attr,
-        esc_attr($attribution_text)
+        esc_attr($attribution_text),
+        (int) $photo_limit,
+        esc_attr($sort_order),
+        (int) $loaded_count
     );
 
-    foreach ($url_lines as $url) {
-        $url = esc_url($url);
-        if (empty($url)) continue;
+    if (!is_array($photos)) {
+        $photos = [];
+    }
 
-        $is_flickr = (strpos($url, 'flickr.com/photos/') !== false || strpos($url, 'www.flickr.com/photos/') !== false);
+    foreach ($photos as $photo) {
+        if (is_string($photo)) {
+            $photo = ['url' => $photo];
+        }
+
+        $url = isset($photo['url']) ? esc_url($photo['url']) : '';
+        if ('' === $url) {
+            continue;
+        }
+
+        $is_flickr = $photo['is_flickr'] ?? flickr_justified_is_flickr_photo_url($url);
+        $position = isset($photo['position']) ? (int) $photo['position'] : null;
+        $stats = [];
 
         if ($is_flickr) {
             $available_sizes = [
@@ -699,16 +903,24 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 'small400', 'small320', 'small240',
                 'thumbnail100', 'thumbnail150s', 'thumbnail75s'
             ];
+
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
+
+            if (!empty($photo['stats']) && is_array($photo['stats'])) {
+                $stats = $photo['stats'];
+                if (is_array($image_data) && !isset($image_data['_stats'])) {
+                    $image_data['_stats'] = $stats;
+                }
+            } elseif (!empty($image_data['_stats']) && is_array($image_data['_stats'])) {
+                $stats = $image_data['_stats'];
+            }
 
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
 
             // For PhotoSwipe, select size appropriate for high-res displays (around 2-3x screen width)
-            // Target ~3500px for 2560px screens, but allow larger if no intermediate sizes exist
             $best_lightbox_size = flickr_justified_select_best_size($image_data, 3500, 3500);
 
-            // If selection is too small (less than 2x screen width), use original
             if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
                 $selected_width = $image_data[$best_lightbox_size]['width'];
                 if ($selected_width < 3000) {
@@ -731,93 +943,110 @@ function flickr_justified_render_justified_gallery($url_lines, $block_id, $gap, 
                 $lightbox_src = $display_src;
             }
 
-            // If API failed to get any images from Flickr URLs, handle based on settings
             if (empty($display_src)) {
                 $error_mode = flickr_justified_get_admin_setting('get_privacy_error_mode', 'show_placeholder');
 
                 if ($error_mode === 'show_nothing') {
-                    // Skip this photo and continue with the next one
-                    continue;
-                } else {
-                    // Add an error placeholder for this specific photo
-                    $error_message = 'Photo unavailable';
-                    $output .= sprintf(
-                        '<article class="flickr-card flickr-error">
-                            <div style="
-                                padding: 20px;
-                                background: #f8d7da;
-                                border: 1px solid #f5c6cb;
-                                border-radius: 4px;
-                                color: #721c24;
-                                text-align: center;
-                                min-height: 100px;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                            ">%s</div>
-                        </article>',
-                        esc_html($error_message)
-                    );
                     continue;
                 }
-            }
 
-            if (!empty($display_src)) {
-                $data_attrs = '';
-                // Use lightbox image dimensions for data attributes (PhotoSwipe needs these)
-                $lightbox_dimensions = null;
-                if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
-                    $lightbox_dimensions = $image_data[$best_lightbox_size];
-                }
-
-                if ($lightbox_dimensions) {
-                    $data_attrs = sprintf(' data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
-                }
-
-                // Use PhotoSwipe lightbox settings
-                $lightbox_class = 'flickr-builtin-lightbox';
-                $gallery_group_attribute = 'data-gallery';
-                $gallery_group = esc_attr($block_id);
-
-                // Build Flickr attribution data attributes for the lightbox
-                $attribution_attrs = sprintf(' data-flickr-page="%s" data-flickr-attribution-text="%s"',
-                    esc_attr($url),
-                    esc_attr($attribution_text)
-                );
-
-                // Add data attributes for common lightbox caption methods
-                $attribution_attrs .= sprintf(' data-caption="%s" data-title="%s" title="%s"',
-                    esc_attr($attribution_text),
-                    esc_attr($attribution_text),
-                    esc_attr($attribution_text)
-                );
-
+                $error_message = 'Photo unavailable';
                 $output .= sprintf(
-                    '<article class="flickr-card" style="position: relative;">
-                        <a href="%s" class="%s" %s="%s" %s%s>
-                            <img src="%s" loading="lazy" decoding="async" alt="">
-                        </a>
+                    '<article class="flickr-card flickr-error">
+                        <div style="
+                            padding: 20px;
+                            background: #f8d7da;
+                            border: 1px solid #f5c6cb;
+                            border-radius: 4px;
+                            color: #721c24;
+                            text-align: center;
+                            min-height: 100px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        ">%s</div>
                     </article>',
-                    esc_url($lightbox_src),
-                    esc_attr($lightbox_class),
-                    esc_attr($gallery_group_attribute),
-                    esc_attr($gallery_group),
-                    $data_attrs,
-                    $attribution_attrs,
-                    esc_url($display_src)
+                    esc_html($error_message)
                 );
+                continue;
             }
-        } else {
-            // Direct image URL - use PhotoSwipe lightbox
+
+            $data_attrs = '';
+            $lightbox_dimensions = null;
+            if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
+                $lightbox_dimensions = $image_data[$best_lightbox_size];
+            }
+
+            if ($lightbox_dimensions) {
+                $data_attrs = sprintf(' data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
+            }
+
             $lightbox_class = 'flickr-builtin-lightbox';
             $gallery_group_attribute = 'data-gallery';
             $gallery_group = esc_attr($block_id);
+
+            $attribution_attrs = sprintf(' data-flickr-page="%s" data-flickr-attribution-text="%s"',
+                esc_attr($url),
+                esc_attr($attribution_text)
+            );
+
+            $attribution_attrs .= sprintf(' data-caption="%s" data-title="%s" title="%s"',
+                esc_attr($attribution_text),
+                esc_attr($attribution_text),
+                esc_attr($attribution_text)
+            );
+
+            $views = isset($stats['views']) ? (int) $stats['views'] : 0;
+            $comments = isset($stats['comments']) ? (int) $stats['comments'] : 0;
+            $favorites = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
+
+            $card_attributes = ['class="flickr-card"', 'style="position: relative;"'];
+            if (null !== $position) {
+                $card_attributes[] = 'data-position="' . esc_attr($position) . '"';
+            }
+            $card_attributes[] = 'data-views="' . esc_attr($views) . '"';
+            $card_attributes[] = 'data-comments="' . esc_attr($comments) . '"';
+            $card_attributes[] = 'data-favorites="' . esc_attr($favorites) . '"';
+
             $output .= sprintf(
-                '<article class="flickr-card">
+                '<article %s>
+                    <a href="%s" class="%s" %s="%s" %s%s>
+                        <img src="%s" loading="lazy" decoding="async" alt="">
+                    </a>
+                </article>',
+                implode(' ', $card_attributes),
+                esc_url($lightbox_src),
+                esc_attr($lightbox_class),
+                esc_attr($gallery_group_attribute),
+                esc_attr($gallery_group),
+                $data_attrs,
+                $attribution_attrs,
+                esc_url($display_src)
+            );
+        } else {
+            $views = isset($photo['views']) ? (int) $photo['views'] : 0;
+            $comments = isset($photo['comments']) ? (int) $photo['comments'] : 0;
+            $favorites = isset($photo['favorites']) ? (int) $photo['favorites'] : 0;
+
+            $card_attributes = ['class="flickr-card"', 'style="position: relative;"'];
+            if (null !== $position) {
+                $card_attributes[] = 'data-position="' . esc_attr($position) . '"';
+            }
+            $card_attributes[] = 'data-views="' . esc_attr($views) . '"';
+            $card_attributes[] = 'data-comments="' . esc_attr($comments) . '"';
+            $card_attributes[] = 'data-favorites="' . esc_attr($favorites) . '"';
+
+            $lightbox_class = 'flickr-builtin-lightbox';
+            $gallery_group_attribute = 'data-gallery';
+            $gallery_group = esc_attr($block_id);
+
+            $output .= sprintf(
+                '<article %s>
                     <a href="%s" class="%s" %s="%s">
                         <img src="%s" loading="lazy" decoding="async" alt="">
                     </a>
                 </article>',
+                implode(' ', $card_attributes),
                 esc_url($url),
                 esc_attr($lightbox_class),
                 esc_attr($gallery_group_attribute),
@@ -888,48 +1117,200 @@ function flickr_justified_render_block($attributes) {
         return '';
     }
 
-    // Process any Flickr sets/albums and expand them to individual photo URLs
-    $expanded_urls = [];
-    $set_metadata = []; // Store metadata for lazy loading
+    $max_photos = isset($attributes['maxPhotos']) ? max(0, (int) $attributes['maxPhotos']) : 0;
+    $sort_order = isset($attributes['sortOrder']) ? $attributes['sortOrder'] : 'input';
+    if (!in_array($sort_order, ['input', 'views_desc'], true)) {
+        $sort_order = 'input';
+    }
+
+    $needs_stats = ('views_desc' === $sort_order);
+    $remaining_limit = $max_photos > 0 ? $max_photos : null;
+    $photo_items = [];
+    $set_metadata = [];
+    $position_counter = 0;
+
     foreach ($url_lines as $url) {
+        if (null !== $remaining_limit && $remaining_limit <= 0) {
+            break;
+        }
+
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
-            // This is a Flickr set/album URL - get first page of photos
-            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 50);
-            if (!empty($set_result['photos'])) {
-                $expanded_urls = array_merge($expanded_urls, $set_result['photos']);
+            $per_page = 50;
+            if (null !== $remaining_limit) {
+                $per_page = max(1, min(50, $remaining_limit));
+            }
 
-                // Always store metadata for sets, even single-page ones (for consistency)
+            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+            $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
+
+            if (null !== $remaining_limit) {
+                $set_photos = array_slice($set_photos, 0, $remaining_limit);
+            }
+
+            $added_count = 0;
+            foreach ($set_photos as $photo_url) {
+                if (null !== $remaining_limit && $remaining_limit <= 0) {
+                    break;
+                }
+
+                $photo_url = trim($photo_url);
+                if ('' === $photo_url) {
+                    continue;
+                }
+
+                $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
+                $item = [
+                    'url' => $photo_url,
+                    'is_flickr' => $is_flickr,
+                    'position' => $position_counter,
+                    'views' => 0,
+                    'comments' => 0,
+                    'favorites' => 0,
+                ];
+
+                if ($needs_stats && $is_flickr) {
+                    $photo_id = flickr_justified_extract_photo_id($photo_url);
+                    if ($photo_id) {
+                        $stats = flickr_justified_get_photo_stats($photo_id);
+                        if (!empty($stats) && is_array($stats)) {
+                            $item['stats'] = $stats;
+                            $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
+                            $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
+                            $item['favorites'] = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
+                        }
+                    }
+                }
+
+                $photo_items[] = $item;
+                $position_counter++;
+                $added_count++;
+
+                if (null !== $remaining_limit) {
+                    $remaining_limit--;
+                }
+            }
+
+            if (0 === $added_count) {
+                $photo_items[] = [
+                    'url' => $url,
+                    'is_flickr' => false,
+                    'position' => $position_counter,
+                    'views' => 0,
+                    'comments' => 0,
+                    'favorites' => 0,
+                ];
+                $position_counter++;
+
+                if (null !== $remaining_limit) {
+                    $remaining_limit--;
+                }
+
+                continue;
+            }
+
+            if ($added_count > 0) {
+                $has_more = !empty($set_result['has_more']);
+                if (null !== $remaining_limit && $remaining_limit <= 0) {
+                    $has_more = false;
+                }
+
                 $set_metadata[] = [
                     'user_id' => $set_info['user_id'],
                     'photoset_id' => $set_info['photoset_id'],
                     'current_page' => 1,
-                    'total_pages' => isset($set_result['pages']) ? $set_result['pages'] : 1,
-                    'total_photos' => isset($set_result['total']) ? $set_result['total'] : 0,
-                    'loaded_photos' => count($set_result['photos']),
-                    'has_more' => isset($set_result['has_more']) ? $set_result['has_more'] : false
+                    'total_pages' => isset($set_result['pages']) ? (int) $set_result['pages'] : 1,
+                    'total_photos' => isset($set_result['total']) ? (int) $set_result['total'] : 0,
+                    'loaded_photos' => $added_count,
+                    'has_more' => $has_more,
+                    'sort_order' => $sort_order,
+                    'max_photos' => $max_photos,
                 ];
-            } else {
-                // Keep the original URL if set expansion failed
-                $expanded_urls[] = $url;
             }
-        } else {
-            // Regular photo URL or direct image URL
-            $expanded_urls[] = $url;
+
+            if (null !== $remaining_limit && $remaining_limit <= 0) {
+                break;
+            }
+
+            continue;
+        }
+
+        $url = trim($url);
+        if ('' === $url) {
+            continue;
+        }
+
+        $is_flickr = flickr_justified_is_flickr_photo_url($url);
+        $item = [
+            'url' => $url,
+            'is_flickr' => $is_flickr,
+            'position' => $position_counter,
+            'views' => 0,
+            'comments' => 0,
+            'favorites' => 0,
+        ];
+
+        if ($needs_stats && $is_flickr) {
+            $photo_id = flickr_justified_extract_photo_id($url);
+            if ($photo_id) {
+                $stats = flickr_justified_get_photo_stats($photo_id);
+                if (!empty($stats) && is_array($stats)) {
+                    $item['stats'] = $stats;
+                    $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
+                    $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
+                    $item['favorites'] = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
+                }
+            }
+        }
+
+        $photo_items[] = $item;
+        $position_counter++;
+
+        if (null !== $remaining_limit) {
+            $remaining_limit--;
         }
     }
 
-    $url_lines = array_filter($expanded_urls);
-
-    if (empty($url_lines)) {
+    if (empty($photo_items)) {
         return '';
+    }
+
+    if ('views_desc' === $sort_order) {
+        usort($photo_items, static function ($a, $b) {
+            $views_a = isset($a['views']) ? (int) $a['views'] : 0;
+            $views_b = isset($b['views']) ? (int) $b['views'] : 0;
+
+            if ($views_a === $views_b) {
+                $pos_a = isset($a['position']) ? (int) $a['position'] : 0;
+                $pos_b = isset($b['position']) ? (int) $b['position'] : 0;
+                return $pos_a <=> $pos_b;
+            }
+
+            return $views_b <=> $views_a;
+        });
+    }
+
+    if ($max_photos > 0 && count($photo_items) > $max_photos) {
+        $photo_items = array_slice($photo_items, 0, $max_photos);
     }
 
     // Generate unique ID for this block instance
     $block_id = 'flickr-justified-' . uniqid();
 
-    // Use justified gallery layout
     return flickr_justified_render_justified_gallery(
-        $url_lines, $block_id, $gap, $image_size, $responsive_settings, $row_height_mode, $row_height, $max_viewport_height, $single_image_alignment, $set_metadata
+        $photo_items,
+        $block_id,
+        $gap,
+        $image_size,
+        $responsive_settings,
+        $row_height_mode,
+        $row_height,
+        $max_viewport_height,
+        $single_image_alignment,
+        $set_metadata,
+        [
+            'photo_limit' => $max_photos,
+            'sort_order' => $sort_order,
+        ]
     );
 }

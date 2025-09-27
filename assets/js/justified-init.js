@@ -1,6 +1,25 @@
 (function() {
     'use strict';
 
+    const SORT_VIEWS_DESC = 'views_desc';
+
+    function getPhotoLimit(gallery) {
+        const value = parseInt(gallery?.dataset?.photoLimit || '0', 10);
+        return Number.isFinite(value) && value > 0 ? value : 0;
+    }
+
+    function getLoadedCount(gallery) {
+        const fromDataset = parseInt(gallery?.dataset?.loadedCount || '', 10);
+        if (Number.isFinite(fromDataset)) {
+            return Math.max(0, fromDataset);
+        }
+        return gallery.querySelectorAll('.flickr-card').length;
+    }
+
+    function setLoadedCount(gallery, value) {
+        gallery.dataset.loadedCount = String(Math.max(0, value));
+    }
+
     function calculateOptimalRowHeight(aspectRatios, containerWidth, gap) {
         const totalAspectRatio = aspectRatios.reduce((s, ar) => s + ar, 0);
         const availableWidth = containerWidth - (gap * (aspectRatios.length - 1));
@@ -86,6 +105,8 @@
 
                 const allCards = Array.from(cards);
                 if (allCards.length === 0) return;
+
+                setLoadedCount(grid, allCards.length);
 
                 const cardsData = allCards.map(card => ({
                     element: card,
@@ -269,6 +290,12 @@ function initFlickrAlbumLazyLoading() {
         // Prevent duplicate observers per gallery
         if (gallery._flickrLazyObserver) return; // already wired
 
+        const photoLimit = getPhotoLimit(gallery);
+        const initiallyLoaded = getLoadedCount(gallery);
+        if (photoLimit > 0 && initiallyLoaded >= photoLimit) {
+            return;
+        }
+
         const metadataAttr = gallery.getAttribute('data-set-metadata');
         if (!metadataAttr) return;
 
@@ -329,6 +356,21 @@ function initFlickrAlbumLazyLoading() {
             return;
         }
 
+        const galleryLimit = getPhotoLimit(gallery);
+        if (galleryLimit > 0 && getLoadedCount(gallery) >= galleryLimit) {
+            const observer = gallery._flickrLazyObserver;
+            if (observer) {
+                if (gallery._lastObservedImage) {
+                    observer.unobserve(gallery._lastObservedImage);
+                }
+                observer.disconnect();
+                delete gallery._flickrLazyObserver;
+                delete gallery._lastObservedImage;
+            }
+            console.log('🧮 Photo limit reached, stopping lazy loading');
+            return;
+        }
+
         // Add cooldown period after reinitialization to prevent immediate re-triggering
         // But allow immediate loading during window resize
         const now = Date.now();
@@ -365,7 +407,9 @@ function initFlickrAlbumLazyLoading() {
         const setsToLoad = setMetadata.filter(setData => {
             const canLoad = !setData.isLoading &&
                 !setData.loadingError &&
-                setData.current_page < setData.total_pages;
+                setData.current_page < setData.total_pages &&
+                setData.has_more !== false &&
+                (galleryLimit === 0 || getLoadedCount(gallery) < galleryLimit);
             console.log(`Set ${setData.photoset_id}: current_page=${setData.current_page}, total_pages=${setData.total_pages}, can_load=${canLoad}`);
             return canLoad;
         });
@@ -479,22 +523,50 @@ function initFlickrAlbumLazyLoading() {
                 const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
                 document.dispatchEvent(event);
 
-                // Stage new cards if any
-                let staging = gallery.querySelector('.flickr-staging');
-                if (!staging) {
-                    staging = document.createElement('div');
-                    staging.className = 'flickr-staging';
-                    staging.style.display = 'none';
-                    gallery.appendChild(staging);
+                // Move existing cards out of row wrappers
+                const existingRows = Array.from(gallery.querySelectorAll(':scope > .flickr-row'));
+                existingRows.forEach(row => {
+                    const cardsInRow = Array.from(row.querySelectorAll(':scope > .flickr-card'));
+                    cardsInRow.forEach(card => gallery.appendChild(card));
+                    row.remove();
+                });
+
+                const oldStaging = gallery.querySelector('.flickr-staging');
+                if (oldStaging) {
+                    oldStaging.remove();
                 }
+
+                let newlyCreated = 0;
                 if (gallery._pendingPhotos && gallery._pendingPhotos.length > 0) {
-                    const frag = document.createDocumentFragment();
                     gallery._pendingPhotos.forEach(photoData => {
                         const card = createPhotoCard(photoData, gallery);
-                        if (card) frag.appendChild(card);
+                        if (card) {
+                            gallery.appendChild(card);
+                            newlyCreated++;
+                        }
                     });
-                    staging.appendChild(frag);
                     delete gallery._pendingPhotos;
+                }
+
+                const sortOrder = gallery.dataset.sortOrder || 'input';
+                if (sortOrder === SORT_VIEWS_DESC) {
+                    const cardsToSort = Array.from(gallery.querySelectorAll('.flickr-card'));
+                    cardsToSort.sort((a, b) => {
+                        const viewsA = parseInt(a.dataset.views || '0', 10);
+                        const viewsB = parseInt(b.dataset.views || '0', 10);
+                        if (viewsA !== viewsB) {
+                            return viewsB - viewsA;
+                        }
+                        const posA = parseInt(a.dataset.position || '0', 10);
+                        const posB = parseInt(b.dataset.position || '0', 10);
+                        return posA - posB;
+                    });
+                    cardsToSort.forEach(card => gallery.appendChild(card));
+                }
+
+                if (newlyCreated > 0 || sortOrder === SORT_VIEWS_DESC) {
+                    const cardCount = gallery.querySelectorAll('.flickr-card').length;
+                    setLoadedCount(gallery, cardCount);
                 }
 
                 // Rebuild rows immediately
@@ -572,6 +644,10 @@ function initFlickrAlbumLazyLoading() {
         console.log(`Loading page ${nextPage} for set ${setData.photoset_id}`);
 
         try {
+            const sortOrder = gallery.dataset.sortOrder || 'input';
+            const photoLimit = getPhotoLimit(gallery);
+            const loadedBefore = getLoadedCount(gallery);
+
             const response = await fetch('/wp-json/flickr-justified/v1/load-album-page', {
                 method: 'POST',
                 headers: {
@@ -580,7 +656,10 @@ function initFlickrAlbumLazyLoading() {
                 body: JSON.stringify({
                     user_id: setData.user_id,
                     photoset_id: setData.photoset_id,
-                    page: nextPage
+                    page: nextPage,
+                    sort_order: sortOrder,
+                    max_photos: photoLimit,
+                    loaded_count: loadedBefore
                 }),
                 // Add timeout to prevent hanging requests (with fallback for older browsers)
                 signal: typeof AbortSignal.timeout === 'function' ?
@@ -605,10 +684,28 @@ function initFlickrAlbumLazyLoading() {
 
             console.log(`Loaded ${result.photos.length} photos from page ${nextPage}`);
 
+            const galleryLimit = getPhotoLimit(gallery);
+            let responsePhotos = result.photos;
+            const pendingCount = Array.isArray(gallery._pendingPhotos) ? gallery._pendingPhotos.length : 0;
+            const currentCount = getLoadedCount(gallery);
+
+            if (galleryLimit > 0) {
+                const remainingCapacity = Math.max(galleryLimit - currentCount - pendingCount, 0);
+                if (remainingCapacity === 0) {
+                    responsePhotos = [];
+                } else if (responsePhotos.length > remainingCapacity) {
+                    responsePhotos = responsePhotos.slice(0, remainingCapacity);
+                }
+            }
+
+            const totalLoadedRaw = currentCount + (responsePhotos ? responsePhotos.length : 0);
+            const totalLoaded = galleryLimit > 0 ? Math.min(totalLoadedRaw, galleryLimit) : totalLoadedRaw;
+            setLoadedCount(gallery, totalLoaded);
+
             // Store new photos for insertion after reinitialization
-            if (result.photos && result.photos.length > 0) {
+            if (responsePhotos && responsePhotos.length > 0) {
                 if (!gallery._pendingPhotos) gallery._pendingPhotos = [];
-                result.photos.forEach(photoData => {
+                responsePhotos.forEach(photoData => {
                     // Validate photo data before storing
                     if (!photoData || !photoData.image_url) {
                         console.warn('Invalid photo data received:', photoData);
@@ -616,13 +713,21 @@ function initFlickrAlbumLazyLoading() {
                     }
                     gallery._pendingPhotos.push(photoData);
                 });
-                console.log(`📦 Stored ${result.photos.length} photos for insertion after reinitialization`);
+                console.log(`📦 Stored ${responsePhotos.length} photos for insertion after reinitialization`);
             }
 
             // Update set metadata - use nextPage since that's what we requested
             setData.current_page = nextPage; // Use nextPage instead of result.page for reliability
-            setData.loaded_photos = (setData.loaded_photos || 0) + result.photos.length;
+            setData.loaded_photos = (setData.loaded_photos || 0) + responsePhotos.length;
             setData.isLoading = false;
+
+            if (typeof result.has_more === 'boolean') {
+                setData.has_more = result.has_more;
+            }
+
+            if (result.limit_reached) {
+                setData.has_more = false;
+            }
 
             console.log(`📊 Updated set metadata: current_page=${setData.current_page}, total_pages=${setData.total_pages}, loaded_photos=${setData.loaded_photos}`);
 
@@ -710,6 +815,28 @@ function initFlickrAlbumLazyLoading() {
         const card = document.createElement('article');
         card.className = 'flickr-card';
         card.style.position = 'relative'; // Match server-side positioning
+
+        const coerceInt = (value) => {
+            if (typeof value === 'number') return value;
+            if (typeof value === 'string') {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : 0;
+            }
+            return 0;
+        };
+
+        const viewsValue = coerceInt(photoData.view_count ?? photoData.views ?? 0);
+        const commentsValue = coerceInt(photoData.comment_count ?? photoData.comments ?? 0);
+        const favoritesValue = coerceInt(photoData.favorite_count ?? photoData.favorites ?? 0);
+        const positionValueRaw = photoData.position ?? photoData.original_position;
+        const positionValue = coerceInt(positionValueRaw);
+
+        card.dataset.views = String(Math.max(0, viewsValue));
+        card.dataset.comments = String(Math.max(0, commentsValue));
+        card.dataset.favorites = String(Math.max(0, favoritesValue));
+        if (positionValueRaw !== undefined && positionValueRaw !== null && Number.isFinite(positionValue)) {
+            card.dataset.position = String(positionValue);
+        }
 
         const link = document.createElement('a');
         // Match server-side class exactly - only flickr-builtin-lightbox

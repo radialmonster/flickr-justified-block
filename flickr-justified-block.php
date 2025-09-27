@@ -302,6 +302,21 @@ class FlickrJustifiedBlock {
                     'required' => true,
                     'type' => 'integer',
                     'sanitize_callback' => 'absint'
+                ],
+                'sort_order' => [
+                    'required' => false,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field'
+                ],
+                'max_photos' => [
+                    'required' => false,
+                    'type' => 'integer',
+                    'sanitize_callback' => 'absint'
+                ],
+                'loaded_count' => [
+                    'required' => false,
+                    'type' => 'integer',
+                    'sanitize_callback' => 'absint'
                 ]
             ]
         ]);
@@ -426,9 +441,38 @@ class FlickrJustifiedBlock {
         $user_id = $request->get_param('user_id');
         $photoset_id = $request->get_param('photoset_id');
         $page = $request->get_param('page');
+        $sort_order = $request->get_param('sort_order');
+        $max_photos = (int) $request->get_param('max_photos');
+        $loaded_count = (int) $request->get_param('loaded_count');
+
+        if (!in_array($sort_order, ['input', 'views_desc'], true)) {
+            $sort_order = 'input';
+        }
+
+        if ($max_photos < 0) {
+            $max_photos = 0;
+        }
+
+        if ($loaded_count < 0) {
+            $loaded_count = 0;
+        }
 
         if (empty($user_id) || empty($photoset_id) || $page < 1) {
             return new WP_Error('invalid_params', 'Invalid parameters provided', ['status' => 400]);
+        }
+
+        if ($max_photos > 0 && $loaded_count >= $max_photos) {
+            return rest_ensure_response([
+                'success' => true,
+                'photos' => [],
+                'page' => (int) $page,
+                'has_more' => false,
+                'total_pages' => (int) $page,
+                'total_photos' => $max_photos,
+                'total_loaded' => $loaded_count,
+                'sort_order' => $sort_order,
+                'limit_reached' => true,
+            ]);
         }
 
         // Check if required functions are available
@@ -436,8 +480,18 @@ class FlickrJustifiedBlock {
             return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
         }
 
+        $remaining_limit = 0;
+        if ($max_photos > 0) {
+            $remaining_limit = max(0, $max_photos - $loaded_count);
+        }
+
+        $per_page = 50;
+        if ($remaining_limit > 0) {
+            $per_page = max(1, min(50, $remaining_limit));
+        }
+
         // Get the photos for this page
-        $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, 50);
+        $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, $per_page);
 
         if (!is_array($result) || empty($result['photos'])) {
             return new WP_Error('no_photos', 'No photos found for this page', ['status' => 404]);
@@ -445,7 +499,15 @@ class FlickrJustifiedBlock {
 
         // Return the photos as gallery HTML items
         $gallery_items = [];
-        foreach ($result['photos'] as $photo_url) {
+        $gallery_items = [];
+        $position_counter = $loaded_count;
+        $photos = $result['photos'];
+
+        if ($max_photos > 0 && $remaining_limit > 0 && count($photos) > $remaining_limit) {
+            $photos = array_slice($photos, 0, $remaining_limit);
+        }
+
+        foreach ($photos as $photo_url) {
             $photo_url = esc_url_raw($photo_url);
             if (empty($photo_url)) continue;
 
@@ -465,6 +527,12 @@ class FlickrJustifiedBlock {
                 ];
                 $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes);
 
+                $photo_id = flickr_justified_extract_photo_id($photo_url);
+                $stats = [];
+                if ($photo_id && function_exists('flickr_justified_get_photo_stats') && 'views_desc' === $sort_order) {
+                    $stats = flickr_justified_get_photo_stats($photo_id);
+                }
+
                 if (!empty($image_data)) {
                     $preferred_size = 'large';
                     if (isset($image_data[$preferred_size]) && isset($image_data[$preferred_size]['url'])) {
@@ -474,7 +542,11 @@ class FlickrJustifiedBlock {
                             'width' => isset($image_data[$preferred_size]['width']) ? absint($image_data[$preferred_size]['width']) : 0,
                             'height' => isset($image_data[$preferred_size]['height']) ? absint($image_data[$preferred_size]['height']) : 0,
                             'flickr_page' => $photo_url,
-                            'is_flickr' => true
+                            'is_flickr' => true,
+                            'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
+                            'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
+                            'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
+                            'position' => $position_counter++,
                         ];
                     } else {
                         // Fallback: use first available size
@@ -486,7 +558,11 @@ class FlickrJustifiedBlock {
                                 'width' => isset($image_data[$first_size]['width']) ? absint($image_data[$first_size]['width']) : 0,
                                 'height' => isset($image_data[$first_size]['height']) ? absint($image_data[$first_size]['height']) : 0,
                                 'flickr_page' => $photo_url,
-                                'is_flickr' => true
+                                'is_flickr' => true,
+                                'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
+                                'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
+                                'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
+                                'position' => $position_counter++,
                             ];
                         }
                     }
@@ -496,7 +572,11 @@ class FlickrJustifiedBlock {
                         'url' => $photo_url,
                         'image_url' => $photo_url,
                         'flickr_page' => $photo_url,
-                        'is_flickr' => true
+                        'is_flickr' => true,
+                        'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
+                        'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
+                        'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
+                        'position' => $position_counter++,
                     ];
                 }
             } else {
@@ -504,18 +584,51 @@ class FlickrJustifiedBlock {
                 $gallery_items[] = [
                     'url' => $photo_url,
                     'image_url' => $photo_url,
-                    'is_flickr' => false
+                    'is_flickr' => false,
+                    'view_count' => 0,
+                    'comment_count' => 0,
+                    'favorite_count' => 0,
+                    'position' => $position_counter++,
                 ];
             }
+        }
+
+        if ('views_desc' === $sort_order && count($gallery_items) > 1) {
+            usort($gallery_items, static function($a, $b) {
+                $views_a = isset($a['view_count']) ? (int) $a['view_count'] : 0;
+                $views_b = isset($b['view_count']) ? (int) $b['view_count'] : 0;
+
+                if ($views_a === $views_b) {
+                    $pos_a = isset($a['position']) ? (int) $a['position'] : 0;
+                    $pos_b = isset($b['position']) ? (int) $b['position'] : 0;
+                    return $pos_a <=> $pos_b;
+                }
+
+                return $views_b <=> $views_a;
+            });
+        }
+
+        if ($max_photos > 0 && $remaining_limit > 0 && count($gallery_items) > $remaining_limit) {
+            $gallery_items = array_slice($gallery_items, 0, $remaining_limit);
+        }
+
+        $total_loaded = $loaded_count + count($gallery_items);
+        $limit_reached = ($max_photos > 0 && $total_loaded >= $max_photos);
+        $has_more = (bool) $result['has_more'];
+        if ($limit_reached) {
+            $has_more = false;
         }
 
         return rest_ensure_response([
             'success' => true,
             'photos' => $gallery_items,
             'page' => $result['page'],
-            'has_more' => $result['has_more'],
+            'has_more' => $has_more,
             'total_pages' => $result['pages'],
-            'total_photos' => $result['total']
+            'total_photos' => $result['total'],
+            'total_loaded' => $total_loaded,
+            'sort_order' => $sort_order,
+            'limit_reached' => $limit_reached
         ]);
     }
 }
