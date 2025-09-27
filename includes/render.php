@@ -839,6 +839,103 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     return $result;
 }
 
+/**
+ * Retrieve all photos from a Flickr set, aggregating across all pages.
+ *
+ * @param string $user_id Flickr user ID or username
+ * @param string $photoset_id Flickr photoset ID
+ * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title'
+ */
+function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
+
+    $empty_result = flickr_justified_empty_photoset_result(1);
+
+    if (empty($user_id) || empty($photoset_id) || !is_string($user_id) || !is_string($photoset_id)) {
+        return $empty_result;
+    }
+
+    $resolved_user_id = flickr_justified_resolve_user_id($user_id);
+    if (!$resolved_user_id) {
+        return $empty_result;
+    }
+
+    $cache_key = 'flickr_justified_set_full_' . md5($resolved_user_id . '_' . $photoset_id);
+    $cached_result = get_transient($cache_key);
+    if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
+        return $cached_result;
+    }
+
+    $per_page = 500; // Flickr maximum per page
+    $page = 1;
+    $all_photos = [];
+    $total_pages = 1;
+    $total_photos = 0;
+    $album_title = '';
+    $last_has_more = false;
+
+    while (true) {
+        $page_result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, $per_page);
+
+        if (isset($page_result['album_title']) && '' === $album_title && is_string($page_result['album_title'])) {
+            $album_title = $page_result['album_title'];
+        }
+
+        if (empty($page_result['photos']) || !is_array($page_result['photos'])) {
+            $last_has_more = !empty($page_result['has_more']);
+            break;
+        }
+
+        if (isset($page_result['pages'])) {
+            $total_pages = max(1, (int) $page_result['pages']);
+        }
+
+        if (isset($page_result['total'])) {
+            $total_photos = max($total_photos, (int) $page_result['total']);
+        }
+
+        $all_photos = array_merge($all_photos, array_values($page_result['photos']));
+
+        $last_has_more = !empty($page_result['has_more']);
+        if (!$last_has_more) {
+            break;
+        }
+
+        $next_page = isset($page_result['page']) ? ((int) $page_result['page']) + 1 : $page + 1;
+        if ($next_page <= $page) {
+            // Prevent infinite loops if API returns unexpected page values
+            break;
+        }
+
+        $page = $next_page;
+
+        if ($page > $total_pages) {
+            // Stop if we've already fetched the reported number of pages
+            break;
+        }
+    }
+
+    $full_result = [
+        'photos' => $all_photos,
+        'has_more' => (bool) $last_has_more,
+        'total' => $total_photos > 0 ? $total_photos : count($all_photos),
+        'page' => 1,
+        'pages' => max(1, $total_pages),
+        'album_title' => $album_title,
+    ];
+
+    if (!$full_result['has_more'] && !empty($all_photos)) {
+        $cache_duration = 6 * HOUR_IN_SECONDS;
+        $configured_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', 0);
+        if ($configured_duration > 0) {
+            $cache_duration = max(HOUR_IN_SECONDS, (int) $configured_duration);
+        }
+
+        set_transient($cache_key, $full_result, $cache_duration);
+    }
+
+    return $full_result;
+}
+
 
 /**
  * Render with justified gallery layout
@@ -1124,7 +1221,7 @@ function flickr_justified_render_block($attributes) {
     }
 
     $needs_stats = ('views_desc' === $sort_order);
-    $remaining_limit = $max_photos > 0 ? $max_photos : null;
+    $remaining_limit = ($max_photos > 0 && 'views_desc' !== $sort_order) ? $max_photos : null;
     $photo_items = [];
     $set_metadata = [];
     $position_counter = 0;
@@ -1136,15 +1233,19 @@ function flickr_justified_render_block($attributes) {
 
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
-            $per_page = 50;
-            if (null !== $remaining_limit) {
-                $per_page = max(1, min(50, $remaining_limit));
-            }
+            if ('views_desc' === $sort_order) {
+                $set_result = flickr_justified_get_full_photoset_photos($set_info['user_id'], $set_info['photoset_id']);
+            } else {
+                $per_page = 50;
+                if (null !== $remaining_limit) {
+                    $per_page = max(1, min(50, $remaining_limit));
+                }
 
-            $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+                $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+            }
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
 
-            if (null !== $remaining_limit) {
+            if ('views_desc' !== $sort_order && null !== $remaining_limit) {
                 $set_photos = array_slice($set_photos, 0, $remaining_limit);
             }
 
