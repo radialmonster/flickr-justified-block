@@ -24,6 +24,83 @@
 
     const { getPhotoLimit, getLoadedCount, setLoadedCount } = flickrGalleryHelpers;
 
+    function createLoadingIndicatorElement(baseLoadingMessage) {
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.className = 'flickr-loading-indicator';
+        loadingIndicator.style.cssText = `
+            text-align: center;
+            padding: 20px;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.95);
+            border: 2px solid #007cba;
+            border-radius: 8px;
+            margin: 20px auto;
+            max-width: 400px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            position: relative;
+            z-index: 1000;
+        `;
+        loadingIndicator.textContent = baseLoadingMessage;
+        if (loadingIndicator.dataset) {
+            loadingIndicator.dataset.shouldPersist = 'false';
+        }
+        return loadingIndicator;
+    }
+
+    function maintainLoadingIndicator({
+        gallery,
+        loadingIndicator,
+        baseLoadingMessage,
+        indicatorMessage,
+        shouldPersist,
+        shouldRemoveIndicator,
+        createIndicator,
+        fallbackIndicator
+    }) {
+        let indicatorRef = loadingIndicator || null;
+
+        if (shouldRemoveIndicator) {
+            const nodeToRemove = indicatorRef || fallbackIndicator || null;
+            if (nodeToRemove && nodeToRemove.parentNode) {
+                nodeToRemove.remove();
+            }
+            if (nodeToRemove && nodeToRemove.dataset) {
+                nodeToRemove.dataset.shouldPersist = 'false';
+            }
+            return indicatorRef || nodeToRemove || null;
+        }
+
+        if (shouldPersist) {
+            let nodeToUse = indicatorRef || fallbackIndicator || null;
+            if (!nodeToUse) {
+                nodeToUse = createIndicator();
+            }
+
+            if (!nodeToUse.isConnected) {
+                gallery.appendChild(nodeToUse);
+            }
+
+            const messageToDisplay = indicatorMessage || nodeToUse.textContent || baseLoadingMessage;
+            nodeToUse.textContent = messageToDisplay;
+            if (nodeToUse.dataset) {
+                nodeToUse.dataset.shouldPersist = 'true';
+            }
+
+            return nodeToUse;
+        }
+
+        if (indicatorRef && indicatorRef.dataset) {
+            indicatorRef.dataset.shouldPersist = 'false';
+            if (!indicatorMessage) {
+                indicatorRef.textContent = baseLoadingMessage;
+            }
+        }
+
+        return indicatorRef;
+    }
+
     function calculateOptimalRowHeight(aspectRatios, containerWidth, gap) {
         const totalAspectRatio = aspectRatios.reduce((s, ar) => s + ar, 0);
         const availableWidth = containerWidth - (gap * (aspectRatios.length - 1));
@@ -435,33 +512,20 @@
             // Show (or reuse) loading indicator with better styling and positioning
             const baseLoadingMessage = '⏳ Please Wait, Loading More Images...';
             let loadingIndicator = gallery.querySelector('.flickr-loading-indicator');
+            const indicatorWasPersisting = loadingIndicator?.dataset?.shouldPersist === 'true';
             if (!loadingIndicator) {
-                loadingIndicator = document.createElement('div');
-                loadingIndicator.className = 'flickr-loading-indicator';
-                loadingIndicator.style.cssText = `
-                    text-align: center;
-                    padding: 20px;
-                    font-size: 18px;
-                    color: #333;
-                    font-weight: 600;
-                    background: rgba(255, 255, 255, 0.95);
-                    border: 2px solid #007cba;
-                    border-radius: 8px;
-                    margin: 20px auto;
-                    max-width: 400px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    position: relative;
-                    z-index: 1000;
-                `;
-                loadingIndicator.textContent = baseLoadingMessage;
+                loadingIndicator = createLoadingIndicatorElement(baseLoadingMessage);
 
                 console.log('🔔 Creating loading indicator...');
 
                 // Insert loading indicator at the end of the gallery
                 console.log('🔔 Appending loading indicator to gallery end');
                 gallery.appendChild(loadingIndicator);
-            } else {
+            } else if (!indicatorWasPersisting) {
                 loadingIndicator.textContent = baseLoadingMessage;
+                if (loadingIndicator.dataset) {
+                    loadingIndicator.dataset.shouldPersist = 'false';
+                }
             }
 
             // Force the indicator to be visible immediately
@@ -479,6 +543,8 @@
             let indicatorMessage = '';
             let shouldRemoveIndicator = false;
             let scheduledRetryDelay = null;
+            const indicatorShouldPersistBeforeReinit = indicatorShouldPersist || indicatorWasPersisting;
+            const indicatorNodeBeforeReinit = loadingIndicator;
 
             try {
                 // ⏳ Waiting done...
@@ -646,15 +712,16 @@
                 // Always reset loading flag
                 gallery._flickrLoading = false;
 
-                if (loadingIndicator) {
-                    if (indicatorShouldPersist) {
-                        if (indicatorMessage) {
-                            loadingIndicator.textContent = indicatorMessage;
-                        }
-                    } else if (shouldRemoveIndicator && loadingIndicator.parentNode) {
-                        loadingIndicator.remove();
-                    }
-                }
+                loadingIndicator = maintainLoadingIndicator({
+                    gallery,
+                    loadingIndicator,
+                    baseLoadingMessage,
+                    indicatorMessage,
+                    shouldPersist: indicatorShouldPersist || indicatorShouldPersistBeforeReinit,
+                    shouldRemoveIndicator,
+                    createIndicator: () => createLoadingIndicatorElement(baseLoadingMessage),
+                    fallbackIndicator: indicatorNodeBeforeReinit
+                });
             }
         }
 
@@ -910,6 +977,19 @@
 
             return card;
         }
+    }
+
+    const testHooks = {
+        createLoadingIndicatorElement,
+        maintainLoadingIndicator
+    };
+
+    if (typeof window !== 'undefined') {
+        window.__flickrJustifiedTestHooks = Object.assign({}, window.__flickrJustifiedTestHooks, testHooks);
+    }
+
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = Object.assign({ flickrGalleryHelpers }, testHooks);
     }
 
     // Initialize lazy loading for Flickr albums
