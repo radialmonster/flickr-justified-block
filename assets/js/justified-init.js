@@ -654,7 +654,7 @@
                             const rect = anchorCard.getBoundingClientRect();
                             if (!rect) return;
                             const delta = rect.top - anchorViewportTop;
-                            if (Math.abs(delta) > 1) {
+                            if (delta > 1) {
                                 window.scrollBy(0, delta);
                             }
                         });
