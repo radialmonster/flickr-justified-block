@@ -653,8 +653,12 @@
                             if (!anchorCard.isConnected) return;
                             const rect = anchorCard.getBoundingClientRect();
                             if (!rect) return;
+                            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || 0;
+                            if (!viewportHeight) return;
+                            const isAnchorVisible = rect.bottom > 0 && rect.top < viewportHeight;
+                            if (!isAnchorVisible) return;
                             const delta = rect.top - anchorViewportTop;
-                            if (delta > 1) {
+                            if (Math.abs(delta) > 1) {
                                 window.scrollBy(0, delta);
                             }
                         });
