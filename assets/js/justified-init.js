@@ -733,16 +733,22 @@
                         setLoadedCount(gallery, gallery.querySelectorAll('.flickr-card').length);
                     }
 
+                    // Capture scroll position BEFORE layout
+                    const scrollBeforeLayout = getScrollTop();
+                    const img = anchorCard?.querySelector('img');
+                    const imgSrc = img ? img.src : 'no-image';
+                    console.log(`📍 BEFORE REINIT - Scroll position: ${scrollBeforeLayout}px, Anchor: ${imgSrc.substring(imgSrc.lastIndexOf('/') + 1)} at ${anchorTop}px`);
+
                     // Rebuild rows (this changes layout and may cause scroll jump)
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
 
+                    // IMMEDIATELY check if scroll jumped during layout
+                    const scrollAfterLayout = getScrollTop();
+                    console.log(`📍 AFTER initJustifiedGallery - Scroll position: ${scrollAfterLayout}px (changed by ${scrollAfterLayout - scrollBeforeLayout}px)`);
+
                     // CRITICAL: Restore scroll position AFTER layout completes
                     if (anchorCard?.isConnected && anchorTop !== null) {
-                        const img = anchorCard.querySelector('img');
-                        const imgSrc = img ? img.src : 'no-image';
-                        console.log(`📍 BEFORE REINIT - Anchor card image: ${imgSrc.substring(imgSrc.lastIndexOf('/') + 1)}, absolute position: ${anchorTop}px`);
-
                         requestAnimationFrame(() => {
                             if (!anchorCard.isConnected) {
                                 console.log('📍 Anchor card no longer connected, cannot restore scroll');
@@ -755,7 +761,8 @@
 
                             const img2 = anchorCard.querySelector('img');
                             const imgSrc2 = img2 ? img2.src : 'no-image';
-                            console.log(`📍 AFTER REINIT - Same anchor card image: ${imgSrc2.substring(imgSrc2.lastIndexOf('/') + 1)}, new absolute position: ${newAnchorTop}px, delta: ${scrollDelta}px`);
+                            const currentScroll = getScrollTop();
+                            console.log(`📍 IN requestAnimationFrame - Current scroll: ${currentScroll}px, Anchor now at: ${newAnchorTop}px, delta: ${scrollDelta}px`);
 
                             if (Math.abs(scrollDelta) > 1) {
                                 console.log(`📍 Adjusting scroll by ${scrollDelta}px to maintain position`);
