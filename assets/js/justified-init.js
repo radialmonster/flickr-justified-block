@@ -628,6 +628,8 @@
                         const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
                         const viewportBottom = viewportTop + window.innerHeight;
 
+                        console.log(`🎯 Finding anchor card. Viewport: ${viewportTop} to ${viewportBottom}, Cards: ${cards.length}`);
+
                         // Find first card that's visible in viewport (stable reference)
                         for (const card of cards) {
                             const rect = card.getBoundingClientRect();
@@ -635,9 +637,19 @@
                             const cardBottom = cardTop + rect.height;
 
                             if (cardBottom > viewportTop && cardTop < viewportBottom) {
+                                const img = card.querySelector('img');
+                                const imgSrc = img ? img.src : 'no-image';
+                                const imgAlt = img ? (img.alt || 'no-alt') : 'no-alt';
+                                console.log(`🎯 Found anchor card:`, {
+                                    imageSrc: imgSrc.substring(imgSrc.lastIndexOf('/') + 1),
+                                    imageAlt: imgAlt,
+                                    position: cardTop,
+                                    viewportOffset: rect.top
+                                });
                                 return card; // First visible card
                             }
                         }
+                        console.log('🎯 No anchor card found in viewport');
                         return null; // Fallback if no visible card found
                     })();
 
@@ -727,18 +739,33 @@
 
                     // CRITICAL: Restore scroll position AFTER layout completes
                     if (anchorCard?.isConnected && anchorTop !== null) {
+                        const img = anchorCard.querySelector('img');
+                        const imgSrc = img ? img.src : 'no-image';
+                        console.log(`📍 BEFORE REINIT - Anchor card image: ${imgSrc.substring(imgSrc.lastIndexOf('/') + 1)}, absolute position: ${anchorTop}px`);
+
                         requestAnimationFrame(() => {
-                            if (!anchorCard.isConnected) return;
+                            if (!anchorCard.isConnected) {
+                                console.log('📍 Anchor card no longer connected, cannot restore scroll');
+                                return;
+                            }
 
                             const rect = anchorCard.getBoundingClientRect();
                             const newAnchorTop = rect.top + getScrollTop();
                             const scrollDelta = newAnchorTop - anchorTop;
 
+                            const img2 = anchorCard.querySelector('img');
+                            const imgSrc2 = img2 ? img2.src : 'no-image';
+                            console.log(`📍 AFTER REINIT - Same anchor card image: ${imgSrc2.substring(imgSrc2.lastIndexOf('/') + 1)}, new absolute position: ${newAnchorTop}px, delta: ${scrollDelta}px`);
+
                             if (Math.abs(scrollDelta) > 1) {
                                 console.log(`📍 Adjusting scroll by ${scrollDelta}px to maintain position`);
                                 window.scrollBy(0, scrollDelta);
+                            } else {
+                                console.log(`📍 No scroll adjustment needed (delta < 1px)`);
                             }
                         });
+                    } else {
+                        console.log('📍 No anchor card or position to restore');
                     }
 
                     // Re-observe new last image
