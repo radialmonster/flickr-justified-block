@@ -276,6 +276,12 @@
 
                 setLoadedCount(grid, allCards.length);
 
+                const loadingIndicator = grid.querySelector(':scope > .flickr-loading-indicator');
+                const shouldPreserveIndicator = !!loadingIndicator && (
+                    loadingIndicator?.dataset?.shouldPersist === 'true' ||
+                    grid._flickrLoading === true
+                );
+
                 const cardsData = allCards.map(card => ({
                     element: card,
                     img: card.querySelector('img'),
@@ -322,6 +328,10 @@
                     });
 
                     grid.appendChild(row);
+                }
+
+                if (loadingIndicator && shouldPreserveIndicator) {
+                    grid.appendChild(loadingIndicator);
                 }
 
                 grid.classList.add('justified-initialized');
