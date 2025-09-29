@@ -286,7 +286,7 @@
             lightbox.on('contentAppend', ({ content }) => updateContentRotation(content));
             lightbox.on('contentActivate', ({ content }) => updateContentRotation(content));
             lightbox.on('contentUpdate', ({ content }) => updateContentRotation(content));
-            lightbox.on('zoomPanUpdate', ({ content }) => updateContentRotation(content));
+            lightbox.on('zoomPanUpdate', ({ slide }) => updateContentRotation(slide?.content));
 
             // Open the lightbox
             lightbox.init();
