@@ -25,21 +25,13 @@
     const { getPhotoLimit, getLoadedCount, setLoadedCount } = flickrGalleryHelpers;
 
     function normalizeRotation(value) {
-        if (value === null || value === undefined) {
-            return 0;
-        }
-
         const parsed = Number.parseFloat(value);
         if (!Number.isFinite(parsed)) {
             return 0;
         }
 
         let normalized = Math.round(parsed) % 360;
-        if (normalized < 0) {
-            normalized += 360;
-        }
-
-        return normalized;
+        return normalized < 0 ? normalized + 360 : normalized;
     }
 
     function shouldSwapDimensions(rotation) {
@@ -102,56 +94,34 @@
         return loadingIndicator;
     }
 
-    function maintainLoadingIndicator({
-        gallery,
-        loadingIndicator,
-        baseLoadingMessage,
-        indicatorMessage,
-        shouldPersist,
-        shouldRemoveIndicator,
-        createIndicator,
-        fallbackIndicator
-    }) {
-        let indicatorRef = loadingIndicator || null;
+    function maintainLoadingIndicator(options) {
+        const { gallery, loadingIndicator, baseLoadingMessage, indicatorMessage,
+                shouldPersist, shouldRemoveIndicator, createIndicator, fallbackIndicator } = options;
+
+        let indicator = loadingIndicator || fallbackIndicator || null;
 
         if (shouldRemoveIndicator) {
-            const nodeToRemove = indicatorRef || fallbackIndicator || null;
-            if (nodeToRemove && nodeToRemove.parentNode) {
-                nodeToRemove.remove();
+            if (indicator) {
+                indicator.remove();
+                if (indicator.dataset) indicator.dataset.shouldPersist = 'false';
             }
-            if (nodeToRemove && nodeToRemove.dataset) {
-                nodeToRemove.dataset.shouldPersist = 'false';
-            }
-            return indicatorRef || nodeToRemove || null;
+            return loadingIndicator || indicator;
         }
 
         if (shouldPersist) {
-            let nodeToUse = indicatorRef || fallbackIndicator || null;
-            if (!nodeToUse) {
-                nodeToUse = createIndicator();
-            }
-
-            if (!nodeToUse.isConnected) {
-                gallery.appendChild(nodeToUse);
-            }
-
-            const messageToDisplay = indicatorMessage || nodeToUse.textContent || baseLoadingMessage;
-            nodeToUse.textContent = messageToDisplay;
-            if (nodeToUse.dataset) {
-                nodeToUse.dataset.shouldPersist = 'true';
-            }
-
-            return nodeToUse;
+            if (!indicator) indicator = createIndicator();
+            if (!indicator.isConnected) gallery.appendChild(indicator);
+            indicator.textContent = indicatorMessage || indicator.textContent || baseLoadingMessage;
+            if (indicator.dataset) indicator.dataset.shouldPersist = 'true';
+            return indicator;
         }
 
-        if (indicatorRef && indicatorRef.dataset) {
-            indicatorRef.dataset.shouldPersist = 'false';
-            if (!indicatorMessage) {
-                indicatorRef.textContent = baseLoadingMessage;
-            }
+        if (loadingIndicator?.dataset) {
+            loadingIndicator.dataset.shouldPersist = 'false';
+            if (!indicatorMessage) loadingIndicator.textContent = baseLoadingMessage;
         }
 
-        return indicatorRef;
+        return loadingIndicator;
     }
 
     function calculateOptimalRowHeight(aspectRatios, containerWidth, gap) {
@@ -211,12 +181,16 @@
 
     function getImagesPerRow(containerWidth, breakpoints, responsiveSettings) {
         const sortedBreakpoints = Object.entries(breakpoints).sort((a, b) => b[1] - a[1]);
+
+        // Find first matching breakpoint (largest to smallest)
         for (const [breakpointName, breakpointWidth] of sortedBreakpoints) {
             if (containerWidth >= breakpointWidth) {
                 return responsiveSettings[breakpointName] || 1;
             }
         }
-        const smallestBreakpoint = Object.entries(breakpoints).sort((a, b) => a[1] - b[1])[0];
+
+        // If no match, use the smallest breakpoint (last in desc-sorted array)
+        const smallestBreakpoint = sortedBreakpoints[sortedBreakpoints.length - 1];
         return smallestBreakpoint ? (responsiveSettings[smallestBreakpoint[0]] || 1) : 1;
     }
 
@@ -241,7 +215,6 @@
                 let rowHeightMode = 'auto';
                 let rowHeight = 280;
                 let maxViewportHeight = 80;
-                let singleImageAlignment = 'center';
 
                 try {
                     const responsiveData = grid.getAttribute('data-responsive-settings');
@@ -249,14 +222,12 @@
                     const rowHeightModeData = grid.getAttribute('data-row-height-mode');
                     const rowHeightData = grid.getAttribute('data-row-height');
                     const maxViewportHeightData = grid.getAttribute('data-max-viewport-height');
-                    const singleImageAlignmentData = grid.getAttribute('data-single-image-alignment');
 
                     if (responsiveData) responsiveSettings = JSON.parse(responsiveData);
                     if (breakpointsData) breakpoints = JSON.parse(breakpointsData);
                     if (rowHeightModeData) rowHeightMode = rowHeightModeData;
                     if (rowHeightData) rowHeight = parseInt(rowHeightData, 10) || 280;
                     if (maxViewportHeightData) maxViewportHeight = parseInt(maxViewportHeightData, 10) || 80;
-                    if (singleImageAlignmentData) singleImageAlignment = singleImageAlignmentData || 'center';
                 } catch (e) {
                     console.warn('Error parsing responsive settings:', e);
                     // Use the same hardcoded fallbacks as server-side for consistency
@@ -265,7 +236,6 @@
                     rowHeightMode = 'auto';
                     rowHeight = 280;
                     maxViewportHeight = 80;
-                    singleImageAlignment = 'center';
                 }
 
                 const imagesPerRow = getImagesPerRow(containerWidth, breakpoints, responsiveSettings);
@@ -640,7 +610,6 @@
             let indicatorMessage = '';
             let shouldRemoveIndicator = false;
             let scheduledRetryDelay = null;
-            const indicatorShouldPersistBeforeReinit = indicatorShouldPersist || indicatorWasPersisting;
             const indicatorNodeBeforeReinit = loadingIndicator;
 
             try {
@@ -659,7 +628,6 @@
                         if (lastRowCard) return lastRowCard;
                         return gallery.querySelector(':scope > .flickr-card:last-of-type');
                     })();
-                    const anchorViewportTop = anchorCard ? anchorCard.getBoundingClientRect().top : null;
 
                     // Re-initialize the justified layout with new photos
                     console.log('🔄 Starting gallery reinitialization...');
@@ -673,7 +641,7 @@
                     }
 
                     // Reinitialize immediately using aspect-ratio fallbacks (no decode wait)
-                    reinitializeGallery(anchorCard, anchorViewportTop);
+                    reinitializeGallery(anchorCard);
                 }
 
                 if (hasRecoverable && pendingSets) {
@@ -690,56 +658,31 @@
                     shouldRemoveIndicator = true;
                 }
 
-                function reinitializeGallery(anchorCard, anchorViewportTop) {
-                    const viewportHeight = window.innerHeight ?? document.documentElement?.clientHeight ?? 0;
-                    const rectBefore = (anchorCard && anchorCard.isConnected && typeof anchorCard.getBoundingClientRect === 'function')
-                        ? anchorCard.getBoundingClientRect()
-                        : null;
-                    let anchorWasVisible = Boolean(
-                        rectBefore && viewportHeight > 0 && rectBefore.bottom >= 0 && rectBefore.top <= viewportHeight
-                    );
+                function reinitializeGallery(anchorCard) {
+                    // Helper for consistent scroll position reading
+                    const getScrollTop = () => window.pageYOffset || document.documentElement.scrollTop || 0;
 
-                    if (!anchorWasVisible && typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop) && viewportHeight > 0) {
-                        anchorWasVisible = anchorViewportTop <= viewportHeight && anchorViewportTop >= -viewportHeight;
+                    // Capture anchor position BEFORE DOM manipulation
+                    let anchorTop = null;
+                    if (anchorCard?.isConnected) {
+                        const rect = anchorCard.getBoundingClientRect();
+                        anchorTop = rect.top + getScrollTop(); // absolute position in document
                     }
 
-                    const anchorDocumentTopBefore = (() => {
-                        if (rectBefore) {
-                            const scrollTop = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
-                            const docTop = rectBefore.top + scrollTop;
-                            if (Number.isFinite(docTop)) {
-                                return docTop;
-                            }
-                        }
-
-                        if (typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop)) {
-                            const scrollTop = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
-                            const fallbackDocTop = anchorViewportTop + scrollTop;
-                            return Number.isFinite(fallbackDocTop) ? fallbackDocTop : null;
-                        }
-
-                        return null;
-                    })();
-
                     console.log('📐 Dispatching gallery reorganized event...');
-                    const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
-                    document.dispatchEvent(event);
+                    document.dispatchEvent(new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } }));
 
                     // Move existing cards out of row wrappers
-                    const existingRows = Array.from(gallery.querySelectorAll(':scope > .flickr-row'));
-                    existingRows.forEach(row => {
-                        const cardsInRow = Array.from(row.querySelectorAll(':scope > .flickr-card'));
-                        cardsInRow.forEach(card => gallery.appendChild(card));
+                    gallery.querySelectorAll(':scope > .flickr-row').forEach(row => {
+                        row.querySelectorAll(':scope > .flickr-card').forEach(card => gallery.appendChild(card));
                         row.remove();
                     });
 
-                    const oldStaging = gallery.querySelector('.flickr-staging');
-                    if (oldStaging) {
-                        oldStaging.remove();
-                    }
+                    gallery.querySelector('.flickr-staging')?.remove();
 
+                    // Add new photos
                     let newlyCreated = 0;
-                    if (gallery._pendingPhotos && gallery._pendingPhotos.length > 0) {
+                    if (gallery._pendingPhotos?.length > 0) {
                         gallery._pendingPhotos.forEach(photoData => {
                             const card = createPhotoCard(photoData, gallery);
                             if (card) {
@@ -750,57 +693,38 @@
                         delete gallery._pendingPhotos;
                     }
 
+                    // Sort if needed
                     const sortOrder = gallery.dataset.sortOrder || 'input';
                     if (sortOrder === SORT_VIEWS_DESC) {
                         const cardsToSort = Array.from(gallery.querySelectorAll('.flickr-card'));
                         cardsToSort.sort((a, b) => {
-                            const viewsA = parseInt(a.dataset.views || '0', 10);
-                            const viewsB = parseInt(b.dataset.views || '0', 10);
-                            if (viewsA !== viewsB) {
-                                return viewsB - viewsA;
-                            }
-                            const posA = parseInt(a.dataset.position || '0', 10);
-                            const posB = parseInt(b.dataset.position || '0', 10);
-                            return posA - posB;
+                            const viewsDiff = parseInt(b.dataset.views || '0', 10) - parseInt(a.dataset.views || '0', 10);
+                            if (viewsDiff !== 0) return viewsDiff;
+                            return parseInt(a.dataset.position || '0', 10) - parseInt(b.dataset.position || '0', 10);
                         });
                         cardsToSort.forEach(card => gallery.appendChild(card));
                     }
 
                     if (newlyCreated > 0 || sortOrder === SORT_VIEWS_DESC) {
-                        const cardCount = gallery.querySelectorAll('.flickr-card').length;
-                        setLoadedCount(gallery, cardCount);
+                        setLoadedCount(gallery, gallery.querySelectorAll('.flickr-card').length);
                     }
 
-                    // Rebuild rows immediately
+                    // Rebuild rows (this changes layout and may cause scroll jump)
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
 
-                    if (anchorCard && Number.isFinite(anchorDocumentTopBefore) && anchorWasVisible) {
+                    // CRITICAL: Restore scroll position AFTER layout completes
+                    if (anchorCard?.isConnected && anchorTop !== null) {
                         requestAnimationFrame(() => {
-                            if (!anchorCard.isConnected || typeof anchorCard.getBoundingClientRect !== 'function') {
-                                return;
-                            }
+                            if (!anchorCard.isConnected) return;
 
-                            const rectAfter = anchorCard.getBoundingClientRect();
-                            if (!rectAfter) {
-                                return;
-                            }
+                            const rect = anchorCard.getBoundingClientRect();
+                            const newAnchorTop = rect.top + getScrollTop();
+                            const scrollDelta = newAnchorTop - anchorTop;
 
-                            const scrollTopAfter = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
-                            const anchorDocumentTopAfter = rectAfter.top + scrollTopAfter;
-
-                            if (!Number.isFinite(anchorDocumentTopAfter)) {
-                                return;
-                            }
-
-                            const delta = anchorDocumentTopAfter - anchorDocumentTopBefore;
-                            if (Math.abs(delta) > 1) {
-                                if (typeof window.scrollBy === 'function') {
-                                    window.scrollBy(0, delta);
-                                } else if (typeof window.scrollTo === 'function') {
-                                    const horizontalScroll = window.scrollX ?? window.pageXOffset ?? document.documentElement?.scrollLeft ?? 0;
-                                    window.scrollTo(horizontalScroll, scrollTopAfter + delta);
-                                }
+                            if (Math.abs(scrollDelta) > 1) {
+                                console.log(`📍 Adjusting scroll by ${scrollDelta}px to maintain position`);
+                                window.scrollBy(0, scrollDelta);
                             }
                         });
                     }
@@ -809,11 +733,7 @@
                     setTimeout(() => {
                         const obs = gallery._flickrLazyObserver;
                         if (obs) {
-                            const newLastImage = (function getLastImageInGallery(g){
-                                const cards = g.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
-                                if (!cards.length) return null;
-                                return cards[cards.length - 1].querySelector('img');
-                            })(gallery);
+                            const newLastImage = getLastImageInGallery(gallery);
                             if (newLastImage) {
                                 obs.observe(newLastImage);
                                 gallery._lastObservedImage = newLastImage;
@@ -822,8 +742,7 @@
                     }, 100);
 
                     // Ping PhotoSwipe
-                    const photoswipeEvent = new CustomEvent('flickr-gallery-updated', { detail: { gallery } });
-                    document.dispatchEvent(photoswipeEvent);
+                    document.dispatchEvent(new CustomEvent('flickr-gallery-updated', { detail: { gallery } }));
 
                     gallery._lastReinit = Date.now();
                     console.log('🏁 Gallery reinitialization complete');
@@ -862,7 +781,7 @@
                     loadingIndicator,
                     baseLoadingMessage,
                     indicatorMessage,
-                    shouldPersist: indicatorShouldPersist || indicatorShouldPersistBeforeReinit,
+                    shouldPersist: indicatorShouldPersist || indicatorWasPersisting,
                     shouldRemoveIndicator,
                     createIndicator: () => createLoadingIndicatorElement(baseLoadingMessage),
                     fallbackIndicator: indicatorNodeBeforeReinit
@@ -976,15 +895,6 @@
                 // Implement retry logic for temporary network errors
                 if (!setData.retryCount) setData.retryCount = 0;
 
-                const persistMetadata = (reason) => {
-                    try {
-                        gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
-                        console.log(`💾 Updated DOM with metadata after ${reason}`);
-                    } catch (metadataError) {
-                        console.warn('Failed to persist metadata after error handling:', metadataError);
-                    }
-                };
-
                 const statusMatch = /HTTP\s+(\d{3})/i.exec(error?.message || '');
                 const statusCode = error?.status || (statusMatch ? parseInt(statusMatch[1], 10) : null);
                 const recoverableStatusCodes = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -999,7 +909,8 @@
 
                     const retryDelay = 2000 * setData.retryCount; // Exponential backoff
 
-                    persistMetadata('network error retry preparation');
+                    gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
+                    console.log('💾 Updated DOM with metadata after network error retry preparation');
 
                     return {
                         status: 'recoverable-error',
@@ -1012,7 +923,8 @@
                     const delay = Math.min(10000, 3000 * Math.max(1, setData.retryCount || 1));
                     setData.retryCount++;
 
-                    persistMetadata('recoverable error handling');
+                    gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
+                    console.log('💾 Updated DOM with metadata after recoverable error handling');
 
                     return {
                         status: 'recoverable-error',
@@ -1026,7 +938,8 @@
                     setData.loadingError = true;
                     setData.isLoading = false;
 
-                    persistMetadata('fatal error handling');
+                    gallery.setAttribute('data-set-metadata', JSON.stringify(setMetadata));
+                    console.log('💾 Updated DOM with metadata after fatal error handling');
 
                     return {
                         status: 'fatal-error',
@@ -1050,12 +963,8 @@
             card.style.position = 'relative'; // Match server-side positioning
 
             const coerceInt = (value) => {
-                if (typeof value === 'number') return value;
-                if (typeof value === 'string') {
-                    const parsed = parseInt(value, 10);
-                    return Number.isFinite(parsed) ? parsed : 0;
-                }
-                return 0;
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : 0;
             };
 
             const viewsValue = coerceInt(photoData.view_count ?? photoData.views ?? 0);
