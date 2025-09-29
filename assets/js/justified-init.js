@@ -622,11 +622,23 @@
                 const pendingSets = setMetadata.some(set => !set.loadingError && set.current_page < set.total_pages);
 
                 if (hasSuccess) {
-                    // Capture the current viewport position of the last visible card
+                    // Capture a stable viewport anchor - find the first card currently visible in viewport
                     const anchorCard = (() => {
-                        const lastRowCard = gallery.querySelector(':scope > .flickr-row:last-of-type .flickr-card:last-of-type');
-                        if (lastRowCard) return lastRowCard;
-                        return gallery.querySelector(':scope > .flickr-card:last-of-type');
+                        const cards = gallery.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
+                        const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+                        const viewportBottom = viewportTop + window.innerHeight;
+
+                        // Find first card that's visible in viewport (stable reference)
+                        for (const card of cards) {
+                            const rect = card.getBoundingClientRect();
+                            const cardTop = rect.top + viewportTop;
+                            const cardBottom = cardTop + rect.height;
+
+                            if (cardBottom > viewportTop && cardTop < viewportBottom) {
+                                return card; // First visible card
+                            }
+                        }
+                        return null; // Fallback if no visible card found
                     })();
 
                     // Re-initialize the justified layout with new photos
