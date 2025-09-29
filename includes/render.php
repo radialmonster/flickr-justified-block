@@ -307,6 +307,11 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
             $result['_stats'] = $stats;
         }
 
+        $rotation = flickr_justified_extract_rotation_from_info($photo_info ?? []);
+        if ($rotation) {
+            $result['_rotation'] = $rotation;
+        }
+
         // Cache the results
         $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
         if ($cache_duration <= 0) {
@@ -345,6 +350,86 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
     }
 
     return $result;
+}
+
+/**
+ * Normalize a Flickr rotation value to the 0-359 range.
+ *
+ * @param mixed $rotation Raw rotation value returned by the API.
+ * @return int Normalized rotation in degrees.
+ */
+function flickr_justified_normalize_rotation($rotation) {
+    if (!is_numeric($rotation)) {
+        return 0;
+    }
+
+    $normalized = (int) round((float) $rotation);
+    $normalized %= 360;
+
+    if ($normalized < 0) {
+        $normalized += 360;
+    }
+
+    return $normalized;
+}
+
+/**
+ * Determine whether width/height should be swapped for a given rotation.
+ *
+ * @param int $rotation Rotation in degrees.
+ * @return bool
+ */
+function flickr_justified_should_swap_dimensions($rotation) {
+    $rotation = flickr_justified_normalize_rotation($rotation);
+
+    return in_array($rotation, [90, 270], true);
+}
+
+/**
+ * Apply rotation-aware width/height swapping to a dimensions array.
+ *
+ * @param array $dimensions Array with optional width/height keys.
+ * @param int   $rotation   Rotation in degrees.
+ * @return array
+ */
+function flickr_justified_apply_rotation_to_dimensions($dimensions, $rotation) {
+    if (!is_array($dimensions)) {
+        return $dimensions;
+    }
+
+    if (!isset($dimensions['width'], $dimensions['height'])) {
+        return $dimensions;
+    }
+
+    if (!flickr_justified_should_swap_dimensions($rotation)) {
+        return $dimensions;
+    }
+
+    $original_width = (int) $dimensions['width'];
+    $original_height = (int) $dimensions['height'];
+
+    $dimensions['width'] = $original_height;
+    $dimensions['height'] = $original_width;
+
+    return $dimensions;
+}
+
+/**
+ * Extract rotation information from a Flickr photo info response.
+ *
+ * @param array $photo_info Photo information array.
+ * @return int Rotation in degrees (0 when unavailable).
+ */
+function flickr_justified_extract_rotation_from_info($photo_info) {
+    if (!is_array($photo_info) || empty($photo_info)) {
+        return 0;
+    }
+
+    if (isset($photo_info['rotation'])) {
+        return flickr_justified_normalize_rotation($photo_info['rotation']);
+    }
+
+    return 0;
 }
 
 /**
@@ -1026,6 +1111,15 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
                 $stats = $image_data['_stats'];
             }
 
+            $rotation = 0;
+            if (isset($photo['rotation'])) {
+                $rotation = flickr_justified_normalize_rotation($photo['rotation']);
+            } elseif (isset($image_data['_rotation'])) {
+                $rotation = flickr_justified_normalize_rotation($image_data['_rotation']);
+            } elseif (!empty($image_data['_photo_info'])) {
+                $rotation = flickr_justified_extract_rotation_from_info($image_data['_photo_info']);
+            }
+
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
 
@@ -1042,13 +1136,15 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             }
 
             $lightbox_src = '';
+            $lightbox_dimensions = null;
             if ($best_lightbox_size && isset($image_data[$best_lightbox_size]['url'])) {
                 $lightbox_src = $image_data[$best_lightbox_size]['url'];
+                $lightbox_dimensions = $image_data[$best_lightbox_size];
             }
 
             if (empty($display_src) && !empty($lightbox_src)) {
                 $display_src = $lightbox_src;
-                $dimensions = isset($image_data[$best_lightbox_size]) ? $image_data[$best_lightbox_size] : null;
+                $dimensions = $lightbox_dimensions;
             }
             if (empty($lightbox_src) && !empty($display_src)) {
                 $lightbox_src = $display_src;
@@ -1083,13 +1179,27 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             }
 
             $data_attrs = '';
-            $lightbox_dimensions = null;
-            if ($best_lightbox_size && isset($image_data[$best_lightbox_size])) {
-                $lightbox_dimensions = $image_data[$best_lightbox_size];
+            $rotated_display_dimensions = flickr_justified_apply_rotation_to_dimensions($dimensions ?? [], $rotation);
+            $rotated_lightbox_dimensions = flickr_justified_apply_rotation_to_dimensions($lightbox_dimensions ?? [], $rotation);
+
+            $width_attr = null;
+            $height_attr = null;
+            if (isset($rotated_lightbox_dimensions['width'], $rotated_lightbox_dimensions['height']) &&
+                $rotated_lightbox_dimensions['width'] > 0 && $rotated_lightbox_dimensions['height'] > 0) {
+                $width_attr = (int) $rotated_lightbox_dimensions['width'];
+                $height_attr = (int) $rotated_lightbox_dimensions['height'];
+            } elseif (isset($rotated_display_dimensions['width'], $rotated_display_dimensions['height']) &&
+                $rotated_display_dimensions['width'] > 0 && $rotated_display_dimensions['height'] > 0) {
+                $width_attr = (int) $rotated_display_dimensions['width'];
+                $height_attr = (int) $rotated_display_dimensions['height'];
             }
 
-            if ($lightbox_dimensions) {
-                $data_attrs = sprintf(' data-width="%d" data-height="%d"', $lightbox_dimensions['width'], $lightbox_dimensions['height']);
+            if (null !== $width_attr && null !== $height_attr) {
+                $data_attrs = sprintf(' data-width="%d" data-height="%d"', $width_attr, $height_attr);
+            }
+
+            if ($rotation) {
+                $data_attrs .= sprintf(' data-rotation="%d"', (int) $rotation);
             }
 
             $lightbox_class = 'flickr-builtin-lightbox';
@@ -1112,6 +1222,9 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             $favorites = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
 
             $card_attributes = ['class="flickr-card"', 'style="position: relative;"'];
+            if ($rotation) {
+                $card_attributes[] = 'data-rotation="' . esc_attr($rotation) . '"';
+            }
             if (null !== $position) {
                 $card_attributes[] = 'data-position="' . esc_attr($position) . '"';
             }
@@ -1119,10 +1232,31 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             $card_attributes[] = 'data-comments="' . esc_attr($comments) . '"';
             $card_attributes[] = 'data-favorites="' . esc_attr($favorites) . '"';
 
+            if (null !== $width_attr && null !== $height_attr) {
+                $card_attributes[] = 'data-width="' . esc_attr($width_attr) . '"';
+                $card_attributes[] = 'data-height="' . esc_attr($height_attr) . '"';
+            }
+
+            $img_extra_attrs = [];
+            if (null !== $width_attr && null !== $height_attr) {
+                $img_extra_attrs[] = 'data-width="' . esc_attr($width_attr) . '"';
+                $img_extra_attrs[] = 'data-height="' . esc_attr($height_attr) . '"';
+            }
+
+            if ($rotation) {
+                $img_extra_attrs[] = 'data-rotation="' . esc_attr($rotation) . '"';
+                $img_extra_attrs[] = 'style="transform: rotate(' . esc_attr($rotation) . 'deg); transform-origin: center center;"';
+            }
+
+            $img_attr_string = '';
+            if (!empty($img_extra_attrs)) {
+                $img_attr_string = ' ' . implode(' ', $img_extra_attrs);
+            }
+
             $output .= sprintf(
                 '<article %s>
                     <a href="%s" class="%s" %s="%s" %s%s>
-                        <img src="%s" loading="lazy" decoding="async" alt="">
+                        <img src="%s" loading="lazy" decoding="async" alt=""%s>
                     </a>
                 </article>',
                 implode(' ', $card_attributes),
@@ -1132,7 +1266,8 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
                 esc_attr($gallery_group),
                 $data_attrs,
                 $attribution_attrs,
-                esc_url($display_src)
+                esc_url($display_src),
+                $img_attr_string
             );
         } else {
             $views = isset($photo['views']) ? (int) $photo['views'] : 0;

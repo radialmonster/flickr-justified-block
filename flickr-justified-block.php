@@ -533,36 +533,47 @@ class FlickrJustifiedBlock {
                     $stats = flickr_justified_get_photo_stats($photo_id);
                 }
 
+                $rotation = 0;
+                if (isset($image_data['_rotation'])) {
+                    $rotation = flickr_justified_normalize_rotation($image_data['_rotation']);
+                } elseif (!empty($image_data['_photo_info'])) {
+                    $rotation = flickr_justified_extract_rotation_from_info($image_data['_photo_info']);
+                }
+
                 if (!empty($image_data)) {
                     $preferred_size = 'large';
                     if (isset($image_data[$preferred_size]) && isset($image_data[$preferred_size]['url'])) {
+                        $size_dimensions = flickr_justified_apply_rotation_to_dimensions($image_data[$preferred_size], $rotation);
                         $gallery_items[] = [
                             'url' => $photo_url,
                             'image_url' => esc_url_raw($image_data[$preferred_size]['url']),
-                            'width' => isset($image_data[$preferred_size]['width']) ? absint($image_data[$preferred_size]['width']) : 0,
-                            'height' => isset($image_data[$preferred_size]['height']) ? absint($image_data[$preferred_size]['height']) : 0,
+                            'width' => isset($size_dimensions['width']) ? absint($size_dimensions['width']) : 0,
+                            'height' => isset($size_dimensions['height']) ? absint($size_dimensions['height']) : 0,
                             'flickr_page' => $photo_url,
                             'is_flickr' => true,
                             'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
                             'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
                             'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
                             'position' => $position_counter++,
+                            'rotation' => $rotation,
                         ];
                     } else {
                         // Fallback: use first available size
                         $first_size = array_keys($image_data)[0] ?? null;
                         if ($first_size && isset($image_data[$first_size]['url'])) {
+                            $size_dimensions = flickr_justified_apply_rotation_to_dimensions($image_data[$first_size], $rotation);
                             $gallery_items[] = [
                                 'url' => $photo_url,
                                 'image_url' => esc_url_raw($image_data[$first_size]['url']),
-                                'width' => isset($image_data[$first_size]['width']) ? absint($image_data[$first_size]['width']) : 0,
-                                'height' => isset($image_data[$first_size]['height']) ? absint($image_data[$first_size]['height']) : 0,
+                                'width' => isset($size_dimensions['width']) ? absint($size_dimensions['width']) : 0,
+                                'height' => isset($size_dimensions['height']) ? absint($size_dimensions['height']) : 0,
                                 'flickr_page' => $photo_url,
                                 'is_flickr' => true,
                                 'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
                                 'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
                                 'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
                                 'position' => $position_counter++,
+                                'rotation' => $rotation,
                             ];
                         }
                     }
@@ -577,6 +588,7 @@ class FlickrJustifiedBlock {
                         'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
                         'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
                         'position' => $position_counter++,
+                        'rotation' => $rotation,
                     ];
                 }
             } else {

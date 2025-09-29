@@ -24,6 +24,59 @@
 
     const { getPhotoLimit, getLoadedCount, setLoadedCount } = flickrGalleryHelpers;
 
+    function normalizeRotation(value) {
+        if (value === null || value === undefined) {
+            return 0;
+        }
+
+        const parsed = Number.parseFloat(value);
+        if (!Number.isFinite(parsed)) {
+            return 0;
+        }
+
+        let normalized = Math.round(parsed) % 360;
+        if (normalized < 0) {
+            normalized += 360;
+        }
+
+        return normalized;
+    }
+
+    function shouldSwapDimensions(rotation) {
+        const normalized = normalizeRotation(rotation);
+        return normalized === 90 || normalized === 270;
+    }
+
+    function applyRotationToImageElement(img, rotation) {
+        if (!img) {
+            return;
+        }
+
+        const normalized = normalizeRotation(rotation);
+        const existingTransform = img.style.transform || '';
+        const cleanedTransform = existingTransform.replace(/rotate\([^)]*\)/gi, '').trim();
+
+        if (normalized) {
+            const rotateString = `rotate(${normalized}deg)`;
+            const newTransform = `${cleanedTransform} ${rotateString}`.trim();
+            img.style.transform = newTransform;
+            img.style.transformOrigin = 'center center';
+            img.dataset.rotation = String(normalized);
+        } else {
+            if (cleanedTransform !== existingTransform) {
+                if (cleanedTransform) {
+                    img.style.transform = cleanedTransform;
+                } else {
+                    img.style.removeProperty('transform');
+                }
+            }
+            img.style.removeProperty('transform-origin');
+            if (img.dataset) {
+                delete img.dataset.rotation;
+            }
+        }
+    }
+
     function createLoadingIndicatorElement(baseLoadingMessage) {
         const loadingIndicator = document.createElement('div');
         loadingIndicator.className = 'flickr-loading-indicator';
@@ -109,15 +162,49 @@
 
     function getAspectRatioForCard(card) {
         const img = card.querySelector('img');
-        if (!img) return 1; // safe default
-        const natW = img.naturalWidth, natH = img.naturalHeight;
-        if (natW > 0 && natH > 0) return natW / natH;
+        const anchor = card.querySelector('a');
 
-        // fallback to data-* on img, <a>, or card
-        const a = card.querySelector('a');
-        const w = parseInt(img.getAttribute('data-width') || a?.getAttribute('data-width') || card.getAttribute('data-width') || 0, 10);
-        const h = parseInt(img.getAttribute('data-height') || a?.getAttribute('data-height') || card.getAttribute('data-height') || 0, 10);
-        if (w > 0 && h > 0) return w / h;
+        let rotationSource = card.dataset?.rotation;
+        if (rotationSource === undefined && anchor) {
+            rotationSource = anchor.getAttribute('data-rotation');
+        }
+        if (rotationSource === undefined && img) {
+            rotationSource = img.getAttribute('data-rotation');
+        }
+
+        const rotation = normalizeRotation(rotationSource);
+        const swapDimensions = shouldSwapDimensions(rotation);
+
+        if (img) {
+            const natW = img.naturalWidth;
+            const natH = img.naturalHeight;
+            if (natW > 0 && natH > 0) {
+                const width = swapDimensions ? natH : natW;
+                const height = swapDimensions ? natW : natH;
+                return width / height;
+            }
+        }
+
+        const widthAttr = parseInt(
+            (img && img.getAttribute('data-width')) ||
+            (anchor && anchor.getAttribute('data-width')) ||
+            card.getAttribute('data-width') ||
+            '0',
+            10
+        );
+        const heightAttr = parseInt(
+            (img && img.getAttribute('data-height')) ||
+            (anchor && anchor.getAttribute('data-height')) ||
+            card.getAttribute('data-height') ||
+            '0',
+            10
+        );
+
+        if (widthAttr > 0 && heightAttr > 0) {
+            const width = swapDimensions ? heightAttr : widthAttr;
+            const height = swapDimensions ? widthAttr : heightAttr;
+            return width / height;
+        }
 
         return 1.5; // sensible default for landscape-ish galleries
     }
@@ -936,9 +1023,26 @@
             link.href = photoData.image_url;
 
             // expose dimensions for layout before load
-            if (photoData.width && photoData.height) {
-                link.setAttribute('data-width', photoData.width);
-                link.setAttribute('data-height', photoData.height);
+            const rotationValue = normalizeRotation(photoData.rotation ?? photoData.image_rotation ?? 0);
+            if (rotationValue) {
+                card.dataset.rotation = String(rotationValue);
+                link.setAttribute('data-rotation', String(rotationValue));
+            }
+
+            let widthValue = coerceInt(photoData.width ?? photoData.image_width);
+            let heightValue = coerceInt(photoData.height ?? photoData.image_height);
+
+            if (widthValue > 0 && heightValue > 0 && shouldSwapDimensions(rotationValue)) {
+                const temp = widthValue;
+                widthValue = heightValue;
+                heightValue = temp;
+            }
+
+            if (widthValue > 0 && heightValue > 0) {
+                link.setAttribute('data-width', String(widthValue));
+                link.setAttribute('data-height', String(heightValue));
+                card.dataset.width = String(widthValue);
+                card.dataset.height = String(heightValue);
             }
 
             // Get the gallery ID from the existing gallery structure
@@ -966,17 +1070,21 @@
             img.alt = '';
             img.loading = 'lazy';
             img.setAttribute('decoding', 'async'); // Match server-side attributes
-            if (photoData.width && photoData.height) {
-                img.setAttribute('data-width', photoData.width);
-                img.setAttribute('data-height', photoData.height);
+            if (widthValue > 0 && heightValue > 0) {
+                img.setAttribute('data-width', String(widthValue));
+                img.setAttribute('data-height', String(heightValue));
+            }
+
+            if (rotationValue) {
+                applyRotationToImageElement(img, rotationValue);
             }
 
             link.appendChild(img);
             card.appendChild(link);
 
             // Give the card a provisional box that matches aspect-ratio
-            if (photoData.width && photoData.height) {
-                card.style.aspectRatio = `${photoData.width} / ${photoData.height}`;
+            if (widthValue > 0 && heightValue > 0) {
+                card.style.aspectRatio = `${widthValue} / ${heightValue}`;
             }
 
             return card;
