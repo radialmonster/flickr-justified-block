@@ -10,6 +10,59 @@
     const PHOTOSWIPE_CSS = PLUGIN_URL.replace(/\/$/, '') + '/assets/lib/photoswipe/photoswipe.css';
     const PHOTOSWIPE_JS = PLUGIN_URL.replace(/\/$/, '') + '/assets/lib/photoswipe/photoswipe.esm.js';
 
+    function normalizeRotation(value) {
+        if (value === null || value === undefined) {
+            return 0;
+        }
+
+        const parsed = Number.parseFloat(value);
+        if (!Number.isFinite(parsed)) {
+            return 0;
+        }
+
+        let normalized = Math.round(parsed) % 360;
+        if (normalized < 0) {
+            normalized += 360;
+        }
+
+        return normalized;
+    }
+
+    function shouldSwapDimensions(rotation) {
+        const normalized = normalizeRotation(rotation);
+        return normalized === 90 || normalized === 270;
+    }
+
+    function applyRotationToImageElement(img, rotation) {
+        if (!img) {
+            return;
+        }
+
+        const normalized = normalizeRotation(rotation);
+        const existingTransform = img.style.transform || '';
+        const cleanedTransform = existingTransform.replace(/rotate\([^)]*\)/gi, '').trim();
+
+        if (normalized) {
+            const rotateString = `rotate(${normalized}deg)`;
+            const newTransform = `${cleanedTransform} ${rotateString}`.trim();
+            img.style.transform = newTransform;
+            img.style.transformOrigin = 'center center';
+            img.dataset.rotation = String(normalized);
+        } else {
+            if (cleanedTransform !== existingTransform) {
+                if (cleanedTransform) {
+                    img.style.transform = cleanedTransform;
+                } else {
+                    img.style.removeProperty('transform');
+                }
+            }
+            img.style.removeProperty('transform-origin');
+            if (img.dataset) {
+                delete img.dataset.rotation;
+            }
+        }
+    }
+
     // Check if builtin lightbox is enabled
     function isBuiltinLightboxEnabled() {
         const gallery = document.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
@@ -106,18 +159,28 @@
 
         console.log('PhotoSwipe click handler triggered for index:', index);
 
-        const galleryData = Array.from(items).map((item, idx) => {
+        const galleryData = Array.from(items).map((item) => {
             const img = item.querySelector('img');
             const flickrPage = item.getAttribute('data-flickr-page');
-            const width = parseInt(item.getAttribute('data-width'), 10) || (img?.naturalWidth || 1200);
-            const height = parseInt(item.getAttribute('data-height'), 10) || (img?.naturalHeight || 800);
+            const rotationAttr = item.getAttribute('data-rotation') || item.closest('.flickr-card')?.dataset?.rotation || img?.getAttribute('data-rotation');
+            const rotation = normalizeRotation(rotationAttr);
+
+            let width = parseInt(item.getAttribute('data-width'), 10) || (img?.naturalWidth || 1200);
+            let height = parseInt(item.getAttribute('data-height'), 10) || (img?.naturalHeight || 800);
+
+            if (width > 0 && height > 0 && shouldSwapDimensions(rotation)) {
+                const temp = width;
+                width = height;
+                height = temp;
+            }
 
             return {
                 src: item.href,
                 width,
                 height,
                 flickrPage,
-                element: item
+                element: item,
+                rotation
             };
         });
 
@@ -207,6 +270,22 @@
                     }
                 });
             });
+
+            const updateContentRotation = (content) => {
+                if (!content || !content.element) {
+                    return;
+                }
+
+                const rotation = normalizeRotation(content.data?.rotation);
+                const imgEl = content.element.querySelector('img');
+                if (imgEl) {
+                    applyRotationToImageElement(imgEl, rotation);
+                }
+            };
+
+            lightbox.on('contentAppend', ({ content }) => updateContentRotation(content));
+            lightbox.on('contentActivate', ({ content }) => updateContentRotation(content));
+            lightbox.on('contentUpdate', ({ content }) => updateContentRotation(content));
 
             // Open the lightbox
             lightbox.init();
