@@ -628,6 +628,8 @@
                         const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
                         const viewportBottom = viewportTop + window.innerHeight;
 
+                        console.log(`🎯 [PAGE LOAD] Finding anchor. Viewport: ${Math.round(viewportTop)} to ${Math.round(viewportBottom)}, Total cards: ${cards.length}`);
+
                         // Find first card that's visible in viewport (stable reference)
                         for (const card of cards) {
                             const rect = card.getBoundingClientRect();
@@ -635,9 +637,13 @@
                             const cardBottom = cardTop + rect.height;
 
                             if (cardBottom > viewportTop && cardTop < viewportBottom) {
+                                const img = card.querySelector('img');
+                                const imgSrc = img ? img.src.substring(img.src.lastIndexOf('/') + 1) : 'no-img';
+                                console.log(`🎯 [PAGE LOAD] Found anchor: ${imgSrc} at position ${Math.round(cardTop)}px`);
                                 return card; // First visible card
                             }
                         }
+                        console.log('🎯 [PAGE LOAD] WARNING: No anchor card found!');
                         return null; // Fallback if no visible card found
                     })();
 
@@ -722,22 +728,41 @@
                     }
 
                     // Rebuild rows (this changes layout and may cause scroll jump)
+                    const scrollBeforeReinit = getScrollTop();
+                    console.log(`📍 [PAGE LOAD] Before reinit - scroll: ${Math.round(scrollBeforeReinit)}px, anchor at: ${Math.round(anchorTop)}px`);
+
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
+
+                    const scrollAfterReinit = getScrollTop();
+                    console.log(`📍 [PAGE LOAD] After reinit - scroll: ${Math.round(scrollAfterReinit)}px (jumped ${Math.round(scrollAfterReinit - scrollBeforeReinit)}px)`);
 
                     // CRITICAL: Restore scroll position AFTER layout completes
                     if (anchorCard?.isConnected && anchorTop !== null) {
                         requestAnimationFrame(() => {
-                            if (!anchorCard.isConnected) return;
+                            if (!anchorCard.isConnected) {
+                                console.log('📍 [PAGE LOAD] ERROR: Anchor card disconnected!');
+                                return;
+                            }
 
                             const rect = anchorCard.getBoundingClientRect();
                             const newAnchorTop = rect.top + getScrollTop();
                             const scrollDelta = newAnchorTop - anchorTop;
 
+                            const currentScroll = getScrollTop();
+                            console.log(`📍 [PAGE LOAD] In RAF - scroll: ${Math.round(currentScroll)}px, anchor now at: ${Math.round(newAnchorTop)}px, delta: ${Math.round(scrollDelta)}px`);
+
                             if (Math.abs(scrollDelta) > 1) {
+                                console.log(`📍 [PAGE LOAD] ADJUSTING scroll by ${Math.round(scrollDelta)}px`);
                                 window.scrollBy(0, scrollDelta);
+                                const finalScroll = getScrollTop();
+                                console.log(`📍 [PAGE LOAD] Final scroll position: ${Math.round(finalScroll)}px`);
+                            } else {
+                                console.log(`📍 [PAGE LOAD] No adjustment needed`);
                             }
                         });
+                    } else {
+                        console.log(`📍 [PAGE LOAD] ERROR: No anchor card (${!!anchorCard}) or position (${anchorTop})`);
                     }
 
                     // Re-observe new last image
