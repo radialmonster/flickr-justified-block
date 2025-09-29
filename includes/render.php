@@ -1266,7 +1266,8 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
                 esc_attr($gallery_group),
                 $data_attrs,
                 $attribution_attrs,
-                esc_url($display_src)
+                esc_url($display_src),
+                $img_attr_string
             );
         } else {
             $views = isset($photo['views']) ? (int) $photo['views'] : 0;
