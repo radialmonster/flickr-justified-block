@@ -360,33 +360,9 @@
             const initializedGrids = document.querySelectorAll('.flickr-justified-grid.justified-initialized');
             console.log(`Found ${initializedGrids.length} initialized galleries to resize`);
 
-            // Capture scroll anchor for each gallery before resize
-            const anchorData = [];
             initializedGrids.forEach((grid, index) => {
                 const containerWidth = grid.offsetWidth;
                 console.log(`Gallery ${index + 1}: container width = ${containerWidth}px`);
-
-                // Find first visible card as anchor
-                const cards = grid.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
-                const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
-                const viewportBottom = viewportTop + window.innerHeight;
-
-                let anchorCard = null;
-                let anchorTop = null;
-
-                for (const card of cards) {
-                    const rect = card.getBoundingClientRect();
-                    const cardTop = rect.top + viewportTop;
-                    const cardBottom = cardTop + rect.height;
-
-                    if (cardBottom > viewportTop && cardTop < viewportBottom) {
-                        anchorCard = card;
-                        anchorTop = cardTop;
-                        break;
-                    }
-                }
-
-                anchorData.push({ grid, anchorCard, anchorTop });
 
                 // Temporarily disable lazy loading cooldown during resize
                 const wasResizing = grid._isResizing;
@@ -406,23 +382,6 @@
             });
 
             initJustifiedGallery();
-
-            // Restore scroll position for each gallery
-            requestAnimationFrame(() => {
-                anchorData.forEach(({ grid, anchorCard, anchorTop }) => {
-                    if (anchorCard?.isConnected && anchorTop !== null) {
-                        const rect = anchorCard.getBoundingClientRect();
-                        const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
-                        const newAnchorTop = rect.top + viewportTop;
-                        const scrollDelta = newAnchorTop - anchorTop;
-
-                        if (Math.abs(scrollDelta) > 1) {
-                            window.scrollBy(0, scrollDelta);
-                        }
-                    }
-                });
-            });
-
             console.log('✅ Gallery reinitialization after resize complete');
         }, 250);
     });
