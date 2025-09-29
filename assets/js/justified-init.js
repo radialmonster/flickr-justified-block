@@ -628,8 +628,6 @@
                         const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
                         const viewportBottom = viewportTop + window.innerHeight;
 
-                        console.log(`🎯 Finding anchor card. Viewport: ${viewportTop} to ${viewportBottom}, Cards: ${cards.length}`);
-
                         // Find first card that's visible in viewport (stable reference)
                         for (const card of cards) {
                             const rect = card.getBoundingClientRect();
@@ -637,19 +635,9 @@
                             const cardBottom = cardTop + rect.height;
 
                             if (cardBottom > viewportTop && cardTop < viewportBottom) {
-                                const img = card.querySelector('img');
-                                const imgSrc = img ? img.src : 'no-image';
-                                const imgAlt = img ? (img.alt || 'no-alt') : 'no-alt';
-                                console.log(`🎯 Found anchor card:`, {
-                                    imageSrc: imgSrc.substring(imgSrc.lastIndexOf('/') + 1),
-                                    imageAlt: imgAlt,
-                                    position: cardTop,
-                                    viewportOffset: rect.top
-                                });
                                 return card; // First visible card
                             }
                         }
-                        console.log('🎯 No anchor card found in viewport');
                         return null; // Fallback if no visible card found
                     })();
 
@@ -733,46 +721,23 @@
                         setLoadedCount(gallery, gallery.querySelectorAll('.flickr-card').length);
                     }
 
-                    // Capture scroll position BEFORE layout
-                    const scrollBeforeLayout = getScrollTop();
-                    const img = anchorCard?.querySelector('img');
-                    const imgSrc = img ? img.src : 'no-image';
-                    console.log(`📍 BEFORE REINIT - Scroll position: ${scrollBeforeLayout}px, Anchor: ${imgSrc.substring(imgSrc.lastIndexOf('/') + 1)} at ${anchorTop}px`);
-
                     // Rebuild rows (this changes layout and may cause scroll jump)
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
 
-                    // IMMEDIATELY check if scroll jumped during layout
-                    const scrollAfterLayout = getScrollTop();
-                    console.log(`📍 AFTER initJustifiedGallery - Scroll position: ${scrollAfterLayout}px (changed by ${scrollAfterLayout - scrollBeforeLayout}px)`);
-
                     // CRITICAL: Restore scroll position AFTER layout completes
                     if (anchorCard?.isConnected && anchorTop !== null) {
                         requestAnimationFrame(() => {
-                            if (!anchorCard.isConnected) {
-                                console.log('📍 Anchor card no longer connected, cannot restore scroll');
-                                return;
-                            }
+                            if (!anchorCard.isConnected) return;
 
                             const rect = anchorCard.getBoundingClientRect();
                             const newAnchorTop = rect.top + getScrollTop();
                             const scrollDelta = newAnchorTop - anchorTop;
 
-                            const img2 = anchorCard.querySelector('img');
-                            const imgSrc2 = img2 ? img2.src : 'no-image';
-                            const currentScroll = getScrollTop();
-                            console.log(`📍 IN requestAnimationFrame - Current scroll: ${currentScroll}px, Anchor now at: ${newAnchorTop}px, delta: ${scrollDelta}px`);
-
                             if (Math.abs(scrollDelta) > 1) {
-                                console.log(`📍 Adjusting scroll by ${scrollDelta}px to maintain position`);
                                 window.scrollBy(0, scrollDelta);
-                            } else {
-                                console.log(`📍 No scroll adjustment needed (delta < 1px)`);
                             }
                         });
-                    } else {
-                        console.log('📍 No anchor card or position to restore');
                     }
 
                     // Re-observe new last image
