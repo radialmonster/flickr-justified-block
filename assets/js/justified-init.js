@@ -691,6 +691,36 @@
                 }
 
                 function reinitializeGallery(anchorCard, anchorViewportTop) {
+                    const viewportHeight = window.innerHeight ?? document.documentElement?.clientHeight ?? 0;
+                    const rectBefore = (anchorCard && anchorCard.isConnected && typeof anchorCard.getBoundingClientRect === 'function')
+                        ? anchorCard.getBoundingClientRect()
+                        : null;
+                    let anchorWasVisible = Boolean(
+                        rectBefore && viewportHeight > 0 && rectBefore.bottom >= 0 && rectBefore.top <= viewportHeight
+                    );
+
+                    if (!anchorWasVisible && typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop) && viewportHeight > 0) {
+                        anchorWasVisible = anchorViewportTop <= viewportHeight && anchorViewportTop >= -viewportHeight;
+                    }
+
+                    const anchorDocumentTopBefore = (() => {
+                        if (rectBefore) {
+                            const scrollTop = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
+                            const docTop = rectBefore.top + scrollTop;
+                            if (Number.isFinite(docTop)) {
+                                return docTop;
+                            }
+                        }
+
+                        if (typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop)) {
+                            const scrollTop = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
+                            const fallbackDocTop = anchorViewportTop + scrollTop;
+                            return Number.isFinite(fallbackDocTop) ? fallbackDocTop : null;
+                        }
+
+                        return null;
+                    })();
+
                     console.log('📐 Dispatching gallery reorganized event...');
                     const event = new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } });
                     document.dispatchEvent(event);
@@ -745,18 +775,32 @@
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
 
-                    if (anchorCard && typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop)) {
+                    if (anchorCard && Number.isFinite(anchorDocumentTopBefore) && anchorWasVisible) {
                         requestAnimationFrame(() => {
-                            if (!anchorCard.isConnected) return;
-                            const rect = anchorCard.getBoundingClientRect();
-                            if (!rect) return;
-                            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || 0;
-                            if (!viewportHeight) return;
-                            const isAnchorVisible = rect.bottom > 0 && rect.top < viewportHeight;
-                            if (!isAnchorVisible) return;
-                            const delta = rect.top - anchorViewportTop;
+                            if (!anchorCard.isConnected || typeof anchorCard.getBoundingClientRect !== 'function') {
+                                return;
+                            }
+
+                            const rectAfter = anchorCard.getBoundingClientRect();
+                            if (!rectAfter) {
+                                return;
+                            }
+
+                            const scrollTopAfter = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
+                            const anchorDocumentTopAfter = rectAfter.top + scrollTopAfter;
+
+                            if (!Number.isFinite(anchorDocumentTopAfter)) {
+                                return;
+                            }
+
+                            const delta = anchorDocumentTopAfter - anchorDocumentTopBefore;
                             if (Math.abs(delta) > 1) {
-                                window.scrollBy(0, delta);
+                                if (typeof window.scrollBy === 'function') {
+                                    window.scrollBy(0, delta);
+                                } else if (typeof window.scrollTo === 'function') {
+                                    const horizontalScroll = window.scrollX ?? window.pageXOffset ?? document.documentElement?.scrollLeft ?? 0;
+                                    window.scrollTo(horizontalScroll, scrollTopAfter + delta);
+                                }
                             }
                         });
                     }
