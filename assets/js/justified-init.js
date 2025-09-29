@@ -691,15 +691,24 @@
                 }
 
                 function reinitializeGallery(anchorCard, anchorViewportTop) {
+                    const viewportHeight = window.innerHeight ?? document.documentElement?.clientHeight ?? 0;
+                    const rectBefore = (anchorCard && anchorCard.isConnected && typeof anchorCard.getBoundingClientRect === 'function')
+                        ? anchorCard.getBoundingClientRect()
+                        : null;
+                    let anchorWasVisible = Boolean(
+                        rectBefore && viewportHeight > 0 && rectBefore.bottom >= 0 && rectBefore.top <= viewportHeight
+                    );
+
+                    if (!anchorWasVisible && typeof anchorViewportTop === 'number' && Number.isFinite(anchorViewportTop) && viewportHeight > 0) {
+                        anchorWasVisible = anchorViewportTop <= viewportHeight && anchorViewportTop >= -viewportHeight;
+                    }
+
                     const anchorDocumentTopBefore = (() => {
-                        if (anchorCard && anchorCard.isConnected && typeof anchorCard.getBoundingClientRect === 'function') {
-                            const rectBefore = anchorCard.getBoundingClientRect();
-                            if (rectBefore) {
-                                const scrollTop = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
-                                const docTop = rectBefore.top + scrollTop;
-                                if (Number.isFinite(docTop)) {
-                                    return docTop;
-                                }
+                        if (rectBefore) {
+                            const scrollTop = window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0;
+                            const docTop = rectBefore.top + scrollTop;
+                            if (Number.isFinite(docTop)) {
+                                return docTop;
                             }
                         }
 
@@ -766,7 +775,7 @@
                     gallery.classList.remove('justified-initialized');
                     initJustifiedGallery();
 
-                    if (anchorCard && Number.isFinite(anchorDocumentTopBefore)) {
+                    if (anchorCard && Number.isFinite(anchorDocumentTopBefore) && anchorWasVisible) {
                         requestAnimationFrame(() => {
                             if (!anchorCard.isConnected || typeof anchorCard.getBoundingClientRect !== 'function') {
                                 return;
