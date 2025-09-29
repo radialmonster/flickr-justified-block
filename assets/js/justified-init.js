@@ -730,10 +730,20 @@
                     console.log(`📍 [PAGE LOAD] Before reinit - scroll: ${Math.round(scrollBeforeReinit)}px, anchor at: ${Math.round(anchorTop)}px`);
 
                     gallery.classList.remove('justified-initialized');
+
+                    // Save scroll before initJustifiedGallery which may reset it
+                    const savedScroll = scrollBeforeReinit;
                     initJustifiedGallery();
 
+                    // IMMEDIATELY restore scroll if it jumped
                     const scrollAfterReinit = getScrollTop();
-                    console.log(`📍 [PAGE LOAD] After reinit - scroll: ${Math.round(scrollAfterReinit)}px (jumped ${Math.round(scrollAfterReinit - scrollBeforeReinit)}px)`);
+                    const scrollJump = scrollAfterReinit - savedScroll;
+                    console.log(`📍 [PAGE LOAD] After reinit - scroll: ${Math.round(scrollAfterReinit)}px (jumped ${Math.round(scrollJump)}px)`);
+
+                    if (Math.abs(scrollJump) > 1) {
+                        console.log(`📍 [PAGE LOAD] IMMEDIATELY restoring scroll to ${Math.round(savedScroll)}px`);
+                        window.scrollTo(0, savedScroll);
+                    }
 
                     // CRITICAL: Restore scroll position AFTER layout completes
                     if (anchorCard?.isConnected && anchorTop !== null) {
