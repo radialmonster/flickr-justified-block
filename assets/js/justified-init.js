@@ -622,10 +622,13 @@
                 const pendingSets = setMetadata.some(set => !set.loadingError && set.current_page < set.total_pages);
 
                 if (hasSuccess) {
+                    // Capture current scroll position before any DOM manipulation
+                    const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+
                     // Capture a stable viewport anchor - find the first card currently visible in viewport
-                    const anchorCard = (() => {
+                    const anchorResult = (() => {
                         const cards = gallery.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
-                        const viewportTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+                        const viewportTop = currentScrollTop;
                         const viewportBottom = viewportTop + window.innerHeight;
 
                         console.log(`🎯 [PAGE LOAD] Finding anchor. Viewport: ${Math.round(viewportTop)} to ${Math.round(viewportBottom)}, Total cards: ${cards.length}`);
@@ -640,12 +643,15 @@
                                 const img = card.querySelector('img');
                                 const imgSrc = img ? img.src.substring(img.src.lastIndexOf('/') + 1) : 'no-img';
                                 console.log(`🎯 [PAGE LOAD] Found anchor: ${imgSrc} at position ${Math.round(cardTop)}px`);
-                                return card; // First visible card
+                                return { card, top: cardTop };
                             }
                         }
                         console.log('🎯 [PAGE LOAD] WARNING: No anchor card found!');
-                        return null; // Fallback if no visible card found
+                        return { card: null, top: null };
                     })();
+
+                    const anchorCard = anchorResult.card;
+                    const anchorTop = anchorResult.top;
 
                     // Re-initialize the justified layout with new photos
                     console.log('🔄 Starting gallery reinitialization...');
@@ -659,7 +665,7 @@
                     }
 
                     // Reinitialize immediately using aspect-ratio fallbacks (no decode wait)
-                    reinitializeGallery(anchorCard);
+                    reinitializeGallery(anchorCard, anchorTop, currentScrollTop);
                 }
 
                 if (hasRecoverable && pendingSets) {
@@ -676,16 +682,9 @@
                     shouldRemoveIndicator = true;
                 }
 
-                function reinitializeGallery(anchorCard) {
+                function reinitializeGallery(anchorCard, anchorTop, scrollBeforeReinit) {
                     // Helper for consistent scroll position reading
                     const getScrollTop = () => window.pageYOffset || document.documentElement.scrollTop || 0;
-
-                    // Capture anchor position BEFORE DOM manipulation
-                    let anchorTop = null;
-                    if (anchorCard?.isConnected) {
-                        const rect = anchorCard.getBoundingClientRect();
-                        anchorTop = rect.top + getScrollTop(); // absolute position in document
-                    }
 
                     console.log('📐 Dispatching gallery reorganized event...');
                     document.dispatchEvent(new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } }));
@@ -728,7 +727,6 @@
                     }
 
                     // Rebuild rows (this changes layout and may cause scroll jump)
-                    const scrollBeforeReinit = getScrollTop();
                     console.log(`📍 [PAGE LOAD] Before reinit - scroll: ${Math.round(scrollBeforeReinit)}px, anchor at: ${Math.round(anchorTop)}px`);
 
                     gallery.classList.remove('justified-initialized');
