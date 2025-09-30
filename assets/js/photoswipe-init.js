@@ -131,22 +131,46 @@
     function getFullscreenPromise(fullscreenAPI, container) {
         // Always resolve promise, as we want to open lightbox
         // (no matter if fullscreen is supported or not)
-        return new Promise((resolve) => {
+        return () => new Promise((resolve) => {
             if (!fullscreenAPI || fullscreenAPI.isFullscreen()) {
-                // fullscreen API not supported, or already fullscreen
                 resolve();
                 return;
             }
 
-            document.addEventListener(fullscreenAPI.change, (event) => {
+            let resolved = false;
+
+            const finish = () => {
+                if (!resolved) {
+                    resolved = true;
+                    resolve();
+                }
+            };
+
+            const onFullscreenChange = () => {
                 container.style.display = 'block';
                 // delay to make sure that browser fullscreen animation is finished
-                setTimeout(function() {
-                    resolve();
-                }, 300);
-            }, { once: true });
+                setTimeout(finish, 300);
+            };
 
-            fullscreenAPI.request(container);
+            document.addEventListener(fullscreenAPI.change, onFullscreenChange, { once: true });
+
+            try {
+                container.style.display = 'block';
+                const requestResult = fullscreenAPI.request(container);
+                if (requestResult && typeof requestResult.catch === 'function') {
+                    requestResult.catch(() => {
+                        document.removeEventListener(fullscreenAPI.change, onFullscreenChange);
+                        finish();
+                    });
+                }
+            } catch (error) {
+                console.warn('Fullscreen request failed', error);
+                document.removeEventListener(fullscreenAPI.change, onFullscreenChange);
+                finish();
+            }
+
+            // Safety timeout to resolve even if fullscreenchange never fires
+            setTimeout(finish, 1200);
         });
     }
 
@@ -304,6 +328,8 @@
             // Use fullscreen on mobile/tablet devices in any orientation
             const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
             const container = isMobile && fullscreenAPI ? getContainer() : null;
+            const fullscreenPromiseFactory = container ? getFullscreenPromise(fullscreenAPI, container) : null;
+            let ensureFullscreenPromise = null;
 
             const lightboxOptions = {
                 dataSource: galleryData,
@@ -340,8 +366,19 @@
             };
 
             // Add fullscreen support for mobile
-            if (isMobile && fullscreenAPI && container) {
-                lightboxOptions.openPromise = getFullscreenPromise(fullscreenAPI, container);
+            if (isMobile && fullscreenAPI && container && fullscreenPromiseFactory) {
+                let fullscreenPromiseInstance = null;
+                ensureFullscreenPromise = () => {
+                    if (!fullscreenPromiseInstance) {
+                        const promise = fullscreenPromiseFactory();
+                        fullscreenPromiseInstance = (promise && typeof promise.then === 'function')
+                            ? promise
+                            : Promise.resolve();
+                    }
+                    return fullscreenPromiseInstance;
+                };
+
+                lightboxOptions.openPromise = ensureFullscreenPromise;
                 lightboxOptions.appendToEl = container;
                 // Disable animations when using fullscreen (smoother experience)
                 lightboxOptions.showAnimationDuration = 0;
@@ -407,8 +444,13 @@
             lightbox.on('contentUpdate', ({ content }) => updateContentRotation(content));
             lightbox.on('zoomPanUpdate', ({ slide }) => updateContentRotation(slide?.content));
 
-            // Open the lightbox
-            lightbox.init();
+            const openLightbox = () => lightbox.init();
+
+            if (ensureFullscreenPromise) {
+                ensureFullscreenPromise().finally(openLightbox);
+            } else {
+                openLightbox();
+            }
 
         }).catch(error => {
             console.error('Failed to load PhotoSwipe:', error);
