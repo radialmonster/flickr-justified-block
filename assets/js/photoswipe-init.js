@@ -389,9 +389,16 @@
                 }
 
                 const rotation = normalizeRotation(content.data?.rotation);
-                const imgEl = content.element.querySelector('img');
-                if (imgEl) {
-                    applyRotationToImageElement(imgEl, rotation);
+                let targetElement = null;
+
+                if (content.element.tagName && content.element.tagName.toLowerCase() === 'img') {
+                    targetElement = content.element;
+                } else {
+                    targetElement = content.element.querySelector('img');
+                }
+
+                if (targetElement) {
+                    applyRotationToImageElement(targetElement, rotation);
                 }
             };
 
