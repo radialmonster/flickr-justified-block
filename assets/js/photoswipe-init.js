@@ -129,69 +129,24 @@
 
     // Get fullscreen promise for mobile devices
     function getFullscreenPromise(fullscreenAPI, container) {
-        // Only use fullscreen on mobile devices (check both width and height for landscape)
-        const isMobile = Math.max(window.innerWidth, window.innerHeight) <= 1024;
-        const isLandscape = window.innerWidth > window.innerHeight;
-
-        if (!isMobile || !fullscreenAPI || fullscreenAPI.isFullscreen()) {
-            // Not mobile, API not supported, or already fullscreen
-            return Promise.resolve();
-        }
-
+        // Always resolve promise, as we want to open lightbox
+        // (no matter if fullscreen is supported or not)
         return new Promise((resolve) => {
-            let resolved = false;
-
-            const onFullscreenChange = () => {
-                if (!resolved) {
-                    resolved = true;
-                    container.style.display = 'block';
-                    // Longer delay for landscape mode (browser needs more time)
-                    const delay = isLandscape ? 500 : 300;
-                    setTimeout(() => {
-                        resolve();
-                    }, delay);
-                }
-            };
-
-            const onFullscreenError = (error) => {
-                console.log('Fullscreen error:', error);
-                if (!resolved) {
-                    resolved = true;
-                    resolve();
-                }
-            };
-
-            document.addEventListener(fullscreenAPI.change, onFullscreenChange, { once: true });
-            document.addEventListener(fullscreenAPI.error, onFullscreenError, { once: true });
-
-            // Fallback: resolve after timeout if fullscreen fails
-            setTimeout(() => {
-                if (!resolved) {
-                    console.log('Fullscreen timeout - opening without fullscreen');
-                    resolved = true;
-                    resolve();
-                }
-            }, 1500);
-
-            try {
-                const promise = fullscreenAPI.request(container);
-                // Some browsers return a promise
-                if (promise && promise.catch) {
-                    promise.catch((error) => {
-                        console.log('Fullscreen request rejected:', error);
-                        if (!resolved) {
-                            resolved = true;
-                            resolve();
-                        }
-                    });
-                }
-            } catch (error) {
-                console.log('Fullscreen request failed:', error);
-                if (!resolved) {
-                    resolved = true;
-                    resolve();
-                }
+            if (!fullscreenAPI || fullscreenAPI.isFullscreen()) {
+                // fullscreen API not supported, or already fullscreen
+                resolve();
+                return;
             }
+
+            document.addEventListener(fullscreenAPI.change, (event) => {
+                container.style.display = 'block';
+                // delay to make sure that browser fullscreen animation is finished
+                setTimeout(function() {
+                    resolve();
+                }, 300);
+            }, { once: true });
+
+            fullscreenAPI.request(container);
         });
     }
 
@@ -346,7 +301,8 @@
         Promise.all([loadPhotoSwipeCSS(), loadPhotoSwipeJS()]).then(() => {
             const PhotoSwipe = window.PhotoSwipe;
             const fullscreenAPI = getFullscreenAPI();
-            const isMobile = window.innerWidth <= 768;
+            // Use fullscreen on mobile/tablet devices in any orientation
+            const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
             const container = isMobile && fullscreenAPI ? getContainer() : null;
 
             const lightboxOptions = {
