@@ -63,6 +63,105 @@
         }
     }
 
+    // Simple fullscreen API helper (supports unprefixed and webkit-prefixed versions)
+    function getFullscreenAPI() {
+        let api;
+        let enterFS;
+        let exitFS;
+        let elementFS;
+        let changeEvent;
+        let errorEvent;
+
+        if (document.documentElement.requestFullscreen) {
+            enterFS = 'requestFullscreen';
+            exitFS = 'exitFullscreen';
+            elementFS = 'fullscreenElement';
+            changeEvent = 'fullscreenchange';
+            errorEvent = 'fullscreenerror';
+        } else if (document.documentElement.webkitRequestFullscreen) {
+            enterFS = 'webkitRequestFullscreen';
+            exitFS = 'webkitExitFullscreen';
+            elementFS = 'webkitFullscreenElement';
+            changeEvent = 'webkitfullscreenchange';
+            errorEvent = 'webkitfullscreenerror';
+        }
+
+        if (enterFS) {
+            api = {
+                request: function (el) {
+                    if (enterFS === 'webkitRequestFullscreen') {
+                        el[enterFS](Element.ALLOW_KEYBOARD_INPUT);
+                    } else {
+                        el[enterFS]();
+                    }
+                },
+
+                exit: function () {
+                    return document[exitFS]();
+                },
+
+                isFullscreen: function () {
+                    return document[elementFS];
+                },
+
+                change: changeEvent,
+                error: errorEvent
+            };
+        }
+
+        return api;
+    }
+
+    // Create fullscreen container for PhotoSwipe
+    let pswpContainer = null;
+    function getContainer() {
+        if (!pswpContainer) {
+            pswpContainer = document.createElement('div');
+            pswpContainer.style.background = '#000';
+            pswpContainer.style.width = '100%';
+            pswpContainer.style.height = '100%';
+            pswpContainer.style.display = 'none';
+            pswpContainer.className = 'pswp-fullscreen-container';
+            document.body.appendChild(pswpContainer);
+        }
+        return pswpContainer;
+    }
+
+    // Get fullscreen promise for mobile devices
+    function getFullscreenPromise(fullscreenAPI, container) {
+        // Only use fullscreen on mobile devices
+        const isMobile = window.innerWidth <= 768;
+
+        if (!isMobile || !fullscreenAPI || fullscreenAPI.isFullscreen()) {
+            // Not mobile, API not supported, or already fullscreen
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve) => {
+            const onFullscreenChange = () => {
+                container.style.display = 'block';
+                // Delay to ensure browser fullscreen animation is finished
+                setTimeout(() => {
+                    resolve();
+                }, 300);
+            };
+
+            document.addEventListener(fullscreenAPI.change, onFullscreenChange, { once: true });
+
+            // Fallback: resolve after timeout if fullscreen fails
+            setTimeout(() => {
+                resolve();
+            }, 1000);
+
+            try {
+                fullscreenAPI.request(container);
+            } catch (error) {
+                console.log('Fullscreen request failed:', error);
+                resolve();
+            }
+        });
+    }
+
     // Check if builtin lightbox is enabled
     function isBuiltinLightboxEnabled() {
         const gallery = document.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
@@ -213,8 +312,11 @@
     function openPhotoSwipe(galleryData, index) {
         Promise.all([loadPhotoSwipeCSS(), loadPhotoSwipeJS()]).then(() => {
             const PhotoSwipe = window.PhotoSwipe;
+            const fullscreenAPI = getFullscreenAPI();
+            const isMobile = window.innerWidth <= 768;
+            const container = isMobile && fullscreenAPI ? getContainer() : null;
 
-            const lightbox = new PhotoSwipe({
+            const lightboxOptions = {
                 dataSource: galleryData,
                 index: index,
                 showHideAnimationType: 'zoom',
@@ -245,6 +347,27 @@
                     const bottomPad = isSmall ? (16 + safeBottom) : (16 + safeBottom);
 
                     return { top: topPad, bottom: bottomPad, left: 0, right: 0 };
+                }
+            };
+
+            // Add fullscreen support for mobile
+            if (isMobile && fullscreenAPI && container) {
+                lightboxOptions.openPromise = getFullscreenPromise(fullscreenAPI, container);
+                lightboxOptions.appendToEl = container;
+                // Disable animations when using fullscreen (smoother experience)
+                lightboxOptions.showAnimationDuration = 0;
+                lightboxOptions.hideAnimationDuration = 0;
+            }
+
+            const lightbox = new PhotoSwipe(lightboxOptions);
+
+            // Exit fullscreen on close
+            lightbox.on('close', () => {
+                if (container) {
+                    container.style.display = 'none';
+                }
+                if (fullscreenAPI && fullscreenAPI.isFullscreen()) {
+                    fullscreenAPI.exit();
                 }
             });
 
