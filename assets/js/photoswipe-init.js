@@ -129,8 +129,9 @@
 
     // Get fullscreen promise for mobile devices
     function getFullscreenPromise(fullscreenAPI, container) {
-        // Only use fullscreen on mobile devices
-        const isMobile = window.innerWidth <= 768;
+        // Only use fullscreen on mobile devices (check both width and height for landscape)
+        const isMobile = Math.max(window.innerWidth, window.innerHeight) <= 1024;
+        const isLandscape = window.innerWidth > window.innerHeight;
 
         if (!isMobile || !fullscreenAPI || fullscreenAPI.isFullscreen()) {
             // Not mobile, API not supported, or already fullscreen
@@ -138,26 +139,58 @@
         }
 
         return new Promise((resolve) => {
+            let resolved = false;
+
             const onFullscreenChange = () => {
-                container.style.display = 'block';
-                // Delay to ensure browser fullscreen animation is finished
-                setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    container.style.display = 'block';
+                    // Longer delay for landscape mode (browser needs more time)
+                    const delay = isLandscape ? 500 : 300;
+                    setTimeout(() => {
+                        resolve();
+                    }, delay);
+                }
+            };
+
+            const onFullscreenError = (error) => {
+                console.log('Fullscreen error:', error);
+                if (!resolved) {
+                    resolved = true;
                     resolve();
-                }, 300);
+                }
             };
 
             document.addEventListener(fullscreenAPI.change, onFullscreenChange, { once: true });
+            document.addEventListener(fullscreenAPI.error, onFullscreenError, { once: true });
 
             // Fallback: resolve after timeout if fullscreen fails
             setTimeout(() => {
-                resolve();
-            }, 1000);
+                if (!resolved) {
+                    console.log('Fullscreen timeout - opening without fullscreen');
+                    resolved = true;
+                    resolve();
+                }
+            }, 1500);
 
             try {
-                fullscreenAPI.request(container);
+                const promise = fullscreenAPI.request(container);
+                // Some browsers return a promise
+                if (promise && promise.catch) {
+                    promise.catch((error) => {
+                        console.log('Fullscreen request rejected:', error);
+                        if (!resolved) {
+                            resolved = true;
+                            resolve();
+                        }
+                    });
+                }
             } catch (error) {
                 console.log('Fullscreen request failed:', error);
-                resolve();
+                if (!resolved) {
+                    resolved = true;
+                    resolve();
+                }
             }
         });
     }
