@@ -525,7 +525,7 @@ class FlickrJustifiedBlock {
                     'medium800', 'medium640', 'medium500', 'medium',
                     'small400', 'small320', 'small240',
                 ];
-                $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes);
+                $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
 
                 $photo_id = flickr_justified_extract_photo_id($photo_url);
                 $stats = [];

@@ -240,13 +240,13 @@ function flickr_justified_select_best_size($image_sizes_data, $max_width = 2048,
 /**
  * Enhanced version of flickr_justified_get_flickr_image_sizes that includes dimensions
  */
-function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $requested_sizes = ['large', 'original']) {
+function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $requested_sizes = ['large', 'original'], $needs_metadata = false) {
     if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $page_url, $matches)) {
         return [];
     }
 
     $photo_id = $matches[1];
-    $cache_key = 'flickr_justified_dims_' . $photo_id . '_' . md5(implode(',', $requested_sizes));
+    $cache_key = 'flickr_justified_dims_' . $photo_id . '_' . md5(implode(',', $requested_sizes)) . '_' . (int) $needs_metadata;
 
     // Check cache first
     $cached_result = get_transient($cache_key);
@@ -297,19 +297,21 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $result = flickr_justified_map_api_sizes_to_requested_with_dims($data['sizes']['size'], $requested_sizes);
 
     if (!empty($result)) {
-        $photo_info = flickr_justified_get_photo_info($photo_id);
-        if (!empty($photo_info)) {
-            $result['_photo_info'] = $photo_info;
-        }
+        if ($needs_metadata) {
+            $photo_info = flickr_justified_get_photo_info($photo_id);
+            if (!empty($photo_info)) {
+                $result['_photo_info'] = $photo_info;
+            }
 
-        $stats = flickr_justified_extract_photo_stats_from_info($photo_info ?? []);
-        if (!empty($stats)) {
-            $result['_stats'] = $stats;
-        }
+            $stats = flickr_justified_extract_photo_stats_from_info($photo_info ?? []);
+            if (!empty($stats)) {
+                $result['_stats'] = $stats;
+            }
 
-        $rotation = flickr_justified_extract_rotation_from_info($photo_info ?? []);
-        if ($rotation) {
-            $result['_rotation'] = $rotation;
+            $rotation = flickr_justified_extract_rotation_from_info($photo_info ?? []);
+            if ($rotation) {
+                $result['_rotation'] = $rotation;
+            }
         }
 
         // Cache the results
@@ -1100,7 +1102,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
                 'thumbnail100', 'thumbnail150s', 'thumbnail75s'
             ];
 
-            $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
+            $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
 
             if (!empty($photo['stats']) && is_array($photo['stats'])) {
                 $stats = $photo['stats'];
