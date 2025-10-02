@@ -86,6 +86,22 @@ class FlickrJustifiedAdminSettings {
             'flickr_justified_cache_section'
         );
 
+        add_settings_field(
+            'cache_warmer_enabled',
+            __('Preload Flickr Data', 'flickr-justified-block'),
+            [__CLASS__, 'cache_warmer_enabled_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_cache_section'
+        );
+
+        add_settings_field(
+            'cache_warmer_batch_size',
+            __('Cache Warmer Batch Size', 'flickr-justified-block'),
+            [__CLASS__, 'cache_warmer_batch_size_callback'],
+            'flickr_justified_settings',
+            'flickr_justified_cache_section'
+        );
+
         add_settings_section(
             'flickr_justified_breakpoints_section',
             __('Responsive Breakpoints', 'flickr-justified-block'),
@@ -217,6 +233,22 @@ class FlickrJustifiedAdminSettings {
             }
         }
 
+        $sanitized['cache_warmer_enabled'] = !empty($input['cache_warmer_enabled']);
+        $sanitized['cache_warmer_slow_mode'] = !empty($input['cache_warmer_slow_mode']);
+
+        if (isset($input['cache_warmer_batch_size'])) {
+            $batch_size = absint($input['cache_warmer_batch_size']);
+            if ($batch_size < 1) {
+                $batch_size = 1;
+            }
+            if ($batch_size > 25) {
+                $batch_size = 25;
+            }
+            $sanitized['cache_warmer_batch_size'] = $batch_size;
+        } else {
+            $sanitized['cache_warmer_batch_size'] = 5;
+        }
+
         // Sanitize breakpoints
         if (isset($input['breakpoints']) && is_array($input['breakpoints'])) {
             $sanitized['breakpoints'] = [];
@@ -339,6 +371,41 @@ class FlickrJustifiedAdminSettings {
         echo '<input type="number" name="flickr_justified_options[cache_duration]" value="' . esc_attr($cache_duration) . '" min="1" max="8760" class="small-text" />';
         echo ' ' . __('hours', 'flickr-justified-block');
         echo '<p class="description">' . __('How long to cache Flickr image data (1-8760 hours). Default: 168 hours (7 days).', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
+     * Cache warmer toggle callback
+     */
+    public static function cache_warmer_enabled_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $enabled = array_key_exists('cache_warmer_enabled', $options) ? (bool) $options['cache_warmer_enabled'] : true;
+        $slow_mode = array_key_exists('cache_warmer_slow_mode', $options) ? (bool) $options['cache_warmer_slow_mode'] : true;
+
+        echo '<label>';
+        echo '<input type="checkbox" name="flickr_justified_options[cache_warmer_enabled]" value="1" ' . checked($enabled, true, false) . ' /> ';
+        echo esc_html__('Warm Flickr responses automatically in the background (WP-Cron).', 'flickr-justified-block');
+        echo '</label>';
+
+        echo '<br />';
+        echo '<label style="margin-top:6px; display:inline-block;">';
+        echo '<input type="checkbox" name="flickr_justified_options[cache_warmer_slow_mode]" value="1" ' . checked($slow_mode, true, false) . ' /> ';
+        echo esc_html__('Slow mode: process a small batch every few minutes so editors and visitors are unaffected.', 'flickr-justified-block');
+        echo '</label>';
+
+        $cache_duration_hours = max(1, (int) round(self::get_cache_duration() / HOUR_IN_SECONDS));
+        echo '<p class="description">' . sprintf(esc_html__('Prefetched API responses honour the Cache Duration above (currently %d hour(s)).', 'flickr-justified-block'), $cache_duration_hours) . '</p>';
+        echo '<p class="description">' . __('Run immediately with <code>wp flickr-justified warm-cache</code> or schedule via WP-Cron.', 'flickr-justified-block') . '</p>';
+    }
+
+    /**
+     * Cache warmer batch size callback
+     */
+    public static function cache_warmer_batch_size_callback() {
+        $batch_size = self::get_cache_warmer_batch_size();
+
+        echo '<input type="number" name="flickr_justified_options[cache_warmer_batch_size]" value="' . esc_attr($batch_size) . '" min="1" max="25" class="small-text" />';
+        echo ' ' . esc_html__('URLs per batch', 'flickr-justified-block');
+        echo '<p class="description">' . esc_html__('Lower numbers keep the warmer lightweight; increase if you have many galleries and want faster priming.', 'flickr-justified-block') . '</p>';
     }
 
     /**
@@ -707,6 +774,46 @@ class FlickrJustifiedAdminSettings {
         $options = get_option('flickr_justified_options', []);
         $duration = isset($options['cache_duration']) ? absint($options['cache_duration']) : 168;
         return $duration * HOUR_IN_SECONDS; // Convert hours to seconds
+    }
+
+    /**
+     * Determine whether the cache warmer is enabled.
+     */
+    public static function is_cache_warmer_enabled() {
+        $options = get_option('flickr_justified_options', []);
+        if (!array_key_exists('cache_warmer_enabled', $options)) {
+            return true;
+        }
+
+        return (bool) $options['cache_warmer_enabled'];
+    }
+
+    /**
+     * Determine whether slow mode should be used for the cache warmer.
+     */
+    public static function is_cache_warmer_slow_mode() {
+        $options = get_option('flickr_justified_options', []);
+        if (!array_key_exists('cache_warmer_slow_mode', $options)) {
+            return true;
+        }
+
+        return (bool) $options['cache_warmer_slow_mode'];
+    }
+
+    /**
+     * Retrieve the configured cache warmer batch size.
+     */
+    public static function get_cache_warmer_batch_size() {
+        $options = get_option('flickr_justified_options', []);
+        $batch_size = isset($options['cache_warmer_batch_size']) ? absint($options['cache_warmer_batch_size']) : 5;
+
+        if ($batch_size < 1) {
+            $batch_size = 1;
+        } elseif ($batch_size > 25) {
+            $batch_size = 25;
+        }
+
+        return $batch_size;
     }
 
     /**

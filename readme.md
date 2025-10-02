@@ -60,6 +60,7 @@ Whether you're showcasing a single album or curating images from multiple source
    * In WordPress, go to **Settings → Flickr Justified**, paste the key, and press **Test API Key** to confirm. The key is encrypted before it’s stored.
 2. Adjust plugin defaults if needed:
    * **Cache Duration** – Controls how long Flickr responses stay cached.
+   * **Preload Flickr Data** – Enable the background cache warmer, choose a slow-and-steady mode, and set how many URLs to warm per batch.
    * **Responsive Breakpoints** – Define screen widths and default images per row for each device size.
    * **Error Handling & Messages** – Decide whether to show a notice when photos are private, and customise the text.
    * **Attribution Text** – Set the label used for lightbox attribution buttons.
@@ -116,6 +117,8 @@ Absolutely. Every gallery automatically uses the bundled PhotoSwipe lightbox. No
 = How does caching work? =
 
 Flickr API responses (photo data, detailed per-photo info such as view/comment/favorite counts, album pages, user lookups) are cached in WordPress to reduce API usage and speed up pages. You can change the cache duration in the plugin settings, and clear the cache manually if you need to force a refresh.
+
+When **Preload Flickr Data** is enabled the plugin registers a WP-Cron task (`flickr_justified_run_cache_warmer`) that periodically walks every saved Flickr Justified block, prefetching the same API responses visitors would otherwise trigger on first load. Each warm respects the Cache Duration you configure, so primed responses stick around for that length of time. Need it sooner? Run `wp flickr-justified warm-cache --rebuild` from WP-CLI or trigger a single cron run with `wp cron event run flickr_justified_run_cache_warmer`.
 
 == Support ==
 
