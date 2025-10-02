@@ -1,3 +1,5 @@
+<?php
+
 /**
  * Cache warmer integration for Flickr Justified Block.
  *
