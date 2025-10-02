@@ -239,6 +239,11 @@ function flickr_justified_select_best_size($image_sizes_data, $max_width = 2048,
 
 /**
  * Enhanced version of flickr_justified_get_flickr_image_sizes that includes dimensions
+ *
+ * @param string $page_url        Flickr photo page URL.
+ * @param array  $requested_sizes Sizes to request from the API.
+ * @param bool   $needs_metadata  Whether to fetch supplemental metadata in addition to sizes.
+ * @return array
  */
 function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $requested_sizes = ['large', 'original'], $needs_metadata = false) {
     if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $page_url, $matches)) {
@@ -299,18 +304,19 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     if (!empty($result)) {
         if ($needs_metadata) {
             $photo_info = flickr_justified_get_photo_info($photo_id);
+
             if (!empty($photo_info)) {
                 $result['_photo_info'] = $photo_info;
-            }
 
-            $stats = flickr_justified_extract_photo_stats_from_info($photo_info ?? []);
-            if (!empty($stats)) {
-                $result['_stats'] = $stats;
-            }
+                $stats = flickr_justified_extract_photo_stats_from_info($photo_info);
+                if (!empty($stats)) {
+                    $result['_stats'] = $stats;
+                }
 
-            $rotation = flickr_justified_extract_rotation_from_info($photo_info ?? []);
-            if ($rotation) {
-                $result['_rotation'] = $rotation;
+                $rotation = flickr_justified_extract_rotation_from_info($photo_info);
+                if ($rotation) {
+                    $result['_rotation'] = $rotation;
+                }
             }
         }
 
