@@ -647,16 +647,28 @@ class FlickrJustifiedBlock {
 
 // Include required files first
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/render.php';
-require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache-warmers.php';
+
+$cache_warmers_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache-warmers.php';
+if (file_exists($cache_warmers_path)) {
+    require_once $cache_warmers_path;
+} else {
+    error_log(sprintf('Flickr Justified Block: Cache warmers include not found at %s', $cache_warmers_path));
+}
+
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/admin-settings.php';
 
 // Initialize the plugin after includes are loaded
 FlickrJustifiedBlock::init();
-FlickrJustifiedCacheWarmer::init();
 
-register_activation_hook(__FILE__, [FlickrJustifiedCacheWarmer::class, 'handle_activation']);
-register_deactivation_hook(__FILE__, [FlickrJustifiedCacheWarmer::class, 'handle_deactivation']);
+if (class_exists('FlickrJustifiedCacheWarmer')) {
+    FlickrJustifiedCacheWarmer::init();
 
-add_action('save_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_save'], 20, 3);
-add_action('trashed_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_deletion']);
-add_action('deleted_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_deletion']);
+    register_activation_hook(__FILE__, [FlickrJustifiedCacheWarmer::class, 'handle_activation']);
+    register_deactivation_hook(__FILE__, [FlickrJustifiedCacheWarmer::class, 'handle_deactivation']);
+
+    add_action('save_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_save'], 20, 3);
+    add_action('trashed_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_deletion']);
+    add_action('deleted_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_deletion']);
+} else {
+    error_log('Flickr Justified Block: FlickrJustifiedCacheWarmer class is not available; cache warmer features disabled.');
+}
