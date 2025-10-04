@@ -512,6 +512,17 @@ class FlickrJustifiedBlock {
             if (empty($photo_url)) continue;
 
             $is_flickr = self::is_flickr_url($photo_url);
+            $attribution_url = $photo_url;
+            if ($is_flickr) {
+                $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
+                    $photo_url,
+                    $photoset_id,
+                    $user_id
+                );
+                if (!empty($album_attribution_url)) {
+                    $attribution_url = $album_attribution_url;
+                }
+            }
 
             if ($is_flickr) {
                 // Get image data for this photo
@@ -549,7 +560,7 @@ class FlickrJustifiedBlock {
                             'image_url' => esc_url_raw($image_data[$preferred_size]['url']),
                             'width' => isset($size_dimensions['width']) ? absint($size_dimensions['width']) : 0,
                             'height' => isset($size_dimensions['height']) ? absint($size_dimensions['height']) : 0,
-                            'flickr_page' => $photo_url,
+                            'flickr_page' => $attribution_url,
                             'is_flickr' => true,
                             'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
                             'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
@@ -567,7 +578,7 @@ class FlickrJustifiedBlock {
                                 'image_url' => esc_url_raw($image_data[$first_size]['url']),
                                 'width' => isset($size_dimensions['width']) ? absint($size_dimensions['width']) : 0,
                                 'height' => isset($size_dimensions['height']) ? absint($size_dimensions['height']) : 0,
-                                'flickr_page' => $photo_url,
+                                'flickr_page' => $attribution_url,
                                 'is_flickr' => true,
                                 'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
                                 'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
@@ -582,7 +593,7 @@ class FlickrJustifiedBlock {
                     $gallery_items[] = [
                         'url' => $photo_url,
                         'image_url' => $photo_url,
-                        'flickr_page' => $photo_url,
+                        'flickr_page' => $attribution_url,
                         'is_flickr' => true,
                         'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
                         'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,

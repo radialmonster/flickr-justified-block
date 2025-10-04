@@ -131,6 +131,47 @@ function flickr_justified_extract_photo_id($url) {
 }
 
 /**
+ * Build the Flickr attribution URL for a photo that appears within a specific album.
+ *
+ * @param string $photo_url   Base Flickr photo URL.
+ * @param string $photoset_id Flickr album/photoset identifier.
+ * @param string $user_id     Flickr user or NSID. Optional when derivable from URL.
+ *
+ * @return string Attribution URL or empty string when unavailable.
+ */
+function flickr_justified_build_album_photo_attribution_url($photo_url, $photoset_id, $user_id = '') {
+    if (!is_string($photo_url) || '' === $photo_url) {
+        return '';
+    }
+
+    if (!is_string($photoset_id) || '' === $photoset_id) {
+        return '';
+    }
+
+    $photo_id = flickr_justified_extract_photo_id($photo_url);
+    if ('' === $photo_id) {
+        return '';
+    }
+
+    if (!is_string($user_id) || '' === $user_id) {
+        if (preg_match('#flickr\.com/photos/([^/]+)/#i', $photo_url, $matches) && !empty($matches[1])) {
+            $user_id = $matches[1];
+        }
+    }
+
+    if (!is_string($user_id) || '' === $user_id) {
+        return '';
+    }
+
+    return sprintf(
+        'https://flickr.com/photos/%s/%s/in/album-%s/',
+        rawurlencode($user_id),
+        rawurlencode($photo_id),
+        rawurlencode($photoset_id)
+    );
+}
+
+/**
  * Provide a consistent empty response for paginated photoset requests.
  *
  * @param int $page Requested page number.
@@ -1098,6 +1139,10 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
         $is_flickr = $photo['is_flickr'] ?? flickr_justified_is_flickr_photo_url($url);
         $position = isset($photo['position']) ? (int) $photo['position'] : null;
         $stats = [];
+        $attribution_page_url = isset($photo['attribution_url']) ? esc_url($photo['attribution_url']) : $url;
+        if ('' === $attribution_page_url) {
+            $attribution_page_url = $url;
+        }
 
         if ($is_flickr) {
             $available_sizes = [
@@ -1215,7 +1260,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             $gallery_group = esc_attr($block_id);
 
             $attribution_attrs = sprintf(' data-flickr-page="%s" data-flickr-attribution-text="%s"',
-                esc_attr($url),
+                esc_attr($attribution_page_url),
                 esc_attr($attribution_text)
             );
 
@@ -1418,6 +1463,17 @@ function flickr_justified_render_block($attributes) {
                 }
 
                 $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
+                $attribution_url = $photo_url;
+                if ($is_flickr) {
+                    $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
+                        $photo_url,
+                        $set_info['photoset_id'],
+                        $set_info['user_id']
+                    );
+                    if (!empty($album_attribution_url)) {
+                        $attribution_url = $album_attribution_url;
+                    }
+                }
                 $item = [
                     'url' => $photo_url,
                     'is_flickr' => $is_flickr,
@@ -1425,6 +1481,7 @@ function flickr_justified_render_block($attributes) {
                     'views' => 0,
                     'comments' => 0,
                     'favorites' => 0,
+                    'attribution_url' => $attribution_url,
                 ];
 
                 if ($needs_stats && $is_flickr) {
@@ -1457,6 +1514,7 @@ function flickr_justified_render_block($attributes) {
                     'views' => 0,
                     'comments' => 0,
                     'favorites' => 0,
+                    'attribution_url' => $url,
                 ];
                 $position_counter++;
 
@@ -1506,6 +1564,7 @@ function flickr_justified_render_block($attributes) {
             'views' => 0,
             'comments' => 0,
             'favorites' => 0,
+            'attribution_url' => $url,
         ];
 
         if ($needs_stats && $is_flickr) {
