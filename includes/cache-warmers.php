@@ -186,22 +186,37 @@ class FlickrJustifiedCacheWarmer {
 
         $url = trim($url);
 
+        $available_sizes = [
+            'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
+            'large2048', 'large1600', 'large1024', 'large',
+            'medium800', 'medium640', 'medium500', 'medium',
+            'small400', 'small320', 'small240',
+            'thumbnail100', 'thumbnail150s', 'thumbnail75s',
+        ];
+
         if (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
             if (!function_exists('flickr_justified_get_flickr_image_sizes_with_dimensions')) {
                 return false;
             }
 
-            $available_sizes = [
-                'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-                'large2048', 'large1600', 'large1024', 'large',
-                'medium800', 'medium640', 'medium500', 'medium',
-                'small400', 'small320', 'small240',
-                'thumbnail100', 'thumbnail150s', 'thumbnail75s',
-            ];
+            $success = false;
 
             $data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
+            if (!empty($data)) {
+                $success = true;
+            }
 
-            return !empty($data);
+            if (function_exists('flickr_justified_extract_photo_id') && function_exists('flickr_justified_get_photo_stats')) {
+                $photo_id = flickr_justified_extract_photo_id($url);
+                if (!empty($photo_id)) {
+                    $stats = flickr_justified_get_photo_stats($photo_id);
+                    if (!empty($stats)) {
+                        $success = true;
+                    }
+                }
+            }
+
+            return $success;
         }
 
         if (!function_exists('flickr_justified_parse_set_url')) {
@@ -217,9 +232,44 @@ class FlickrJustifiedCacheWarmer {
             return false;
         }
 
-        $result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, 50);
+        if (!function_exists('flickr_justified_get_flickr_image_sizes_with_dimensions')) {
+            return false;
+        }
 
-        return !empty($result) && !empty($result['photos']);
+        $per_page = 50;
+        $result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+
+        if (empty($result) || empty($result['photos']) || !is_array($result['photos'])) {
+            return false;
+        }
+
+        $photos = array_slice(array_values($result['photos']), 0, $per_page);
+        $stats_available = function_exists('flickr_justified_extract_photo_id') && function_exists('flickr_justified_get_photo_stats');
+        $success = false;
+
+        foreach ($photos as $photo_url) {
+            $photo_url = trim((string) $photo_url);
+            if ('' === $photo_url) {
+                continue;
+            }
+
+            $data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
+            if (!empty($data)) {
+                $success = true;
+            }
+
+            if ($stats_available) {
+                $photo_id = flickr_justified_extract_photo_id($photo_url);
+                if (!empty($photo_id)) {
+                    $stats = flickr_justified_get_photo_stats($photo_id);
+                    if (!empty($stats)) {
+                        $success = true;
+                    }
+                }
+            }
+        }
+
+        return $success;
     }
 
     /**
