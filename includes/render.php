@@ -11,6 +11,122 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * Retrieve the name of the option used to store the transient registry.
+ *
+ * @return string
+ */
+function flickr_justified_get_transient_registry_option_name() {
+    return 'flickr_justified_transient_registry';
+}
+
+/**
+ * Record a transient key for later cache purging.
+ *
+ * @param string $transient Transient identifier.
+ * @param bool   $is_site   Whether the transient is a site-wide transient.
+ */
+function flickr_justified_register_transient_key($transient, $is_site = false) {
+    if (!is_string($transient)) {
+        return;
+    }
+
+    $transient = trim($transient);
+
+    if ('' === $transient) {
+        return;
+    }
+
+    $option_name = flickr_justified_get_transient_registry_option_name();
+    $registry    = get_option($option_name, []);
+
+    if (!is_array($registry)) {
+        $registry = [];
+    }
+
+    $type = $is_site ? 'site' : 'transient';
+
+    if (isset($registry[$transient]) && $registry[$transient] === $type) {
+        return;
+    }
+
+    $registry[$transient] = $type;
+
+    update_option($option_name, $registry, false);
+}
+
+/**
+ * Retrieve the cached registry of transient keys.
+ *
+ * @return array<string, string>
+ */
+function flickr_justified_get_transient_registry() {
+    $option_name = flickr_justified_get_transient_registry_option_name();
+    $registry    = get_option($option_name, []);
+
+    if (!is_array($registry)) {
+        return [];
+    }
+
+    $sanitized = [];
+
+    foreach ($registry as $key => $type) {
+        if (!is_string($key) || '' === trim($key)) {
+            continue;
+        }
+
+        $type = 'site' === $type ? 'site' : 'transient';
+        $sanitized[trim($key)] = $type;
+    }
+
+    return $sanitized;
+}
+
+/**
+ * Clear the transient registry option.
+ */
+function flickr_justified_clear_transient_registry() {
+    delete_option(flickr_justified_get_transient_registry_option_name());
+}
+
+/**
+ * Wrapper for set_transient that records keys for later purging.
+ *
+ * @param string $transient  Transient name.
+ * @param mixed  $value      Value to store.
+ * @param int    $expiration Expiration in seconds.
+ *
+ * @return bool Whether the transient was set.
+ */
+function flickr_justified_set_transient($transient, $value, $expiration = 0) {
+    $result = set_transient($transient, $value, $expiration);
+
+    if ($result) {
+        flickr_justified_register_transient_key($transient, false);
+    }
+
+    return $result;
+}
+
+/**
+ * Wrapper for set_site_transient with registry support.
+ *
+ * @param string $transient  Transient name.
+ * @param mixed  $value      Value to store.
+ * @param int    $expiration Expiration in seconds.
+ *
+ * @return bool Whether the transient was set.
+ */
+function flickr_justified_set_site_transient($transient, $value, $expiration = 0) {
+    $result = set_site_transient($transient, $value, $expiration);
+
+    if ($result) {
+        flickr_justified_register_transient_key($transient, true);
+    }
+
+    return $result;
+}
+
+/**
  * Safely retrieve a value from the admin settings class.
  *
  * @param string $method  Method name to call on FlickrJustifiedAdminSettings.
@@ -297,6 +413,7 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     // Check cache first
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result)) {
+        flickr_justified_register_transient_key($cache_key);
         return $cached_result;
     }
 
@@ -366,7 +483,7 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
         if ($cache_duration <= 0) {
             $cache_duration = WEEK_IN_SECONDS;
         }
-        set_transient($cache_key, $result, $cache_duration);
+        flickr_justified_set_transient($cache_key, $result, $cache_duration);
     }
 
     return $result;
@@ -514,6 +631,7 @@ function flickr_justified_get_photo_info($photo_id) {
     $cache_key = 'flickr_justified_photo_info_' . $photo_id;
     $cached = get_transient($cache_key);
     if (is_array($cached)) {
+        flickr_justified_register_transient_key($cache_key);
         return $cached;
     }
 
@@ -570,7 +688,7 @@ function flickr_justified_get_photo_info($photo_id) {
         $cache_duration = WEEK_IN_SECONDS;
     }
 
-    set_transient($cache_key, $photo_info, $cache_duration);
+    flickr_justified_set_transient($cache_key, $photo_info, $cache_duration);
 
     return $photo_info;
 }
@@ -709,6 +827,7 @@ function flickr_justified_resolve_user_id($username) {
     $cache_key = 'flickr_justified_user_id_' . md5($username);
     $cached_user_id = get_transient($cache_key);
     if (!empty($cached_user_id)) {
+        flickr_justified_register_transient_key($cache_key);
         return $cached_user_id;
     }
 
@@ -752,7 +871,7 @@ function flickr_justified_resolve_user_id($username) {
     $user_id = $data['user']['id'];
 
     // Cache the result for 24 hours
-    set_transient($cache_key, $user_id, DAY_IN_SECONDS);
+    flickr_justified_set_transient($cache_key, $user_id, DAY_IN_SECONDS);
 
     return $user_id;
 }
@@ -780,6 +899,7 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
     $cache_key = 'flickr_justified_set_info_' . md5($resolved_user_id . '_' . $photoset_id);
     $cached_info = get_transient($cache_key);
     if (!empty($cached_info) && is_array($cached_info)) {
+        flickr_justified_register_transient_key($cache_key);
         return $cached_info;
     }
 
@@ -828,7 +948,7 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
     ];
 
     // Cache the result for 6 hours
-    set_transient($cache_key, $photoset_info, 6 * HOUR_IN_SECONDS);
+    flickr_justified_set_transient($cache_key, $photoset_info, 6 * HOUR_IN_SECONDS);
 
     return $photoset_info;
 }
@@ -864,6 +984,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     // Check cache first
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
+        flickr_justified_register_transient_key($cache_key);
         return $cached_result;
     }
 
@@ -967,7 +1088,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         if ($configured_duration > 0) {
             $cache_duration = max(HOUR_IN_SECONDS, (int) floor($configured_duration / 4)); // 1/4 of main cache duration, min 1 hour
         }
-        set_transient($cache_key, $result, $cache_duration);
+        flickr_justified_set_transient($cache_key, $result, $cache_duration);
     }
 
     return $result;
@@ -996,6 +1117,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $cache_key = 'flickr_justified_set_full_' . md5($resolved_user_id . '_' . $photoset_id);
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
+        flickr_justified_register_transient_key($cache_key);
         return $cached_result;
     }
 
@@ -1078,7 +1200,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
             $cache_duration = max(HOUR_IN_SECONDS, (int) $configured_duration);
         }
 
-        set_transient($cache_key, $full_result, $cache_duration);
+        flickr_justified_set_transient($cache_key, $full_result, $cache_duration);
     }
 
     return $full_result;

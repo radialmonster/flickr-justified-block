@@ -436,7 +436,7 @@ class FlickrJustifiedBlock {
         }
 
         // Increment request counter
-        set_transient($rate_limit_key, $current_requests + 1, 60); // 60 seconds
+        flickr_justified_set_transient($rate_limit_key, $current_requests + 1, 60); // 60 seconds
 
         $user_id = $request->get_param('user_id');
         $photoset_id = $request->get_param('photoset_id');
