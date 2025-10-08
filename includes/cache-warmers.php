@@ -161,6 +161,9 @@ class FlickrJustifiedCacheWarmer {
 
             if (self::warm_url($url)) {
                 $processed++;
+                if (function_exists('flickr_justified_register_transient_key')) {
+                    self::register_registry_entries_for_url($url);
+                }
                 continue;
             }
 
@@ -186,13 +189,7 @@ class FlickrJustifiedCacheWarmer {
 
         $url = trim($url);
 
-        $available_sizes = [
-            'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-            'large2048', 'large1600', 'large1024', 'large',
-            'medium800', 'medium640', 'medium500', 'medium',
-            'small400', 'small320', 'small240',
-            'thumbnail100', 'thumbnail150s', 'thumbnail75s',
-        ];
+        $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
         if (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
             if (!function_exists('flickr_justified_get_flickr_image_sizes_with_dimensions')) {
@@ -270,6 +267,61 @@ class FlickrJustifiedCacheWarmer {
         }
 
         return $success;
+    }
+
+    /**
+     * Register known transient keys for a warmed URL.
+     *
+     * @param string $url Warmed Flickr URL.
+     */
+    private static function register_registry_entries_for_url($url) {
+        if (!is_string($url) || '' === $url) {
+            return;
+        }
+
+        if (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
+            if (!function_exists('flickr_justified_extract_photo_id')) {
+                return;
+            }
+
+            $photo_id = flickr_justified_extract_photo_id($url);
+            if (empty($photo_id)) {
+                return;
+            }
+
+            $available_sizes = flickr_justified_get_available_flickr_sizes(true);
+
+            $key_suffix = md5(implode(',', $available_sizes));
+            flickr_justified_register_transient_key('flickr_justified_dims_' . $photo_id . '_' . $key_suffix . '_1');
+            flickr_justified_register_transient_key('flickr_justified_dims_' . $photo_id . '_' . $key_suffix . '_0');
+            flickr_justified_register_transient_key('flickr_justified_photo_info_' . $photo_id);
+
+            return;
+        }
+
+        if (!function_exists('flickr_justified_parse_set_url')) {
+            return;
+        }
+
+        $set_info = flickr_justified_parse_set_url($url);
+        if (!$set_info || empty($set_info['user_id']) || empty($set_info['photoset_id'])) {
+            return;
+        }
+
+        if (!function_exists('flickr_justified_resolve_user_id')) {
+            return;
+        }
+
+        $resolved_user_id = flickr_justified_resolve_user_id($set_info['user_id']);
+        if (empty($resolved_user_id)) {
+            return;
+        }
+
+        $per_page = 50;
+        $cache_key = 'flickr_justified_set_page_v2_' . md5($resolved_user_id . '_' . $set_info['photoset_id'] . '_1_' . $per_page);
+        flickr_justified_register_transient_key($cache_key);
+        flickr_justified_register_transient_key('flickr_justified_set_full_' . md5($resolved_user_id . '_' . $set_info['photoset_id']));
+        flickr_justified_register_transient_key('flickr_justified_set_info_' . md5($resolved_user_id . '_' . $set_info['photoset_id']));
     }
 
     /**

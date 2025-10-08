@@ -710,6 +710,29 @@ class FlickrJustifiedAdminSettings {
                 wp_die(__('Insufficient permissions', 'flickr-justified-block'));
             }
 
+            if (function_exists('flickr_justified_get_transient_registry')) {
+                $registry = flickr_justified_get_transient_registry();
+
+                if (!empty($registry)) {
+                    foreach ($registry as $key => $type) {
+                        if ('site' === $type) {
+                            if (function_exists('delete_site_transient')) {
+                                delete_site_transient($key);
+                            }
+                            continue;
+                        }
+
+                        if (function_exists('delete_transient')) {
+                            delete_transient($key);
+                        }
+                    }
+                }
+
+                if (function_exists('flickr_justified_clear_transient_registry')) {
+                    flickr_justified_clear_transient_registry();
+                }
+            }
+
             // Clear all transients that start with our prefix
             global $wpdb;
             $wpdb->query(
