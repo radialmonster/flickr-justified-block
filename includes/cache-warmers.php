@@ -243,52 +243,65 @@ class FlickrJustifiedCacheWarmer {
         }
 
         $per_page = 50;
-        $result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
-
-        // Check for rate limiting in photoset call
-        if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
-            return 'rate_limited';
-        }
-
-        if (empty($result) || empty($result['photos']) || !is_array($result['photos'])) {
-            return false;
-        }
-
-        $photos = array_slice(array_values($result['photos']), 0, $per_page);
         $stats_available = function_exists('flickr_justified_extract_photo_id') && function_exists('flickr_justified_get_photo_stats');
         $success = false;
+        $page = 1;
 
-        foreach ($photos as $photo_url) {
-            $photo_url = trim((string) $photo_url);
-            if ('' === $photo_url) {
-                continue;
-            }
+        // Loop through all pages of the album
+        while (true) {
+            $result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], $page, $per_page);
 
-            $data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
-
-            // Check for rate limiting
-            if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+            // Check for rate limiting in photoset call
+            if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
                 return 'rate_limited';
             }
 
-            if (!empty($data)) {
-                $success = true;
+            if (empty($result) || empty($result['photos']) || !is_array($result['photos'])) {
+                break;
             }
 
-            if ($stats_available) {
-                $photo_id = flickr_justified_extract_photo_id($photo_url);
-                if (!empty($photo_id)) {
-                    $stats = flickr_justified_get_photo_stats($photo_id);
+            $photos = array_values($result['photos']);
 
-                    // Check for rate limiting in stats call
-                    if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
-                        return 'rate_limited';
-                    }
+            // Warm each photo in this page
+            foreach ($photos as $photo_url) {
+                $photo_url = trim((string) $photo_url);
+                if ('' === $photo_url) {
+                    continue;
+                }
 
-                    if (!empty($stats)) {
-                        $success = true;
+                $data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
+
+                // Check for rate limiting
+                if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+                    return 'rate_limited';
+                }
+
+                if (!empty($data)) {
+                    $success = true;
+                }
+
+                if ($stats_available) {
+                    $photo_id = flickr_justified_extract_photo_id($photo_url);
+                    if (!empty($photo_id)) {
+                        $stats = flickr_justified_get_photo_stats($photo_id);
+
+                        // Check for rate limiting in stats call
+                        if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
+                            return 'rate_limited';
+                        }
+
+                        if (!empty($stats)) {
+                            $success = true;
+                        }
                     }
                 }
+            }
+
+            // Check if there are more pages
+            if (isset($result['has_more']) && $result['has_more']) {
+                $page++;
+            } else {
+                break;
             }
         }
 
