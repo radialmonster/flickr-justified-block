@@ -449,6 +449,9 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $base_cache_key = 'flickr_justified_dims_payload' . $cache_suffix;
 
     $cached_result = get_transient($base_cache_key);
+    $photo_info = null;
+    $lastupdate = '';
+
     if (is_array($cached_result) && !empty($cached_result)) {
         flickr_justified_register_transient_key($base_cache_key);
 
@@ -457,21 +460,36 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
             $cached_lastupdate = (string) $cached_result['_lastupdate'];
         }
 
-        // When the cached payload already includes a lastupdate marker we can safely
-        // reuse it without contacting the remote API again.
         if ('' !== $cached_lastupdate) {
-            return $cached_result;
+            $photo_info = flickr_justified_get_photo_info($photo_id);
+
+            if (!empty($photo_info) && isset($photo_info['dates']['lastupdate'])) {
+                $lastupdate = (string) $photo_info['dates']['lastupdate'];
+            }
+
+            if ('' === $lastupdate) {
+                $lastupdate = 'na';
+            }
+
+            if (empty($photo_info)) {
+                return $cached_result;
+            }
+
+            if ($cached_lastupdate === $lastupdate) {
+                return $cached_result;
+            }
         }
 
         // Fall through when no lastupdate was stored with the payload so that we can
         // refresh the cache and capture the metadata for future checks.
     }
 
-    $photo_info = flickr_justified_get_photo_info($photo_id);
-    $lastupdate = '';
+    if (null === $photo_info) {
+        $photo_info = flickr_justified_get_photo_info($photo_id);
 
-    if (isset($photo_info['dates']['lastupdate'])) {
-        $lastupdate = (string) $photo_info['dates']['lastupdate'];
+        if (isset($photo_info['dates']['lastupdate'])) {
+            $lastupdate = (string) $photo_info['dates']['lastupdate'];
+        }
     }
 
     if ('' === $lastupdate) {
