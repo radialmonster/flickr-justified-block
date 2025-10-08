@@ -513,47 +513,19 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     $base_cache_key = 'flickr_justified_dims_payload' . $cache_suffix;
 
     $cached_result = get_transient($base_cache_key);
-    $photo_info = null;
-    $lastupdate = '';
 
+    // If we have a cached payload, trust it and return early (NO live getInfo)
     if (is_array($cached_result) && !empty($cached_result)) {
         flickr_justified_register_transient_key($base_cache_key);
 
-        $cached_lastupdate = '';
-        if (isset($cached_result['_lastupdate'])) {
-            $cached_lastupdate = (string) $cached_result['_lastupdate'];
-        }
-
-        if ('' !== $cached_lastupdate) {
-            $photo_info = flickr_justified_get_photo_info($photo_id);
-
-            if (!empty($photo_info) && isset($photo_info['dates']['lastupdate'])) {
-                $lastupdate = (string) $photo_info['dates']['lastupdate'];
-            }
-
-            if ('' === $lastupdate) {
-                $lastupdate = 'na';
-            }
-
-            if (empty($photo_info)) {
-                return $cached_result;
-            }
-
-            if ($cached_lastupdate === $lastupdate) {
-                return $cached_result;
-            }
-        }
-
-        // Fall through when no lastupdate was stored with the payload so that we can
-        // refresh the cache and capture the metadata for future checks.
+        return $cached_result;
     }
 
-    if (null === $photo_info) {
-        $photo_info = flickr_justified_get_photo_info($photo_id);
+    $photo_info = flickr_justified_get_photo_info($photo_id);
+    $lastupdate = '';
 
-        if (isset($photo_info['dates']['lastupdate'])) {
-            $lastupdate = (string) $photo_info['dates']['lastupdate'];
-        }
+    if (isset($photo_info['dates']['lastupdate'])) {
+        $lastupdate = (string) $photo_info['dates']['lastupdate'];
     }
 
     if ('' === $lastupdate) {
