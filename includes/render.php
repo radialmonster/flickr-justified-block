@@ -36,6 +36,10 @@ function flickr_justified_register_transient_key($transient, $is_site = false) {
         return;
     }
 
+    if (preg_match('/^flickr_justified_dims_.*_\d{9,}$/', $transient)) {
+        return;
+    }
+
     $option_name = flickr_justified_get_transient_registry_option_name();
     $registry    = get_option($option_name, []);
 
@@ -50,6 +54,15 @@ function flickr_justified_register_transient_key($transient, $is_site = false) {
     }
 
     $registry[$transient] = $type;
+
+    $max_registry_size = 3000;
+    $trim_size         = 100;
+
+    if (count($registry) > $max_registry_size) {
+        $excess         = count($registry) - $max_registry_size;
+        $items_to_trim  = max($excess, $trim_size);
+        $registry       = array_slice($registry, $items_to_trim, null, true);
+    }
 
     update_option($option_name, $registry, false);
 }
