@@ -238,6 +238,10 @@ class FlickrJustifiedCache {
         if (!$force_refresh) {
             $cached = self::get($cache_key);
             if (is_array($cached)) {
+                // Check if this is a negative cache entry (photo not found/private)
+                if (isset($cached['not_found']) && $cached['not_found']) {
+                    return []; // Return empty array, don't retry API call
+                }
                 return $cached;
             }
         }
@@ -268,6 +272,8 @@ class FlickrJustifiedCache {
         self::increment_api_calls();
 
         if (is_wp_error($response)) {
+            // Cache negative result to prevent repeated failed API calls
+            self::set($cache_key, ['not_found' => true]);
             return [];
         }
 
@@ -280,11 +286,24 @@ class FlickrJustifiedCache {
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
+
+        // Photo not found, deleted, or private (404, 403, etc)
         if ($response_code < 200 || $response_code >= 300) {
+            // Cache negative result to prevent repeated failed API calls
+            self::set($cache_key, ['not_found' => true]);
+            return [];
+        }
+
+        // Check for Flickr API error (photo deleted, private, permission denied)
+        if (isset($data['stat']) && $data['stat'] === 'fail') {
+            // Cache negative result
+            self::set($cache_key, ['not_found' => true, 'error' => $data]);
             return [];
         }
 
         if (empty($data['photo']) || !is_array($data['photo'])) {
+            // Cache negative result
+            self::set($cache_key, ['not_found' => true]);
             return [];
         }
 
@@ -381,8 +400,14 @@ class FlickrJustifiedCache {
         // Try base cache key first
         $base_cache_key = $cache_suffix;
         $cached_result = self::get($base_cache_key);
-        if (is_array($cached_result) && !empty($cached_result)) {
-            return $cached_result;
+        if (is_array($cached_result)) {
+            // Check if this is a negative cache entry (photo not found/private)
+            if (isset($cached_result['not_found']) && $cached_result['not_found']) {
+                return []; // Return empty array, don't retry API call
+            }
+            if (!empty($cached_result)) {
+                return $cached_result;
+            }
         }
 
         // Get photo info ONCE (will use cache if available)
@@ -439,6 +464,8 @@ class FlickrJustifiedCache {
         self::increment_api_calls();
 
         if (is_wp_error($response)) {
+            // Cache negative result to prevent repeated failed API calls
+            self::set($base_cache_key, ['not_found' => true]);
             return [];
         }
 
@@ -451,11 +478,24 @@ class FlickrJustifiedCache {
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
+
+        // Photo not found, deleted, or private
         if ($response_code < 200 || $response_code >= 300) {
+            // Cache negative result
+            self::set($base_cache_key, ['not_found' => true]);
+            return [];
+        }
+
+        // Check for Flickr API error
+        if (isset($data['stat']) && $data['stat'] === 'fail') {
+            // Cache negative result
+            self::set($base_cache_key, ['not_found' => true]);
             return [];
         }
 
         if (empty($data['sizes']['size'])) {
+            // Cache negative result
+            self::set($base_cache_key, ['not_found' => true]);
             return [];
         }
 
@@ -611,7 +651,7 @@ class FlickrJustifiedCache {
         }
 
         $user_id = $data['user']['id'];
-        self::set($cache_key, $user_id, DAY_IN_SECONDS);
+        self::set($cache_key, $user_id); // Use configured cache duration
 
         return $user_id;
     }
@@ -687,7 +727,7 @@ class FlickrJustifiedCache {
             'photo_count' => isset($data['photoset']['count_photos']) ? intval($data['photoset']['count_photos']) : 0,
         ];
 
-        self::set($cache_key, $photoset_info, 6 * HOUR_IN_SECONDS);
+        self::set($cache_key, $photoset_info); // Use configured cache duration
 
         return $photoset_info;
     }
@@ -713,8 +753,14 @@ class FlickrJustifiedCache {
         // Check cache
         $cache_key = ['set_page_v2', md5($resolved_user_id . '_' . $photoset_id . '_' . $page . '_' . $per_page)];
         $cached = self::get($cache_key);
-        if (!empty($cached) && is_array($cached) && isset($cached['photos'])) {
-            return $cached;
+        if (is_array($cached)) {
+            // Check if this is a negative cache entry (album not found/private)
+            if (isset($cached['not_found']) && $cached['not_found']) {
+                return self::empty_photoset_result($page);
+            }
+            if (!empty($cached) && isset($cached['photos'])) {
+                return $cached;
+            }
         }
 
         // Fetch from API
@@ -744,11 +790,14 @@ class FlickrJustifiedCache {
         self::increment_api_calls();
 
         if (is_wp_error($response)) {
+            // Cache negative result to prevent repeated failed API calls
+            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
         $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
+            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
@@ -760,15 +809,23 @@ class FlickrJustifiedCache {
         }
 
         if (json_last_error() !== JSON_ERROR_NONE) {
+            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
+
+        // Album not found, deleted, or private
         if ($response_code < 200 || $response_code >= 300) {
+            // Cache negative result
+            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
+        // Check for Flickr API error (album deleted, private, permission denied)
         if (isset($data['stat']) && 'fail' === $data['stat']) {
+            // Cache negative result
+            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
@@ -801,7 +858,7 @@ class FlickrJustifiedCache {
                     'title' => $album_title,
                     'description' => '',
                     'photo_count' => $total_photos,
-                ], 6 * HOUR_IN_SECONDS);
+                ]); // Use configured cache duration
             }
         }
 
