@@ -665,7 +665,17 @@ class FlickrJustifiedAdminSettings {
             </form>
 
             <div class="card" style="margin-top: 20px;">
-                <h2><?php _e('Clear Cache', 'flickr-justified-block'); ?></h2>
+                <h2><?php _e('Cache Management', 'flickr-justified-block'); ?></h2>
+
+                <h3><?php _e('Warm Cache', 'flickr-justified-block'); ?></h3>
+                <p><?php _e('Pre-fetch Flickr data for all your posts to make pages load faster. Run this after adding new posts or if pages are loading slowly.', 'flickr-justified-block'); ?></p>
+                <form method="post" action="" style="margin-bottom: 20px;">
+                    <?php wp_nonce_field('flickr_justified_warm_cache', 'flickr_justified_warm_cache_nonce'); ?>
+                    <input type="hidden" name="action" value="warm_flickr_cache" />
+                    <?php submit_button(__('Warm Cache Now', 'flickr-justified-block'), 'primary', 'warm_cache', false); ?>
+                </form>
+
+                <h3><?php _e('Clear Cache', 'flickr-justified-block'); ?></h3>
                 <p><?php _e('If you\'re experiencing issues with images not updating, you can clear the cached Flickr data.', 'flickr-justified-block'); ?></p>
                 <form method="post" action="">
                     <?php wp_nonce_field('flickr_justified_clear_cache', 'flickr_justified_clear_cache_nonce'); ?>
@@ -695,6 +705,47 @@ class FlickrJustifiedAdminSettings {
             </div>
         </div>
         <?php
+    }
+
+    /**
+     * Handle cache warming
+     */
+    public static function handle_cache_warm() {
+        if (isset($_POST['action']) && $_POST['action'] === 'warm_flickr_cache') {
+            if (!wp_verify_nonce($_POST['flickr_justified_warm_cache_nonce'], 'flickr_justified_warm_cache')) {
+                wp_die(__('Security check failed', 'flickr-justified-block'));
+            }
+
+            if (!current_user_can('manage_options')) {
+                wp_die(__('Insufficient permissions', 'flickr-justified-block'));
+            }
+
+            // Warm the cache
+            if (class_exists('FlickrJustifiedCacheWarmer')) {
+                $map = FlickrJustifiedCacheWarmer::rebuild_known_urls();
+                $count = 0;
+                foreach ($map as $urls) {
+                    if (is_array($urls)) {
+                        $count += count($urls);
+                    }
+                }
+
+                $processed = FlickrJustifiedCacheWarmer::process_queue(true);
+
+                self::log(sprintf('Cache warmer processed %d URLs from %d posts', $processed, count($map)));
+            }
+
+            wp_redirect(add_query_arg(['page' => 'flickr-justified-settings', 'cache-warmed' => '1'], admin_url('options-general.php')));
+            exit;
+        }
+
+        if (isset($_GET['cache-warmed'])) {
+            add_action('admin_notices', function() {
+                echo '<div class="notice notice-success is-dismissible"><p>' .
+                     __('Flickr cache warmed successfully! All photos and albums have been pre-fetched. Pages should now load much faster.', 'flickr-justified-block') .
+                     '</p></div>';
+            });
+        }
     }
 
     /**
@@ -976,4 +1027,5 @@ class FlickrJustifiedAdminSettings {
 FlickrJustifiedAdminSettings::init();
 
 // Handle cache clearing
+add_action('admin_init', [FlickrJustifiedAdminSettings::class, 'handle_cache_warm']);
 add_action('admin_init', [FlickrJustifiedAdminSettings::class, 'handle_cache_clear']);
