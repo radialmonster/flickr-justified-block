@@ -703,7 +703,7 @@ class FlickrJustifiedAdminSettings {
                                 var queue = response.data.queue;
                                 var totalUrls = queue.length;
                                 var processed = 0;
-                                var batchSize = 15; // Process 15 URLs at a time for speed
+                                var batchSize = 3; // Process 3 URLs at a time (large albums can take 60+ seconds each)
                                 var totalApiCalls = 0;
 
                                 $status.text('<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>');
@@ -722,11 +722,16 @@ class FlickrJustifiedAdminSettings {
 
                                     var batch = queue.slice(startIndex, startIndex + batchSize);
 
-                                    $.post(ajaxurl, {
-                                        action: 'flickr_warm_batch',
-                                        urls: batch,
-                                        nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
-                                    }, function(batchResponse) {
+                                    $.ajax({
+                                        url: ajaxurl,
+                                        type: 'POST',
+                                        timeout: 300000, // 5 minutes timeout for large albums
+                                        data: {
+                                            action: 'flickr_warm_batch',
+                                            urls: batch,
+                                            nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
+                                        },
+                                        success: function(batchResponse) {
                                         if (batchResponse.success) {
                                             var data = batchResponse.data;
                                             processed += data.processed;
@@ -757,9 +762,15 @@ class FlickrJustifiedAdminSettings {
                                             $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (batchResponse.data || '<?php esc_js(_e('Unknown error', 'flickr-justified-block')); ?>'));
                                             $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
                                         }
-                                    }).fail(function() {
-                                        $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Network error. Please try again.', 'flickr-justified-block')); ?></strong>');
-                                        $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                        },
+                                        error: function(xhr, status, error) {
+                                            var errorMsg = '<?php esc_js(_e('Network error', 'flickr-justified-block')); ?>';
+                                            if (status === 'timeout') {
+                                                errorMsg = '<?php esc_js(_e('Request timed out. Large albums may take several minutes.', 'flickr-justified-block')); ?>';
+                                            }
+                                            $status.html('<strong style="color: #d63638;">✗ ' + errorMsg + '</strong>');
+                                            $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                        }
                                     });
                                 }
 
@@ -1114,6 +1125,9 @@ class FlickrJustifiedAdminSettings {
      * Tracks API calls and detects rate limiting.
      */
     public static function ajax_warm_batch() {
+        // Increase PHP execution time for large albums
+        @set_time_limit(300); // 5 minutes max per batch
+
         check_ajax_referer('flickr_warm_cache_ajax', 'nonce');
 
         if (!current_user_can('manage_options')) {
