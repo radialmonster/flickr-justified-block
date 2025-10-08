@@ -270,6 +270,35 @@ function flickr_justified_get_size_label_map() {
 }
 
 /**
+ * Retrieve the Flickr extras that include size URLs and dimensions.
+ *
+ * @return array<string, array{size_key: string, width_key: string, height_key: string}>
+ */
+function flickr_justified_get_flickr_photo_size_extras() {
+    static $extras = null;
+
+    if (null === $extras) {
+        $extras = [
+            'url_sq' => ['size_key' => 'thumbnail75s', 'width_key' => 'width_sq', 'height_key' => 'height_sq'],
+            'url_t'  => ['size_key' => 'thumbnail100', 'width_key' => 'width_t', 'height_key' => 'height_t'],
+            'url_s'  => ['size_key' => 'small240', 'width_key' => 'width_s', 'height_key' => 'height_s'],
+            'url_q'  => ['size_key' => 'thumbnail150s', 'width_key' => 'width_q', 'height_key' => 'height_q'],
+            'url_n'  => ['size_key' => 'small320', 'width_key' => 'width_n', 'height_key' => 'height_n'],
+            'url_w'  => ['size_key' => 'small400', 'width_key' => 'width_w', 'height_key' => 'height_w'],
+            'url_m'  => ['size_key' => 'medium', 'width_key' => 'width_m', 'height_key' => 'height_m'],
+            'url_z'  => ['size_key' => 'medium640', 'width_key' => 'width_z', 'height_key' => 'height_z'],
+            'url_c'  => ['size_key' => 'medium800', 'width_key' => 'width_c', 'height_key' => 'height_c'],
+            'url_l'  => ['size_key' => 'large', 'width_key' => 'width_l', 'height_key' => 'height_l'],
+            'url_h'  => ['size_key' => 'large1600', 'width_key' => 'width_h', 'height_key' => 'height_h'],
+            'url_k'  => ['size_key' => 'large2048', 'width_key' => 'width_k', 'height_key' => 'height_k'],
+            'url_o'  => ['size_key' => 'original', 'width_key' => 'width_o', 'height_key' => 'height_o'],
+        ];
+    }
+
+    return $extras;
+}
+
+/**
  * Retrieve the ordered list of Flickr size identifiers used throughout the plugin.
  *
  * @param bool $include_thumbnails When true, include square thumbnail sizes.
@@ -403,6 +432,7 @@ function flickr_justified_empty_photoset_result($page = 1) {
         'page'        => $page,
         'pages'       => 1,
         'album_title' => '',
+        'photo_details' => [],
     ];
 }
 
@@ -659,6 +689,67 @@ function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requ
     }
 
     return $result;
+}
+
+/**
+ * Build flickr.photos.getSizes-style entries from extras returned by flickr.photosets.getPhotos.
+ *
+ * @param array $photo Photo data including size extras.
+ * @return array<int, array{label: string, source: string, width: int, height: int, size_key: string}>
+ */
+function flickr_justified_build_size_entries_from_photo_extras($photo) {
+    if (!is_array($photo) || empty($photo)) {
+        return [];
+    }
+
+    $extra_map = flickr_justified_get_flickr_photo_size_extras();
+    $label_map = flickr_justified_get_size_label_map();
+
+    $sizes = [];
+
+    foreach ($extra_map as $url_key => $meta) {
+        if (empty($photo[$url_key])) {
+            continue;
+        }
+
+        $source = trim((string) $photo[$url_key]);
+        if ('' === $source) {
+            continue;
+        }
+
+        $size_key = $meta['size_key'];
+        if (!is_string($size_key) || '' === $size_key) {
+            continue;
+        }
+        $size_key = sanitize_key($size_key);
+        $width_key = $meta['width_key'];
+        $height_key = $meta['height_key'];
+
+        $width = isset($photo[$width_key]) ? (int) $photo[$width_key] : 0;
+        $height = isset($photo[$height_key]) ? (int) $photo[$height_key] : 0;
+
+        if ($width <= 0 || $height <= 0) {
+            continue;
+        }
+
+        $label_options = $label_map[$size_key] ?? [];
+        $primary_label = reset($label_options);
+        if (!is_string($primary_label) || '' === $primary_label) {
+            $readable_key = preg_replace('/(\d+)/', ' $1', (string) $size_key);
+            $readable_key = str_replace(['_', 'thumbnail'], [' ', 'thumbnail '], $readable_key);
+            $primary_label = ucwords(trim($readable_key));
+        }
+
+        $sizes[] = [
+            'label' => $primary_label,
+            'source' => esc_url_raw($source),
+            'width' => $width,
+            'height' => $height,
+            'size_key' => $size_key,
+        ];
+    }
+
+    return $sizes;
 }
 
 /**
@@ -1106,7 +1197,7 @@ function flickr_justified_get_photoset_info($user_id, $photoset_id) {
  * @param string $photoset_id Flickr photoset ID
  * @param int $page Page number (1-based)
  * @param int $per_page Photos per page (default 50, max 500)
- * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title'
+ * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title', 'photo_details'
  */
 function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page = 1, $per_page = 50) {
 
@@ -1130,8 +1221,26 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     // Check cache first
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
-        flickr_justified_register_transient_key($cache_key);
-        return $cached_result;
+        $cached_photos = is_array($cached_result['photos']) ? $cached_result['photos'] : [];
+        $cached_details = isset($cached_result['photo_details']) && is_array($cached_result['photo_details'])
+            ? $cached_result['photo_details']
+            : [];
+
+        $needs_refresh = false;
+
+        if (!empty($cached_photos) && empty($cached_details)) {
+            $needs_refresh = true;
+        }
+
+        if (!$needs_refresh) {
+            flickr_justified_register_transient_key($cache_key);
+
+            if (!isset($cached_result['photo_details']) || !is_array($cached_result['photo_details'])) {
+                $cached_result['photo_details'] = [];
+            }
+
+            return $cached_result;
+        }
     }
 
     // Get API key from settings
@@ -1141,6 +1250,9 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
     }
 
     // Make API call to get photos in the set
+    $size_extras = array_keys(flickr_justified_get_flickr_photo_size_extras());
+    $requested_extras = implode(',', array_merge($size_extras, ['o_dims']));
+
     $api_url = add_query_arg([
         'method' => 'flickr.photosets.getPhotos',
         'api_key' => $api_key,
@@ -1148,7 +1260,8 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         'user_id' => $resolved_user_id,
         'per_page' => $per_page,
         'page' => $page,
-        'extras' => 'url_m,url_l,url_o', // Get multiple size URLs
+        // Request multiple image sizes and original dimensions when available.
+        'extras' => $requested_extras,
         'format' => 'json',
         'nojsoncallback' => 1,
     ], 'https://api.flickr.com/services/rest/');
@@ -1203,6 +1316,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 
     // Convert photos to individual photo page URLs
     $photo_urls = [];
+    $photo_details = [];
     foreach ($data['photoset']['photo'] as $photo) {
         if (empty($photo['id']) || !is_string($photo['id'])) {
             continue;
@@ -1216,6 +1330,13 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         // Create the standard photo page URL format that our existing functions can handle
         $photo_url = 'https://flickr.com/photos/' . rawurlencode($user_id) . '/' . $photo_id . '/';
         $photo_urls[] = $photo_url;
+
+        $prefetched_sizes = flickr_justified_build_size_entries_from_photo_extras($photo);
+        $photo_details[$photo_id] = [
+            'url' => $photo_url,
+            'photo_id' => $photo_id,
+            'prefetched_sizes' => $prefetched_sizes,
+        ];
     }
 
     $result = [
@@ -1225,6 +1346,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
         'page' => $current_page,
         'pages' => $total_pages,
         'album_title' => $album_title,
+        'photo_details' => $photo_details,
     ];
 
     if (!empty($photo_urls)) {
@@ -1245,7 +1367,7 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
  *
  * @param string $user_id Flickr user ID or username
  * @param string $photoset_id Flickr photoset ID
- * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title'
+ * @return array Array with 'photos', 'has_more', 'total', 'page', 'pages', 'album_title', 'photo_details'
  */
 function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
 
@@ -1263,13 +1385,32 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $cache_key = 'flickr_justified_set_full_' . md5($resolved_user_id . '_' . $photoset_id);
     $cached_result = get_transient($cache_key);
     if (!empty($cached_result) && is_array($cached_result) && isset($cached_result['photos'])) {
-        flickr_justified_register_transient_key($cache_key);
-        return $cached_result;
+        $cached_photos = is_array($cached_result['photos']) ? $cached_result['photos'] : [];
+        $cached_details = isset($cached_result['photo_details']) && is_array($cached_result['photo_details'])
+            ? $cached_result['photo_details']
+            : [];
+
+        $needs_refresh = false;
+
+        if (!empty($cached_photos) && empty($cached_details)) {
+            $needs_refresh = true;
+        }
+
+        if (!$needs_refresh) {
+            flickr_justified_register_transient_key($cache_key);
+
+            if (!isset($cached_result['photo_details']) || !is_array($cached_result['photo_details'])) {
+                $cached_result['photo_details'] = [];
+            }
+
+            return $cached_result;
+        }
     }
 
     $per_page = 500; // Flickr maximum per page
     $page = 1;
     $all_photos = [];
+    $all_photo_details = [];
     $total_pages = 1;
     $total_photos = 0;
     $album_title = '';
@@ -1281,6 +1422,27 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
 
         if (isset($page_result['album_title']) && '' === $album_title && is_string($page_result['album_title'])) {
             $album_title = $page_result['album_title'];
+        }
+
+        if (!empty($page_result['photo_details']) && is_array($page_result['photo_details'])) {
+            foreach ($page_result['photo_details'] as $photo_id => $detail) {
+                if (!is_string($photo_id) || '' === trim($photo_id)) {
+                    continue;
+                }
+
+                $photo_id = trim($photo_id);
+                if (!isset($all_photo_details[$photo_id])) {
+                    if (!is_array($detail)) {
+                        $detail = [];
+                    }
+
+                    if (!isset($detail['photo_id'])) {
+                        $detail['photo_id'] = $photo_id;
+                    }
+
+                    $all_photo_details[$photo_id] = $detail;
+                }
+            }
         }
 
         if (empty($page_result['photos']) || !is_array($page_result['photos'])) {
@@ -1327,6 +1489,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         'page' => 1,
         'pages' => max(1, $total_pages),
         'album_title' => $album_title,
+        'photo_details' => $all_photo_details,
     ];
     $expected_pages = max(1, (int) $total_pages);
     $fetched_all_pages = false;
@@ -1394,6 +1557,8 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
         $photos = [];
     }
 
+    $available_sizes_with_thumbnails = flickr_justified_get_available_flickr_sizes(true);
+
     foreach ($photos as $photo) {
         if (is_string($photo)) {
             $photo = ['url' => $photo];
@@ -1413,9 +1578,23 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
         }
 
         if ($is_flickr) {
-            $available_sizes = flickr_justified_get_available_flickr_sizes(true);
+            $prefetched_image_data = [];
 
-            $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
+            if (!empty($photo['prefetched_sizes']) && is_array($photo['prefetched_sizes'])) {
+                $prefetched_image_data = flickr_justified_map_api_sizes_to_requested_with_dims(
+                    $photo['prefetched_sizes'],
+                    $available_sizes_with_thumbnails
+                );
+            }
+
+            $image_data = $prefetched_image_data;
+
+            if (empty($image_data) || empty($image_data[$image_size]['url'])) {
+                $fetched_image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes_with_thumbnails, true);
+                if (!empty($fetched_image_data)) {
+                    $image_data = $fetched_image_data;
+                }
+            }
 
             if (!empty($photo['stats']) && is_array($photo['stats'])) {
                 $stats = $photo['stats'];
@@ -1708,6 +1887,7 @@ function flickr_justified_render_block($attributes) {
                 $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
             }
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
+            $set_photo_details = isset($set_result['photo_details']) && is_array($set_result['photo_details']) ? $set_result['photo_details'] : [];
 
             if ('views_desc' !== $sort_order && null !== $remaining_limit) {
                 $set_photos = array_slice($set_photos, 0, $remaining_limit);
@@ -1725,6 +1905,10 @@ function flickr_justified_render_block($attributes) {
                 }
 
                 $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
+                $photo_id = '';
+                if ($is_flickr) {
+                    $photo_id = flickr_justified_extract_photo_id($photo_url);
+                }
                 $attribution_url = $photo_url;
                 if ($is_flickr) {
                     $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
@@ -1734,6 +1918,13 @@ function flickr_justified_render_block($attributes) {
                     );
                     if (!empty($album_attribution_url)) {
                         $attribution_url = $album_attribution_url;
+                    }
+                }
+                $prefetched_sizes = [];
+                if ($photo_id && isset($set_photo_details[$photo_id])) {
+                    $detail = $set_photo_details[$photo_id];
+                    if (is_array($detail) && !empty($detail['prefetched_sizes']) && is_array($detail['prefetched_sizes'])) {
+                        $prefetched_sizes = $detail['prefetched_sizes'];
                     }
                 }
                 $item = [
@@ -1746,8 +1937,15 @@ function flickr_justified_render_block($attributes) {
                     'attribution_url' => $attribution_url,
                 ];
 
+                if ($photo_id) {
+                    $item['photo_id'] = $photo_id;
+                }
+
+                if (!empty($prefetched_sizes)) {
+                    $item['prefetched_sizes'] = $prefetched_sizes;
+                }
+
                 if ($needs_stats && $is_flickr) {
-                    $photo_id = flickr_justified_extract_photo_id($photo_url);
                     if ($photo_id) {
                         $stats = flickr_justified_get_photo_stats($photo_id);
                         if (!empty($stats) && is_array($stats)) {
@@ -1819,6 +2017,10 @@ function flickr_justified_render_block($attributes) {
         }
 
         $is_flickr = flickr_justified_is_flickr_photo_url($url);
+        $photo_id = '';
+        if ($is_flickr) {
+            $photo_id = flickr_justified_extract_photo_id($url);
+        }
         $item = [
             'url' => $url,
             'is_flickr' => $is_flickr,
@@ -1829,8 +2031,11 @@ function flickr_justified_render_block($attributes) {
             'attribution_url' => $url,
         ];
 
+        if ($photo_id) {
+            $item['photo_id'] = $photo_id;
+        }
+
         if ($needs_stats && $is_flickr) {
-            $photo_id = flickr_justified_extract_photo_id($url);
             if ($photo_id) {
                 $stats = flickr_justified_get_photo_stats($photo_id);
                 if (!empty($stats) && is_array($stats)) {
