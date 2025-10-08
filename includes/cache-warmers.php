@@ -196,6 +196,12 @@ class FlickrJustifiedCacheWarmer {
             $success = false;
 
             $data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
+
+            // Check for rate limiting
+            if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+                return 'rate_limited';
+            }
+
             if (!empty($data)) {
                 $success = true;
             }
@@ -204,6 +210,12 @@ class FlickrJustifiedCacheWarmer {
                 $photo_id = flickr_justified_extract_photo_id($url);
                 if (!empty($photo_id)) {
                     $stats = flickr_justified_get_photo_stats($photo_id);
+
+                    // Check for rate limiting in stats call
+                    if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
+                        return 'rate_limited';
+                    }
+
                     if (!empty($stats)) {
                         $success = true;
                     }
@@ -233,6 +245,11 @@ class FlickrJustifiedCacheWarmer {
         $per_page = 50;
         $result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
 
+        // Check for rate limiting in photoset call
+        if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
+            return 'rate_limited';
+        }
+
         if (empty($result) || empty($result['photos']) || !is_array($result['photos'])) {
             return false;
         }
@@ -248,6 +265,12 @@ class FlickrJustifiedCacheWarmer {
             }
 
             $data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
+
+            // Check for rate limiting
+            if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+                return 'rate_limited';
+            }
+
             if (!empty($data)) {
                 $success = true;
             }
@@ -256,6 +279,12 @@ class FlickrJustifiedCacheWarmer {
                 $photo_id = flickr_justified_extract_photo_id($photo_url);
                 if (!empty($photo_id)) {
                     $stats = flickr_justified_get_photo_stats($photo_id);
+
+                    // Check for rate limiting in stats call
+                    if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
+                        return 'rate_limited';
+                    }
+
                     if (!empty($stats)) {
                         $success = true;
                     }

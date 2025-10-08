@@ -703,16 +703,19 @@ class FlickrJustifiedAdminSettings {
                                 var queue = response.data.queue;
                                 var totalUrls = queue.length;
                                 var processed = 0;
-                                var batchSize = 5; // Process 5 URLs at a time
+                                var batchSize = 15; // Process 15 URLs at a time for speed
+                                var totalApiCalls = 0;
 
                                 $status.text('<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>');
 
-                                function processBatch(startIndex) {
+                                function processBatch(startIndex, retryCount) {
+                                    retryCount = retryCount || 0;
+
                                     if (startIndex >= totalUrls) {
                                         // Done!
                                         $bar.css('width', '100%');
                                         $status.html('<strong style="color: #00a32a;">✓ <?php esc_js(_e('Complete!', 'flickr-justified-block')); ?></strong>');
-                                        $details.text('<?php esc_js(_e('Warmed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs. Pages should now load much faster!', 'flickr-justified-block')); ?>');
+                                        $details.text('<?php esc_js(_e('Warmed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls). Pages should now load much faster!', 'flickr-justified-block')); ?>');
                                         $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
                                         return;
                                     }
@@ -725,13 +728,31 @@ class FlickrJustifiedAdminSettings {
                                         nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
                                     }, function(batchResponse) {
                                         if (batchResponse.success) {
-                                            processed += batchResponse.data.processed;
-                                            var percent = Math.round((processed / totalUrls) * 100);
-                                            $bar.css('width', percent + '%');
-                                            $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs...', 'flickr-justified-block')); ?>');
+                                            var data = batchResponse.data;
+                                            processed += data.processed;
+                                            totalApiCalls += (data.api_calls || 0);
 
-                                            // Process next batch
-                                            processBatch(startIndex + batchSize);
+                                            var percent = Math.round((startIndex + batch.length) / totalUrls * 100);
+                                            $bar.css('width', percent + '%');
+
+                                            // Check if we hit rate limit
+                                            if (data.rate_limited) {
+                                                var pauseSeconds = 60; // Pause for 60 seconds
+                                                $status.html('⏸ <?php esc_js(_e('Rate limit detected. Pausing for', 'flickr-justified-block')); ?> ' + pauseSeconds + ' <?php esc_js(_e('seconds...', 'flickr-justified-block')); ?>');
+                                                $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>');
+
+                                                // Wait and retry same batch
+                                                setTimeout(function() {
+                                                    $status.text('<?php esc_js(_e('Resuming...', 'flickr-justified-block')); ?>');
+                                                    processBatch(startIndex, retryCount + 1);
+                                                }, pauseSeconds * 1000);
+                                            } else {
+                                                // Success - update progress and continue
+                                                $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>');
+
+                                                // Process next batch
+                                                processBatch(startIndex + batchSize, 0);
+                                            }
                                         } else {
                                             $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (batchResponse.data || '<?php esc_js(_e('Unknown error', 'flickr-justified-block')); ?>'));
                                             $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
@@ -742,7 +763,7 @@ class FlickrJustifiedAdminSettings {
                                     });
                                 }
 
-                                processBatch(0);
+                                processBatch(0, 0);
                             } else {
                                 $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (response.data || '<?php esc_js(_e('Could not scan posts', 'flickr-justified-block')); ?>'));
                                 $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
@@ -787,46 +808,6 @@ class FlickrJustifiedAdminSettings {
         <?php
     }
 
-    /**
-     * Handle cache warming
-     */
-    public static function handle_cache_warm() {
-        if (isset($_POST['action']) && $_POST['action'] === 'warm_flickr_cache') {
-            if (!wp_verify_nonce($_POST['flickr_justified_warm_cache_nonce'], 'flickr_justified_warm_cache')) {
-                wp_die(__('Security check failed', 'flickr-justified-block'));
-            }
-
-            if (!current_user_can('manage_options')) {
-                wp_die(__('Insufficient permissions', 'flickr-justified-block'));
-            }
-
-            // Warm the cache
-            if (class_exists('FlickrJustifiedCacheWarmer')) {
-                $map = FlickrJustifiedCacheWarmer::rebuild_known_urls();
-                $count = 0;
-                foreach ($map as $urls) {
-                    if (is_array($urls)) {
-                        $count += count($urls);
-                    }
-                }
-
-                $processed = FlickrJustifiedCacheWarmer::process_queue(true);
-
-                self::log(sprintf('Cache warmer processed %d URLs from %d posts', $processed, count($map)));
-            }
-
-            wp_redirect(add_query_arg(['page' => 'flickr-justified-settings', 'cache-warmed' => '1'], admin_url('options-general.php')));
-            exit;
-        }
-
-        if (isset($_GET['cache-warmed'])) {
-            add_action('admin_notices', function() {
-                echo '<div class="notice notice-success is-dismissible"><p>' .
-                     __('Flickr cache warmed successfully! All photos and albums have been pre-fetched. Pages should now load much faster.', 'flickr-justified-block') .
-                     '</p></div>';
-            });
-        }
-    }
 
     /**
      * Handle cache clearing
@@ -1130,6 +1111,7 @@ class FlickrJustifiedAdminSettings {
 
     /**
      * AJAX handler to warm a batch of URLs.
+     * Tracks API calls and detects rate limiting.
      */
     public static function ajax_warm_batch() {
         check_ajax_referer('flickr_warm_cache_ajax', 'nonce');
@@ -1147,21 +1129,44 @@ class FlickrJustifiedAdminSettings {
             wp_send_json_error('No URLs provided');
         }
 
+        // Track API call count
+        $api_call_count_before = self::get_api_call_count();
+
         $processed = 0;
         $failed = 0;
+        $rate_limited = false;
+
         foreach ($urls as $url) {
-            if (FlickrJustifiedCacheWarmer::warm_url($url)) {
+            $result = FlickrJustifiedCacheWarmer::warm_url($url);
+
+            if ($result === 'rate_limited') {
+                $rate_limited = true;
+                break; // Stop processing this batch
+            } elseif ($result) {
                 $processed++;
             } else {
                 $failed++;
             }
         }
 
+        $api_call_count_after = self::get_api_call_count();
+        $api_calls_made = $api_call_count_after - $api_call_count_before;
+
         wp_send_json_success([
             'processed' => $processed,
             'failed' => $failed,
-            'total' => count($urls)
+            'total' => count($urls),
+            'rate_limited' => $rate_limited,
+            'api_calls' => $api_calls_made
         ]);
+    }
+
+    /**
+     * Get current API call count from a tracking transient.
+     * Returns 0 if not set.
+     */
+    private static function get_api_call_count() {
+        return (int) get_transient('flickr_justified_api_call_count') ?: 0;
     }
 }
 
@@ -1169,5 +1174,4 @@ class FlickrJustifiedAdminSettings {
 FlickrJustifiedAdminSettings::init();
 
 // Handle cache clearing
-add_action('admin_init', [FlickrJustifiedAdminSettings::class, 'handle_cache_warm']);
 add_action('admin_init', [FlickrJustifiedAdminSettings::class, 'handle_cache_clear']);

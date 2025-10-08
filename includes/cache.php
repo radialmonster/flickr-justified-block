@@ -36,6 +36,11 @@ class FlickrJustifiedCache {
     private static $request_cache = [];
 
     /**
+     * Track API calls made during this request for rate limit monitoring
+     */
+    private static $api_calls_this_request = 0;
+
+    /**
      * Get configured cache duration in seconds
      */
     private static function get_duration() {
@@ -172,6 +177,48 @@ class FlickrJustifiedCache {
         return true;
     }
 
+    /**
+     * Increment API call counter (persistent across requests)
+     */
+    public static function increment_api_calls() {
+        self::$api_calls_this_request++;
+
+        $count = (int) get_transient('flickr_justified_api_call_count') ?: 0;
+        set_transient('flickr_justified_api_call_count', $count + 1, HOUR_IN_SECONDS);
+    }
+
+    /**
+     * Get total API calls made (persistent counter)
+     */
+    public static function get_api_call_count() {
+        return (int) get_transient('flickr_justified_api_call_count') ?: 0;
+    }
+
+    /**
+     * Check if response indicates rate limiting
+     * Returns true if rate limited, false otherwise
+     */
+    public static function is_rate_limited_response($response, $data = null) {
+        // Check HTTP status code
+        if (!is_wp_error($response)) {
+            $code = (int) wp_remote_retrieve_response_code($response);
+            if ($code === 429) {
+                return true;
+            }
+        }
+
+        // Check Flickr API error code
+        if (is_array($data) && isset($data['stat']) && $data['stat'] === 'fail') {
+            if (isset($data['code'])) {
+                // Flickr error code 17 = User not found (not rate limit)
+                // Flickr doesn't have a specific rate limit error code, but typically returns generic errors
+                // We'll rely on 429 HTTP status primarily
+            }
+        }
+
+        return false;
+    }
+
     // ========================================================================
     // FLICKR API CACHE METHODS
     // ========================================================================
@@ -217,17 +264,25 @@ class FlickrJustifiedCache {
             'user-agent' => 'WordPress Flickr Justified Block'
         ]);
 
+        // Track API call
+        self::increment_api_calls();
+
         if (is_wp_error($response)) {
             return [];
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        // Check for rate limiting
+        if (self::is_rate_limited_response($response, $data)) {
+            return ['rate_limited' => true];
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
         if ($response_code < 200 || $response_code >= 300) {
             return [];
         }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
 
         if (empty($data['photo']) || !is_array($data['photo'])) {
             return [];
@@ -380,17 +435,25 @@ class FlickrJustifiedCache {
             'user-agent' => 'WordPress Flickr Justified Block'
         ]);
 
+        // Track API call
+        self::increment_api_calls();
+
         if (is_wp_error($response)) {
             return [];
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        // Check for rate limiting
+        if (self::is_rate_limited_response($response, $data)) {
+            return ['rate_limited' => true];
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
         if ($response_code < 200 || $response_code >= 300) {
             return [];
         }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
 
         if (empty($data['sizes']['size'])) {
             return [];
@@ -523,17 +586,25 @@ class FlickrJustifiedCache {
             'user-agent' => 'WordPress Flickr Justified Block'
         ]);
 
+        // Track API call
+        self::increment_api_calls();
+
         if (is_wp_error($response)) {
             return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        // Check for rate limiting
+        if (self::is_rate_limited_response($response, $data)) {
+            return false; // Return false for user ID resolution
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
         if ($response_code < 200 || $response_code >= 300) {
             return false;
         }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
 
         if (json_last_error() !== JSON_ERROR_NONE || !isset($data['user']['id'])) {
             return false;
@@ -586,17 +657,25 @@ class FlickrJustifiedCache {
             'user-agent' => 'WordPress Flickr Justified Block'
         ]);
 
+        // Track API call
+        self::increment_api_calls();
+
         if (is_wp_error($response)) {
             return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        // Check for rate limiting
+        if (self::is_rate_limited_response($response, $data)) {
+            return ['rate_limited' => true];
         }
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
         if ($response_code < 200 || $response_code >= 300) {
             return false;
         }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
 
         if (json_last_error() !== JSON_ERROR_NONE || !isset($data['photoset'])) {
             return false;
@@ -661,12 +740,10 @@ class FlickrJustifiedCache {
             'user-agent' => 'WordPress Flickr Justified Block'
         ]);
 
-        if (is_wp_error($response)) {
-            return self::empty_photoset_result($page);
-        }
+        // Track API call
+        self::increment_api_calls();
 
-        $response_code = (int) wp_remote_retrieve_response_code($response);
-        if ($response_code < 200 || $response_code >= 300) {
+        if (is_wp_error($response)) {
             return self::empty_photoset_result($page);
         }
 
@@ -676,7 +753,18 @@ class FlickrJustifiedCache {
         }
 
         $data = json_decode($body, true);
+
+        // Check for rate limiting
+        if (self::is_rate_limited_response($response, $data)) {
+            return ['rate_limited' => true];
+        }
+
         if (json_last_error() !== JSON_ERROR_NONE) {
+            return self::empty_photoset_result($page);
+        }
+
+        $response_code = (int) wp_remote_retrieve_response_code($response);
+        if ($response_code < 200 || $response_code >= 300) {
             return self::empty_photoset_result($page);
         }
 
