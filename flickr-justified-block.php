@@ -436,7 +436,7 @@ class FlickrJustifiedBlock {
         }
 
         // Increment request counter
-        flickr_justified_set_transient($rate_limit_key, $current_requests + 1, 60); // 60 seconds
+        set_transient($rate_limit_key, $current_requests + 1, 60); // 60 seconds
 
         $user_id = $request->get_param('user_id');
         $photoset_id = $request->get_param('photoset_id');
@@ -652,6 +652,7 @@ class FlickrJustifiedBlock {
 }
 
 // Include required files first
+require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/render.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache-warmers.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/admin-settings.php';
