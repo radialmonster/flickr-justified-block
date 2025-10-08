@@ -710,18 +710,23 @@ class FlickrJustifiedAdminSettings {
                 wp_die(__('Insufficient permissions', 'flickr-justified-block'));
             }
 
+            $registry_transients = [];
+            $registry_site_transients = [];
+
             if (function_exists('flickr_justified_get_transient_registry')) {
                 $registry = flickr_justified_get_transient_registry();
 
                 if (!empty($registry)) {
                     foreach ($registry as $key => $type) {
                         if ('site' === $type) {
+                            $registry_site_transients[$key] = true;
                             if (function_exists('delete_site_transient')) {
                                 delete_site_transient($key);
                             }
                             continue;
                         }
 
+                        $registry_transients[$key] = true;
                         if (function_exists('delete_transient')) {
                             delete_transient($key);
                         }
@@ -735,18 +740,129 @@ class FlickrJustifiedAdminSettings {
 
             // Clear all transients that start with our prefix
             global $wpdb;
-            $wpdb->query(
-                $wpdb->prepare(
-                    "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
-                    '_transient_flickr_justified_%'
-                )
-            );
-            $wpdb->query(
-                $wpdb->prepare(
-                    "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
-                    '_transient_timeout_flickr_justified_%'
-                )
-            );
+
+            $transient_prefixes = [
+                '_transient_timeout_' => 'transient',
+                '_transient_' => 'transient',
+                '_site_transient_timeout_' => 'site',
+                '_site_transient_' => 'site',
+            ];
+
+            $like_patterns = [
+                '_transient_flickr_justified_%',
+                '_transient_timeout_flickr_justified_%',
+                '_site_transient_flickr_justified_%',
+                '_site_transient_timeout_flickr_justified_%',
+            ];
+
+            $found_transients = [];
+            $found_site_transients = [];
+
+            if (wp_using_ext_object_cache()) {
+                foreach ($like_patterns as $pattern) {
+                    $option_names = $wpdb->get_col(
+                        $wpdb->prepare(
+                            "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s",
+                            $pattern
+                        )
+                    );
+
+                    if (empty($option_names)) {
+                        continue;
+                    }
+
+                    foreach ($option_names as $option_name) {
+                        foreach ($transient_prefixes as $prefix => $type) {
+                            if (strpos($option_name, $prefix) !== 0) {
+                                continue;
+                            }
+
+                            $transient_key = substr($option_name, strlen($prefix));
+                            if ('' === $transient_key) {
+                                continue 2;
+                            }
+
+                            if ('site' === $type) {
+                                $found_site_transients[$transient_key] = true;
+                            } else {
+                                $found_transients[$transient_key] = true;
+                            }
+
+                            break;
+                        }
+                    }
+                }
+
+                if (is_multisite() && property_exists($wpdb, 'sitemeta')) {
+                    foreach (['_site_transient_flickr_justified_%', '_site_transient_timeout_flickr_justified_%'] as $pattern) {
+                        $meta_keys = $wpdb->get_col(
+                            $wpdb->prepare(
+                                "SELECT meta_key FROM {$wpdb->sitemeta} WHERE meta_key LIKE %s",
+                                $pattern
+                            )
+                        );
+
+                        if (empty($meta_keys)) {
+                            continue;
+                        }
+
+                        foreach ($meta_keys as $meta_key) {
+                            foreach ($transient_prefixes as $prefix => $type) {
+                                if (strpos($meta_key, $prefix) !== 0) {
+                                    continue;
+                                }
+
+                                $transient_key = substr($meta_key, strlen($prefix));
+                                if ('' === $transient_key) {
+                                    continue 2;
+                                }
+
+                                if ('site' === $type) {
+                                    $found_site_transients[$transient_key] = true;
+                                } else {
+                                    $found_transients[$transient_key] = true;
+                                }
+
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                foreach (array_keys($found_transients) as $transient_key) {
+                    if (!isset($registry_transients[$transient_key]) && function_exists('delete_transient')) {
+                        delete_transient($transient_key);
+                    }
+                }
+
+                foreach (array_keys($found_site_transients) as $transient_key) {
+                    if (!isset($registry_site_transients[$transient_key]) && function_exists('delete_site_transient')) {
+                        delete_site_transient($transient_key);
+                    }
+                }
+            } else {
+                foreach ($like_patterns as $pattern) {
+                    $wpdb->query(
+                        $wpdb->prepare(
+                            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                            $pattern
+                        )
+                    );
+                }
+
+                if (is_multisite() && property_exists($wpdb, 'sitemeta')) {
+                    foreach (['_site_transient_flickr_justified_%', '_site_transient_timeout_flickr_justified_%'] as $pattern) {
+                        $wpdb->query(
+                            $wpdb->prepare(
+                                "DELETE FROM {$wpdb->sitemeta} WHERE meta_key LIKE %s",
+                                $pattern
+                            )
+                        );
+                    }
+                }
+            }
+
+            self::log('Cleared Flickr Justified cache transients, including persistent stores.');
 
             wp_redirect(add_query_arg(['page' => 'flickr-justified-settings', 'cache-cleared' => '1'], admin_url('options-general.php')));
             exit;
@@ -754,7 +870,7 @@ class FlickrJustifiedAdminSettings {
 
         if (isset($_GET['cache-cleared'])) {
             add_action('admin_notices', function() {
-                echo '<div class="notice notice-success is-dismissible"><p>' . __('Flickr cache cleared successfully!', 'flickr-justified-block') . '</p></div>';
+                echo '<div class="notice notice-success is-dismissible"><p>' . __('Flickr cache (including persistent stores) cleared successfully!', 'flickr-justified-block') . '</p></div>';
             });
         }
     }
