@@ -444,24 +444,73 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     }
 
     $photo_id = $matches[1];
-    $photo_info = flickr_justified_get_photo_info($photo_id);
+    $requested_sizes_key = md5(implode(',', $requested_sizes));
+    $cache_suffix = '_' . $photo_id . '_' . $requested_sizes_key . '_' . (int) $needs_metadata;
+    $base_cache_key = 'flickr_justified_dims_payload' . $cache_suffix;
+
+    $cached_result = get_transient($base_cache_key);
+    $photo_info = null;
     $lastupdate = '';
 
-    if (isset($photo_info['dates']['lastupdate'])) {
-        $lastupdate = (string) $photo_info['dates']['lastupdate'];
+    if (is_array($cached_result) && !empty($cached_result)) {
+        flickr_justified_register_transient_key($base_cache_key);
+
+        $cached_lastupdate = '';
+        if (isset($cached_result['_lastupdate'])) {
+            $cached_lastupdate = (string) $cached_result['_lastupdate'];
+        }
+
+        if ('' !== $cached_lastupdate) {
+            $photo_info = flickr_justified_get_photo_info($photo_id);
+
+            if (!empty($photo_info) && isset($photo_info['dates']['lastupdate'])) {
+                $lastupdate = (string) $photo_info['dates']['lastupdate'];
+            }
+
+            if ('' === $lastupdate) {
+                $lastupdate = 'na';
+            }
+
+            if (empty($photo_info)) {
+                return $cached_result;
+            }
+
+            if ($cached_lastupdate === $lastupdate) {
+                return $cached_result;
+            }
+        }
+
+        // Fall through when no lastupdate was stored with the payload so that we can
+        // refresh the cache and capture the metadata for future checks.
+    }
+
+    if (null === $photo_info) {
+        $photo_info = flickr_justified_get_photo_info($photo_id);
+
+        if (isset($photo_info['dates']['lastupdate'])) {
+            $lastupdate = (string) $photo_info['dates']['lastupdate'];
+        }
     }
 
     if ('' === $lastupdate) {
         $lastupdate = 'na';
     }
 
-    $cache_key = 'flickr_justified_dims_' . $photo_id . '_' . md5(implode(',', $requested_sizes)) . '_' . (int) $needs_metadata . '_' . $lastupdate;
+    $versioned_cache_key = 'flickr_justified_dims_' . $cache_suffix . '_' . $lastupdate;
 
-    // Check cache first
-    $cached_result = get_transient($cache_key);
-    if (!empty($cached_result) && is_array($cached_result)) {
-        flickr_justified_register_transient_key($cache_key);
-        return $cached_result;
+    // Try loading the cached payload that matches the most recent lastupdate.
+    $versioned_cached_result = get_transient($versioned_cache_key);
+    if (is_array($versioned_cached_result) && !empty($versioned_cached_result)) {
+        flickr_justified_register_transient_key($versioned_cache_key);
+
+        $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
+        if ($cache_duration <= 0) {
+            $cache_duration = WEEK_IN_SECONDS;
+        }
+
+        flickr_justified_set_transient($base_cache_key, $versioned_cached_result, $cache_duration);
+
+        return $versioned_cached_result;
     }
 
     // Get API key from settings
@@ -527,7 +576,7 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
             }
         }
 
-        if ('na' !== $lastupdate) {
+        if (!isset($result['_lastupdate'])) {
             $result['_lastupdate'] = $lastupdate;
         }
 
@@ -536,7 +585,8 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
         if ($cache_duration <= 0) {
             $cache_duration = WEEK_IN_SECONDS;
         }
-        flickr_justified_set_transient($cache_key, $result, $cache_duration);
+        flickr_justified_set_transient($versioned_cache_key, $result, $cache_duration);
+        flickr_justified_set_transient($base_cache_key, $result, $cache_duration);
     }
 
     return $result;
