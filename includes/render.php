@@ -36,10 +36,6 @@ function flickr_justified_register_transient_key($transient, $is_site = false) {
         return;
     }
 
-    if (preg_match('/^flickr_justified_dims_.*_\d{9,}$/', $transient)) {
-        return;
-    }
-
     $option_name = flickr_justified_get_transient_registry_option_name();
     $registry    = get_option($option_name, []);
 
@@ -49,22 +45,77 @@ function flickr_justified_register_transient_key($transient, $is_site = false) {
 
     $type = $is_site ? 'site' : 'transient';
 
+    $registry_changed = false;
+    $removed_keys = [];
+
     if (isset($registry[$transient]) && $registry[$transient] === $type) {
         return;
     }
 
+    if (!$is_site && preg_match('/^(flickr_justified_dims_.*_)(?:\d{9,}|na)$/', $transient, $matches)) {
+        $versioned_prefix = $matches[1];
+
+        foreach ($registry as $registered_key => $registered_type) {
+            if (!is_string($registered_key) || $registered_key === $transient) {
+                continue;
+            }
+
+            if ('site' === $registered_type) {
+                continue;
+            }
+
+            if (preg_match('/^(flickr_justified_dims_.*_)(?:\d{9,}|na)$/', $registered_key, $registered_matches) &&
+                $registered_matches[1] === $versioned_prefix) {
+                unset($registry[$registered_key]);
+                $removed_keys[$registered_key] = $registered_type;
+                $registry_changed = true;
+            }
+        }
+    }
+
     $registry[$transient] = $type;
+    $registry_changed = true;
 
     $max_registry_size = 3000;
     $trim_size         = 100;
 
     if (count($registry) > $max_registry_size) {
-        $excess         = count($registry) - $max_registry_size;
-        $items_to_trim  = max($excess, $trim_size);
-        $registry       = array_slice($registry, $items_to_trim, null, true);
+        $excess        = count($registry) - $max_registry_size;
+        $items_to_trim = max($excess, $trim_size);
+        $keys_to_trim  = array_slice(array_keys($registry), 0, $items_to_trim);
+
+        foreach ($keys_to_trim as $key_to_trim) {
+            if (!array_key_exists($key_to_trim, $registry)) {
+                continue;
+            }
+
+            $removed_keys[$key_to_trim] = $registry[$key_to_trim];
+            unset($registry[$key_to_trim]);
+        }
+
+        $registry_changed = true;
+    }
+
+    if (!$registry_changed) {
+        return;
     }
 
     update_option($option_name, $registry, false);
+
+    if (!empty($removed_keys)) {
+        foreach ($removed_keys as $removed_key => $removed_type) {
+            if ('site' === $removed_type) {
+                if (function_exists('delete_site_transient')) {
+                    delete_site_transient($removed_key);
+                }
+                continue;
+            }
+
+            if (function_exists('delete_transient')) {
+                delete_transient($removed_key);
+            }
+        }
+    }
 }
 
 /**
