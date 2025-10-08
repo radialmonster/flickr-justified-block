@@ -196,10 +196,46 @@ function flickr_justified_get_size_label_map() {
             'small400'    => ['Small 400', 'Medium'],
             'small320'    => ['Small 320', 'Small 400', 'Medium'],
             'small240'    => ['Small', 'Small 320', 'Medium'],
+            'thumbnail100' => ['Thumbnail'],
+            'thumbnail150s' => ['Large Square 150', 'Large Square', 'Square'],
+            'thumbnail75s'  => ['Square 75', 'Square'],
         ];
     }
 
     return $size_mapping;
+}
+
+/**
+ * Retrieve the ordered list of Flickr size identifiers used throughout the plugin.
+ *
+ * @param bool $include_thumbnails When true, include square thumbnail sizes.
+ * @return array<int, string>
+ */
+function flickr_justified_get_available_flickr_sizes($include_thumbnails = false) {
+    static $standard_sizes = null;
+    static $sizes_with_thumbnails = null;
+
+    if (null === $standard_sizes) {
+        $standard_sizes = [
+            'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
+            'large2048', 'large1600', 'large1024', 'large',
+            'medium800', 'medium640', 'medium500', 'medium',
+            'small400', 'small320', 'small240',
+        ];
+    }
+
+    if (!$include_thumbnails) {
+        return $standard_sizes;
+    }
+
+    if (null === $sizes_with_thumbnails) {
+        $sizes_with_thumbnails = array_merge(
+            $standard_sizes,
+            ['thumbnail100', 'thumbnail150s', 'thumbnail75s']
+        );
+    }
+
+    return $sizes_with_thumbnails;
 }
 
 /**
@@ -1267,13 +1303,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
         }
 
         if ($is_flickr) {
-            $available_sizes = [
-                'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-                'large2048', 'large1600', 'large1024', 'large',
-                'medium800', 'medium640', 'medium500', 'medium',
-                'small400', 'small320', 'small240',
-                'thumbnail100', 'thumbnail150s', 'thumbnail75s'
-            ];
+            $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
 

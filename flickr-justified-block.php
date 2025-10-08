@@ -378,7 +378,7 @@ class FlickrJustifiedBlock {
                 return new WP_Error('function_missing', 'Required function not available', ['status' => 500]);
             }
 
-            $available_sizes = ['medium', 'large', 'large1600', 'original'];
+            $available_sizes = flickr_justified_get_available_flickr_sizes();
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes);
 
             if (empty($image_data)) {
@@ -530,12 +530,7 @@ class FlickrJustifiedBlock {
                     continue;
                 }
 
-                $available_sizes = [
-                    'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-                    'large2048', 'large1600', 'large1024', 'large',
-                    'medium800', 'medium640', 'medium500', 'medium',
-                    'small400', 'small320', 'small240',
-                ];
+                $available_sizes = flickr_justified_get_available_flickr_sizes();
                 $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
 
                 $photo_id = flickr_justified_extract_photo_id($photo_url);

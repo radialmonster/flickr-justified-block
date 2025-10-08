@@ -189,13 +189,7 @@ class FlickrJustifiedCacheWarmer {
 
         $url = trim($url);
 
-        $available_sizes = [
-            'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-            'large2048', 'large1600', 'large1024', 'large',
-            'medium800', 'medium640', 'medium500', 'medium',
-            'small400', 'small320', 'small240',
-            'thumbnail100', 'thumbnail150s', 'thumbnail75s',
-        ];
+        $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
         if (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
             if (!function_exists('flickr_justified_get_flickr_image_sizes_with_dimensions')) {
@@ -295,13 +289,7 @@ class FlickrJustifiedCacheWarmer {
                 return;
             }
 
-            $available_sizes = [
-                'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-                'large2048', 'large1600', 'large1024', 'large',
-                'medium800', 'medium640', 'medium500', 'medium',
-                'small400', 'small320', 'small240',
-                'thumbnail100', 'thumbnail150s', 'thumbnail75s',
-            ];
+            $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
             $key_suffix = md5(implode(',', $available_sizes));
             flickr_justified_register_transient_key('flickr_justified_dims_' . $photo_id . '_' . $key_suffix . '_1');
