@@ -179,7 +179,7 @@ class FlickrJustifiedCacheWarmer {
     /**
      * Warm a single Flickr URL.
      */
-    private static function warm_url($url) {
+    public static function warm_url($url) {
         if (!is_string($url) || '' === trim($url)) {
             return false;
         }

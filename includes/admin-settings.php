@@ -23,6 +23,8 @@ class FlickrJustifiedAdminSettings {
         add_action('admin_init', [__CLASS__, 'settings_init']);
         add_filter('plugin_action_links_' . plugin_basename(FLICKR_JUSTIFIED_PLUGIN_PATH . 'flickr-justified-block.php'), [__CLASS__, 'add_settings_link']);
         add_action('wp_ajax_test_flickr_api_key', [__CLASS__, 'test_api_key_ajax']);
+        add_action('wp_ajax_flickr_rebuild_urls', [__CLASS__, 'ajax_rebuild_urls']);
+        add_action('wp_ajax_flickr_warm_batch', [__CLASS__, 'ajax_warm_batch']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_scripts']);
     }
 
@@ -669,11 +671,89 @@ class FlickrJustifiedAdminSettings {
 
                 <h3><?php _e('Warm Cache', 'flickr-justified-block'); ?></h3>
                 <p><?php _e('Pre-fetch Flickr data for all your posts to make pages load faster. Run this after adding new posts or if pages are loading slowly.', 'flickr-justified-block'); ?></p>
-                <form method="post" action="" style="margin-bottom: 20px;">
-                    <?php wp_nonce_field('flickr_justified_warm_cache', 'flickr_justified_warm_cache_nonce'); ?>
-                    <input type="hidden" name="action" value="warm_flickr_cache" />
-                    <?php submit_button(__('Warm Cache Now', 'flickr-justified-block'), 'primary', 'warm_cache', false); ?>
-                </form>
+                <p><button type="button" id="flickr-warm-cache-btn" class="button button-primary"><?php _e('Warm Cache Now', 'flickr-justified-block'); ?></button></p>
+                <div id="flickr-warm-cache-progress" style="display: none; margin-top: 10px;">
+                    <div style="background: #f0f0f1; border: 1px solid #c3c4c7; border-radius: 4px; padding: 15px;">
+                        <p id="flickr-warm-cache-status"><?php _e('Initializing...', 'flickr-justified-block'); ?></p>
+                        <div style="background: #fff; height: 30px; border: 1px solid #c3c4c7; border-radius: 4px; overflow: hidden; margin: 10px 0;">
+                            <div id="flickr-warm-cache-bar" style="background: #2271b1; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <p id="flickr-warm-cache-details" style="font-size: 12px; color: #666;"></p>
+                    </div>
+                </div>
+                <script>
+                jQuery(document).ready(function($) {
+                    $('#flickr-warm-cache-btn').on('click', function() {
+                        var $btn = $(this);
+                        var $progress = $('#flickr-warm-cache-progress');
+                        var $status = $('#flickr-warm-cache-status');
+                        var $details = $('#flickr-warm-cache-details');
+                        var $bar = $('#flickr-warm-cache-bar');
+
+                        $btn.prop('disabled', true).text('<?php esc_attr_e('Processing...', 'flickr-justified-block'); ?>');
+                        $progress.show();
+                        $status.text('<?php esc_js(_e('Scanning posts for Flickr URLs...', 'flickr-justified-block')); ?>');
+
+                        // First, rebuild known URLs
+                        $.post(ajaxurl, {
+                            action: 'flickr_rebuild_urls',
+                            nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
+                        }, function(response) {
+                            if (response.success) {
+                                var queue = response.data.queue;
+                                var totalUrls = queue.length;
+                                var processed = 0;
+                                var batchSize = 5; // Process 5 URLs at a time
+
+                                $status.text('<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>');
+
+                                function processBatch(startIndex) {
+                                    if (startIndex >= totalUrls) {
+                                        // Done!
+                                        $bar.css('width', '100%');
+                                        $status.html('<strong style="color: #00a32a;">✓ <?php esc_js(_e('Complete!', 'flickr-justified-block')); ?></strong>');
+                                        $details.text('<?php esc_js(_e('Warmed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs. Pages should now load much faster!', 'flickr-justified-block')); ?>');
+                                        $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                        return;
+                                    }
+
+                                    var batch = queue.slice(startIndex, startIndex + batchSize);
+
+                                    $.post(ajaxurl, {
+                                        action: 'flickr_warm_batch',
+                                        urls: batch,
+                                        nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
+                                    }, function(batchResponse) {
+                                        if (batchResponse.success) {
+                                            processed += batchResponse.data.processed;
+                                            var percent = Math.round((processed / totalUrls) * 100);
+                                            $bar.css('width', percent + '%');
+                                            $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs...', 'flickr-justified-block')); ?>');
+
+                                            // Process next batch
+                                            processBatch(startIndex + batchSize);
+                                        } else {
+                                            $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (batchResponse.data || '<?php esc_js(_e('Unknown error', 'flickr-justified-block')); ?>'));
+                                            $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                        }
+                                    }).fail(function() {
+                                        $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Network error. Please try again.', 'flickr-justified-block')); ?></strong>');
+                                        $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                    });
+                                }
+
+                                processBatch(0);
+                            } else {
+                                $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (response.data || '<?php esc_js(_e('Could not scan posts', 'flickr-justified-block')); ?>'));
+                                $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                            }
+                        }).fail(function() {
+                            $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Network error. Please try again.', 'flickr-justified-block')); ?></strong>');
+                            $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                        });
+                    });
+                });
+                </script>
 
                 <h3><?php _e('Clear Cache', 'flickr-justified-block'); ?></h3>
                 <p><?php _e('If you\'re experiencing issues with images not updating, you can clear the cached Flickr data.', 'flickr-justified-block'); ?></p>
@@ -1020,6 +1100,68 @@ class FlickrJustifiedAdminSettings {
         } else {
             wp_send_json_error(['message' => 'Unexpected response from Flickr API']);
         }
+    }
+
+    /**
+     * AJAX handler to rebuild known URLs from posts.
+     */
+    public static function ajax_rebuild_urls() {
+        check_ajax_referer('flickr_warm_cache_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        if (!class_exists('FlickrJustifiedCacheWarmer')) {
+            wp_send_json_error('Cache warmer not available');
+        }
+
+        $map = FlickrJustifiedCacheWarmer::rebuild_known_urls();
+        $urls = [];
+        foreach ($map as $post_urls) {
+            if (is_array($post_urls)) {
+                $urls = array_merge($urls, $post_urls);
+            }
+        }
+
+        $unique_urls = array_values(array_unique($urls));
+        wp_send_json_success(['queue' => $unique_urls, 'count' => count($unique_urls)]);
+    }
+
+    /**
+     * AJAX handler to warm a batch of URLs.
+     */
+    public static function ajax_warm_batch() {
+        check_ajax_referer('flickr_warm_cache_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        if (!class_exists('FlickrJustifiedCacheWarmer')) {
+            wp_send_json_error('Cache warmer not available');
+        }
+
+        $urls = isset($_POST['urls']) ? $_POST['urls'] : [];
+        if (empty($urls) || !is_array($urls)) {
+            wp_send_json_error('No URLs provided');
+        }
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($urls as $url) {
+            if (FlickrJustifiedCacheWarmer::warm_url($url)) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        wp_send_json_success([
+            'processed' => $processed,
+            'failed' => $failed,
+            'total' => count($urls)
+        ]);
     }
 }
 
