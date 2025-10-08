@@ -444,7 +444,18 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
     }
 
     $photo_id = $matches[1];
-    $cache_key = 'flickr_justified_dims_' . $photo_id . '_' . md5(implode(',', $requested_sizes)) . '_' . (int) $needs_metadata;
+    $photo_info = flickr_justified_get_photo_info($photo_id);
+    $lastupdate = '';
+
+    if (isset($photo_info['dates']['lastupdate'])) {
+        $lastupdate = (string) $photo_info['dates']['lastupdate'];
+    }
+
+    if ('' === $lastupdate) {
+        $lastupdate = 'na';
+    }
+
+    $cache_key = 'flickr_justified_dims_' . $photo_id . '_' . md5(implode(',', $requested_sizes)) . '_' . (int) $needs_metadata . '_' . $lastupdate;
 
     // Check cache first
     $cached_result = get_transient($cache_key);
@@ -497,7 +508,9 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
 
     if (!empty($result)) {
         if ($needs_metadata) {
-            $photo_info = flickr_justified_get_photo_info($photo_id);
+            if (empty($photo_info)) {
+                $photo_info = flickr_justified_get_photo_info($photo_id, true);
+            }
 
             if (!empty($photo_info)) {
                 $result['_photo_info'] = $photo_info;
@@ -514,6 +527,10 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
             }
         }
 
+        if ('na' !== $lastupdate) {
+            $result['_lastupdate'] = $lastupdate;
+        }
+
         // Cache the results
         $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
         if ($cache_duration <= 0) {
@@ -526,7 +543,11 @@ function flickr_justified_get_flickr_image_sizes_with_dimensions($page_url, $req
 }
 
 /**
- * Map API sizes to requested sizes including dimensions
+ * Map API sizes to requested sizes including dimensions.
+ *
+ * @param array $api_sizes        Sizes returned by Flickr.
+ * @param array $requested_sizes Requested labels to map.
+ * @return array
  */
 function flickr_justified_map_api_sizes_to_requested_with_dims($api_sizes, $requested_sizes) {
     $size_mapping = flickr_justified_get_size_label_map();
@@ -654,10 +675,11 @@ function flickr_justified_get_photo_stats($photo_id) {
 /**
  * Retrieve extended Flickr photo information via the API.
  *
- * @param string $photo_id Flickr photo ID.
+ * @param string $photo_id      Flickr photo ID.
+ * @param bool   $force_refresh Whether to bypass the cache and request live data.
  * @return array Associative array of photo data from flickr.photos.getInfo.
  */
-function flickr_justified_get_photo_info($photo_id) {
+function flickr_justified_get_photo_info($photo_id, $force_refresh = false) {
     $photo_id = trim((string) $photo_id);
 
     if ('' === $photo_id) {
@@ -665,10 +687,12 @@ function flickr_justified_get_photo_info($photo_id) {
     }
 
     $cache_key = 'flickr_justified_photo_info_' . $photo_id;
-    $cached = get_transient($cache_key);
-    if (is_array($cached)) {
-        flickr_justified_register_transient_key($cache_key);
-        return $cached;
+    if (!$force_refresh) {
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            flickr_justified_register_transient_key($cache_key);
+            return $cached;
+        }
     }
 
     $api_key = flickr_justified_get_api_key();
