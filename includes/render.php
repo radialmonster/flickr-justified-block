@@ -846,6 +846,54 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
 }
 
 /**
+ * Check if block should use async loading to prevent timeouts.
+ * Returns true if URLs contain large uncached albums.
+ *
+ * @param string $urls Raw URL string from block
+ * @return bool True if should use async loading
+ */
+function flickr_justified_should_use_async_loading($urls) {
+    // Allow forcing synchronous render (e.g., when already in async context)
+    if (apply_filters('flickr_justified_force_sync_render', false)) {
+        return false;
+    }
+
+    if (empty($urls) || !is_string($urls)) {
+        return false;
+    }
+
+    // Parse URLs
+    $url_lines = array_filter(array_map('trim', preg_split('/\R/u', $urls)));
+    $final_urls = [];
+    foreach ($url_lines as $line) {
+        if (preg_match_all('/https?:\/\/[^\s]+/i', $line, $matches)) {
+            foreach ($matches[0] as $url) {
+                $final_urls[] = trim($url);
+            }
+        } else if (!empty($line)) {
+            $final_urls[] = $line;
+        }
+    }
+
+    // Check if any URLs are albums
+    foreach ($final_urls as $url) {
+        $set_info = flickr_justified_parse_set_url($url);
+        if ($set_info && !empty($set_info['photoset_id'])) {
+            // Quick check: is this album cached?
+            $cache_key = ['set_full', md5($set_info['user_id'] . '_' . $set_info['photoset_id'])];
+            $cached = FlickrJustifiedCache::get($cache_key);
+
+            if (empty($cached)) {
+                // Album not cached - use async loading to prevent timeout
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Render the Flickr Justified block
  *
  * @param array $attributes Block attributes
@@ -855,6 +903,64 @@ function flickr_justified_render_block($attributes) {
     $urls = isset($attributes['urls']) ? trim($attributes['urls']) : '';
     $gap = isset($attributes['gap']) ? max(0, (int) $attributes['gap']) : 12;
     $image_size = isset($attributes['imageSize']) ? $attributes['imageSize'] : 'large';
+
+    // Check if we should use async loading (for large uncached albums to prevent timeouts)
+    $use_async_loading = flickr_justified_should_use_async_loading($urls);
+
+    if ($use_async_loading) {
+        // Return loading placeholder that will load via AJAX
+        $block_id = 'flickr-justified-async-' . uniqid();
+        $attributes_json = wp_json_encode($attributes);
+
+        return sprintf(
+            '<div id="%s" class="flickr-justified-loading" data-attributes="%s" style="padding: 40px; text-align: center; background: #f0f0f1; border-radius: 4px;">
+                <p style="margin: 0; color: #666;"><span class="dashicons dashicons-update-alt" style="animation: rotation 2s infinite linear; font-size: 24px;"></span></p>
+                <p style="margin: 10px 0 0 0; color: #666;">%s</p>
+                <style>@keyframes rotation { from { transform: rotate(0deg); } to { transform: rotate(359deg); } }</style>
+            </div>
+            <script>
+            (function() {
+                var container = document.getElementById("%s");
+                if (!container) return;
+
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", "%s", true);
+                xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        try {
+                            var response = JSON.parse(xhr.responseText);
+                            if (response.success && response.data && response.data.html) {
+                                container.outerHTML = response.data.html;
+                                // Trigger resize to initialize justified layout
+                                if (window.flickrJustifiedInitBlock) {
+                                    var newBlock = document.querySelector(".flickr-justified-grid");
+                                    if (newBlock) window.flickrJustifiedInitBlock(newBlock);
+                                }
+                            } else {
+                                container.innerHTML = "<p style=\"color: #d63638;\">Error loading gallery</p>";
+                            }
+                        } catch(e) {
+                            container.innerHTML = "<p style=\"color: #d63638;\">Error: " + e.message + "</p>";
+                        }
+                    } else {
+                        container.innerHTML = "<p style=\"color: #d63638;\">Network error loading gallery</p>";
+                    }
+                };
+                xhr.onerror = function() {
+                    container.innerHTML = "<p style=\"color: #d63638;\">Network error loading gallery</p>";
+                };
+                xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
+            })();
+            </script>',
+            esc_attr($block_id),
+            esc_attr($attributes_json),
+            esc_html__('Loading gallery...', 'flickr-justified-block'),
+            esc_js($block_id),
+            esc_url(admin_url('admin-ajax.php')),
+            wp_json_encode($attributes_json)
+        );
+    }
 
     // Get configured default responsive settings from admin, with fallback
     $default_responsive = flickr_justified_get_admin_setting('get_configured_default_responsive_settings', []);
@@ -1115,3 +1221,35 @@ function flickr_justified_render_block($attributes) {
         ]
     );
 }
+
+/**
+ * AJAX handler for async block loading.
+ * Renders the block asynchronously to prevent gateway timeouts.
+ */
+function flickr_justified_ajax_load_async() {
+    // No nonce check needed - this is public content rendering
+    // The same content would be visible on page load
+
+    if (!isset($_POST['attributes'])) {
+        wp_send_json_error('No attributes provided');
+    }
+
+    $attributes_json = stripslashes($_POST['attributes']);
+    $attributes = json_decode($attributes_json, true);
+
+    if (!is_array($attributes)) {
+        wp_send_json_error('Invalid attributes');
+    }
+
+    // Temporarily disable async loading to render normally
+    // (we're already in async context, no need to recurse)
+    add_filter('flickr_justified_force_sync_render', '__return_true');
+
+    $html = flickr_justified_render_block($attributes);
+
+    remove_filter('flickr_justified_force_sync_render', '__return_true');
+
+    wp_send_json_success(['html' => $html]);
+}
+add_action('wp_ajax_flickr_justified_load_async', 'flickr_justified_ajax_load_async');
+add_action('wp_ajax_nopriv_flickr_justified_load_async', 'flickr_justified_ajax_load_async');
