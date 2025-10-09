@@ -150,6 +150,7 @@ class FlickrJustifiedCacheWarmer {
         $processed = 0;
         $attempted = 0;
         $remaining = [];
+        $rate_limited = false;
 
         foreach ($queue as $url) {
             if (!$process_all && $attempted >= $batch_size) {
@@ -159,18 +160,41 @@ class FlickrJustifiedCacheWarmer {
 
             $attempted++;
 
-            if (self::warm_url($url)) {
+            $result = self::warm_url($url);
+
+            if ($result === 'rate_limited') {
+                // Rate limited - stop processing and keep this URL for retry
+                $rate_limited = true;
+                $remaining[] = $url;
+
+                // Add all remaining URLs back to queue
+                for ($i = $attempted; $i < count($queue); $i++) {
+                    $remaining[] = $queue[$i];
+                }
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr cache warmer: Rate limited at URL ' . $attempted . ', scheduling retry in 1 hour');
+                }
+                break;
+            } elseif ($result) {
                 $processed++;
                 continue;
             }
 
+            // Failed for other reasons - keep in queue for retry
             $remaining[] = $url;
         }
 
         self::save_queue($remaining);
 
         if (!$process_all && !empty($remaining)) {
-            self::schedule_next_batch(self::get_delay_interval());
+            if ($rate_limited) {
+                // Schedule retry in 1 hour when rate limited
+                self::schedule_next_batch(HOUR_IN_SECONDS);
+            } else {
+                // Normal delay between batches
+                self::schedule_next_batch(self::get_delay_interval());
+            }
         }
 
         return $processed;
