@@ -745,8 +745,10 @@ class FlickrJustifiedAdminSettings {
                                             if (data.rate_limited) {
                                                 var diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
                                                 var pauseSeconds = 60; // Pause for 60 seconds
-                                                $status.html('⏸ <?php esc_js(_e('Rate limit detected. Pausing for', 'flickr-justified-block')); ?> ' + pauseSeconds + ' <?php esc_js(_e('seconds...', 'flickr-justified-block')); ?>' + diagnosticMsg);
-                                                $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>');
+                                                var pauseMinutes = Math.round(pauseSeconds / 60);
+                                                $status.html('⏸ <?php esc_js(_e('Rate limit detected. Will retry in', 'flickr-justified-block')); ?> ' + pauseMinutes + ' <?php esc_js(_e('minute(s)...', 'flickr-justified-block')); ?>' + diagnosticMsg);
+                                                $details.html('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
+                                                    '<em style="color: #666;"><?php esc_js(_e('Manual warming will retry automatically. You can close this page - the automatic background warmer will continue.', 'flickr-justified-block')); ?></em>');
 
                                                 // Wait and retry same batch
                                                 setTimeout(function() {
@@ -770,7 +772,15 @@ class FlickrJustifiedAdminSettings {
                                             if (status === 'timeout') {
                                                 errorMsg = '<?php esc_js(_e('Request timed out. Large albums may take several minutes.', 'flickr-justified-block')); ?>';
                                             }
+
                                             $status.html('<strong style="color: #d63638;">✗ ' + errorMsg + '</strong>');
+
+                                            // Show progress and next steps
+                                            if (processed > 0) {
+                                                $details.html('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
+                                                    '<em style="color: #666;"><?php esc_js(_e('The automatic background warmer will continue processing remaining URLs.', 'flickr-justified-block')); ?></em>');
+                                            }
+
                                             $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
                                         }
                                     });
