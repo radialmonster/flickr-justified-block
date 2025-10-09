@@ -1143,44 +1143,10 @@ class FlickrJustifiedAdminSettings {
             wp_send_json_error('No URLs provided');
         }
 
-        // Track API call count
-        $api_call_count_before = self::get_api_call_count();
+        // Delegate to cache warmer's batch processing method
+        $result = FlickrJustifiedCacheWarmer::warm_batch($urls);
 
-        $processed = 0;
-        $failed = 0;
-        $rate_limited = false;
-
-        foreach ($urls as $url) {
-            $result = FlickrJustifiedCacheWarmer::warm_url($url);
-
-            if ($result === 'rate_limited') {
-                $rate_limited = true;
-                break; // Stop processing this batch
-            } elseif ($result) {
-                $processed++;
-            } else {
-                $failed++;
-            }
-        }
-
-        $api_call_count_after = self::get_api_call_count();
-        $api_calls_made = $api_call_count_after - $api_call_count_before;
-
-        wp_send_json_success([
-            'processed' => $processed,
-            'failed' => $failed,
-            'total' => count($urls),
-            'rate_limited' => $rate_limited,
-            'api_calls' => $api_calls_made
-        ]);
-    }
-
-    /**
-     * Get current API call count from a tracking transient.
-     * Returns 0 if not set.
-     */
-    private static function get_api_call_count() {
-        return (int) get_transient('flickr_justified_api_call_count') ?: 0;
+        wp_send_json_success($result);
     }
 }
 
