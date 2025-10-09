@@ -671,6 +671,7 @@ class FlickrJustifiedAdminSettings {
 
                 <h3><?php _e('Warm Cache', 'flickr-justified-block'); ?></h3>
                 <p><?php _e('Pre-fetch Flickr data for all your posts to make pages load faster. Run this after adding new posts or if pages are loading slowly.', 'flickr-justified-block'); ?></p>
+                <p style="font-size: 12px; color: #666;"><strong><?php _e('Note:', 'flickr-justified-block'); ?></strong> <?php _e('Flickr API has a rate limit of 3600 calls per hour. If you see "Rate limit detected" immediately, you may have hit this limit from previous warming attempts. Wait an hour and try again.', 'flickr-justified-block'); ?></p>
                 <p><button type="button" id="flickr-warm-cache-btn" class="button button-primary"><?php _e('Warm Cache Now', 'flickr-justified-block'); ?></button></p>
                 <div id="flickr-warm-cache-progress" style="display: none; margin-top: 10px;">
                     <div style="background: #f0f0f1; border: 1px solid #c3c4c7; border-radius: 4px; padding: 15px;">
@@ -742,8 +743,9 @@ class FlickrJustifiedAdminSettings {
 
                                             // Check if we hit rate limit
                                             if (data.rate_limited) {
+                                                var diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
                                                 var pauseSeconds = 60; // Pause for 60 seconds
-                                                $status.html('⏸ <?php esc_js(_e('Rate limit detected. Pausing for', 'flickr-justified-block')); ?> ' + pauseSeconds + ' <?php esc_js(_e('seconds...', 'flickr-justified-block')); ?>');
+                                                $status.html('⏸ <?php esc_js(_e('Rate limit detected. Pausing for', 'flickr-justified-block')); ?> ' + pauseSeconds + ' <?php esc_js(_e('seconds...', 'flickr-justified-block')); ?>' + diagnosticMsg);
                                                 $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>');
 
                                                 // Wait and retry same batch

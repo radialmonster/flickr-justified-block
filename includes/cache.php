@@ -203,6 +203,9 @@ class FlickrJustifiedCache {
         if (!is_wp_error($response)) {
             $code = (int) wp_remote_retrieve_response_code($response);
             if ($code === 429) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr rate limit detected: HTTP 429');
+                }
                 return true;
             }
         }
@@ -213,6 +216,9 @@ class FlickrJustifiedCache {
                 // Flickr error code 17 = User not found (not rate limit)
                 // Flickr doesn't have a specific rate limit error code, but typically returns generic errors
                 // We'll rely on 429 HTTP status primarily
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr API error response: ' . print_r($data, true));
+                }
             }
         }
 
@@ -287,6 +293,11 @@ class FlickrJustifiedCache {
 
         if (!empty($errors) && defined('WP_DEBUG') && WP_DEBUG) {
             $result['errors'] = $errors;
+        }
+
+        // Add diagnostic info when rate limited happens very quickly
+        if ($rate_limited && $api_calls_made <= 2) {
+            $result['diagnostic'] = 'Rate limit hit after only ' . $api_calls_made . ' API call(s). This may indicate you hit the limit from previous attempts, or Flickr is returning HTTP 429.';
         }
 
         return $result;

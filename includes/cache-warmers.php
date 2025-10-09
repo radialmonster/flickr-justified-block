@@ -190,6 +190,10 @@ class FlickrJustifiedCacheWarmer {
 
         $url = trim($url);
 
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr warm_url processing: ' . $url);
+        }
+
         // Check if this is a photo URL
         if (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
             // Extract photo ID from URL
