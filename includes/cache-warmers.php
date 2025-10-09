@@ -178,13 +178,12 @@ class FlickrJustifiedCacheWarmer {
 
     /**
      * Warm a single Flickr URL (used by cron and manual warming).
+     * Always warms ALL pages of albums for complete coverage.
      *
      * @param string $url The Flickr URL to warm.
-     * @param bool $quick_mode If true, only warm first page of albums (for manual warming).
-     *                         If false, warm all pages (for background cron).
      * @return bool|string True on success, 'rate_limited' on rate limit, false on failure.
      */
-    public static function warm_url($url, $quick_mode = false) {
+    public static function warm_url($url) {
         if (!is_string($url) || '' === trim($url)) {
             return false;
         }
@@ -244,12 +243,8 @@ class FlickrJustifiedCacheWarmer {
         $page = 1;
         $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
-        // In quick mode (manual warming), only fetch first page to prevent timeouts
-        // In background mode (cron), fetch all pages for complete coverage
-        $max_pages = $quick_mode ? 1 : 999;
-
-        // Loop through pages of the album
-        while ($page <= $max_pages) {
+        // Loop through ALL pages of the album for complete coverage
+        while (true) {
             $result = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $page, $per_page);
 
             // Check for rate limiting in photoset call
@@ -302,7 +297,7 @@ class FlickrJustifiedCacheWarmer {
             }
 
             // Check if there are more pages
-            if (!$quick_mode && isset($result['has_more']) && $result['has_more']) {
+            if (isset($result['has_more']) && $result['has_more']) {
                 $page++;
             } else {
                 break;
