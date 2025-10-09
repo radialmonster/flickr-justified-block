@@ -703,7 +703,7 @@ class FlickrJustifiedAdminSettings {
                                 var queue = response.data.queue;
                                 var totalUrls = queue.length;
                                 var processed = 0;
-                                var batchSize = 2; // Process 2 URLs at a time (albums with 200+ photos need time)
+                                var batchSize = 1; // Process 1 URL at a time (albums with 200+ photos need time)
                                 var totalApiCalls = 0;
 
                                 $status.text('<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>');
@@ -1144,9 +1144,21 @@ class FlickrJustifiedAdminSettings {
         }
 
         // Delegate to cache.php for manual batch warming
-        $result = FlickrJustifiedCache::warm_batch($urls);
+        try {
+            $result = FlickrJustifiedCache::warm_batch($urls);
 
-        wp_send_json_success($result);
+            // Log any errors if WP_DEBUG is enabled
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr warm_batch result: ' . print_r($result, true));
+            }
+
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr warm_batch exception: ' . $e->getMessage());
+            }
+            wp_send_json_error('Error warming cache: ' . $e->getMessage());
+        }
     }
 }
 

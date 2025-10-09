@@ -246,32 +246,50 @@ class FlickrJustifiedCache {
         $processed = 0;
         $failed = 0;
         $rate_limited = false;
+        $errors = [];
 
         foreach ($urls as $url) {
-            // Delegate to cache-warmers.php for actual warming logic
-            // Always warms ALL pages of albums (both manual and cron)
-            $result = FlickrJustifiedCacheWarmer::warm_url($url);
+            try {
+                // Delegate to cache-warmers.php for actual warming logic
+                // Always warms ALL pages of albums (both manual and cron)
+                $result = FlickrJustifiedCacheWarmer::warm_url($url);
 
-            if ($result === 'rate_limited') {
-                $rate_limited = true;
-                break; // Stop processing this batch
-            } elseif ($result) {
-                $processed++;
-            } else {
+                if ($result === 'rate_limited') {
+                    $rate_limited = true;
+                    break; // Stop processing this batch
+                } elseif ($result) {
+                    $processed++;
+                } else {
+                    $failed++;
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        $errors[] = 'Failed to warm: ' . $url;
+                    }
+                }
+            } catch (Exception $e) {
                 $failed++;
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    $errors[] = 'Exception for ' . $url . ': ' . $e->getMessage();
+                    error_log('Flickr warm_batch exception: ' . $e->getMessage() . ' for URL: ' . $url);
+                }
             }
         }
 
         $api_call_count_after = self::get_api_call_count();
         $api_calls_made = $api_call_count_after - $api_call_count_before;
 
-        return [
+        $result = [
             'processed' => $processed,
             'failed' => $failed,
             'total' => count($urls),
             'rate_limited' => $rate_limited,
             'api_calls' => $api_calls_made
         ];
+
+        if (!empty($errors) && defined('WP_DEBUG') && WP_DEBUG) {
+            $result['errors'] = $errors;
+        }
+
+        return $result;
     }
 
     // ========================================================================
@@ -442,7 +460,7 @@ class FlickrJustifiedCache {
      * Get photo dimensions and URLs for all requested sizes
      * OPTIMIZED: Only fetches photo_info once if needed
      */
-    public static function get_photo_sizes($photo_id, $page_url, $requested_sizes = ['large', 'original'], $needs_metadata = false) {
+    public static function get_photo_sizes($photo_id, $page_url, $requested_sizes = ['large', 'original'], $needs_metadata = false, $force_refresh = false) {
         $photo_id = trim((string) $photo_id);
         if ('' === $photo_id) {
             return [];
@@ -452,16 +470,18 @@ class FlickrJustifiedCache {
         $requested_sizes_key = md5(implode(',', $requested_sizes));
         $cache_suffix = ['dims', $photo_id, $requested_sizes_key, (int) $needs_metadata];
 
-        // Try base cache key first
+        // Try base cache key first (skip if force refresh)
         $base_cache_key = $cache_suffix;
-        $cached_result = self::get($base_cache_key);
-        if (is_array($cached_result)) {
-            // Check if this is a negative cache entry (photo not found/private)
-            if (isset($cached_result['not_found']) && $cached_result['not_found']) {
-                return []; // Return empty array, don't retry API call
-            }
-            if (!empty($cached_result)) {
-                return $cached_result;
+        if (!$force_refresh) {
+            $cached_result = self::get($base_cache_key);
+            if (is_array($cached_result)) {
+                // Check if this is a negative cache entry (photo not found/private)
+                if (isset($cached_result['not_found']) && $cached_result['not_found']) {
+                    return []; // Return empty array, don't retry API call
+                }
+                if (!empty($cached_result)) {
+                    return $cached_result;
+                }
             }
         }
 
@@ -488,12 +508,14 @@ class FlickrJustifiedCache {
             $lastupdate = 'na';
         }
 
-        // Try versioned cache key
-        $versioned_cache_key = array_merge($cache_suffix, [$lastupdate]);
-        $versioned_cached_result = self::get($versioned_cache_key);
-        if (is_array($versioned_cached_result) && !empty($versioned_cached_result)) {
-            self::set($base_cache_key, $versioned_cached_result);
-            return $versioned_cached_result;
+        // Try versioned cache key (skip if force refresh)
+        if (!$force_refresh) {
+            $versioned_cache_key = array_merge($cache_suffix, [$lastupdate]);
+            $versioned_cached_result = self::get($versioned_cache_key);
+            if (is_array($versioned_cached_result) && !empty($versioned_cached_result)) {
+                self::set($base_cache_key, $versioned_cached_result);
+                return $versioned_cached_result;
+            }
         }
 
         // Fetch from API

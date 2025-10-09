@@ -200,29 +200,36 @@ class FlickrJustifiedCacheWarmer {
 
             $success = false;
 
-            // Warm photo sizes and metadata using cache.php directly
-            $available_sizes = flickr_justified_get_available_flickr_sizes(true);
-            $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $url, $available_sizes, true);
+            try {
+                // Warm photo sizes and metadata using cache.php directly
+                $available_sizes = flickr_justified_get_available_flickr_sizes(true);
+                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $url, $available_sizes, true, true);
 
-            // Check for rate limiting
-            if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
-                return 'rate_limited';
-            }
+                // Check for rate limiting
+                if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+                    return 'rate_limited';
+                }
 
-            if (!empty($data)) {
-                $success = true;
-            }
+                if (!empty($data)) {
+                    $success = true;
+                }
 
-            // Warm photo stats using cache.php directly
-            $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
+                // Warm photo stats using cache.php directly
+                $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
 
-            // Check for rate limiting in stats call
-            if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
-                return 'rate_limited';
-            }
+                // Check for rate limiting in stats call
+                if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
+                    return 'rate_limited';
+                }
 
-            if (!empty($stats)) {
-                $success = true;
+                if (!empty($stats)) {
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Flickr warm_url photo error: ' . $e->getMessage());
+                }
+                return false;
             }
 
             return $success;
@@ -238,73 +245,80 @@ class FlickrJustifiedCacheWarmer {
             return false;
         }
 
-        $per_page = 50;
-        $success = false;
-        $page = 1;
-        $available_sizes = flickr_justified_get_available_flickr_sizes(true);
+        try {
+            $per_page = 50;
+            $success = false;
+            $page = 1;
+            $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
-        // Loop through ALL pages of the album for complete coverage
-        while (true) {
-            $result = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $page, $per_page);
+            // Loop through ALL pages of the album for complete coverage
+            while (true) {
+                $result = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $page, $per_page);
 
-            // Check for rate limiting in photoset call
-            if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
-                return 'rate_limited';
-            }
-
-            if (empty($result) || empty($result['photos']) || !is_array($result['photos'])) {
-                break;
-            }
-
-            $photos = array_values($result['photos']);
-
-            // Warm each photo in this page using cache.php directly
-            foreach ($photos as $photo_url) {
-                $photo_url = trim((string) $photo_url);
-                if ('' === $photo_url) {
-                    continue;
-                }
-
-                // Extract photo ID from photo URL
-                if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $photo_url, $matches)) {
-                    continue;
-                }
-                $photo_id = $matches[1];
-
-                // Warm photo sizes and metadata
-                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $photo_url, $available_sizes, true);
-
-                // Check for rate limiting
-                if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+                // Check for rate limiting in photoset call
+                if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
                     return 'rate_limited';
                 }
 
-                if (!empty($data)) {
-                    $success = true;
+                if (empty($result) || empty($result['photos']) || !is_array($result['photos'])) {
+                    break;
                 }
 
-                // Warm photo stats
-                $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
+                $photos = array_values($result['photos']);
 
-                // Check for rate limiting in stats call
-                if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
-                    return 'rate_limited';
+                // Warm each photo in this page using cache.php directly
+                foreach ($photos as $photo_url) {
+                    $photo_url = trim((string) $photo_url);
+                    if ('' === $photo_url) {
+                        continue;
+                    }
+
+                    // Extract photo ID from photo URL
+                    if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $photo_url, $matches)) {
+                        continue;
+                    }
+                    $photo_id = $matches[1];
+
+                    // Warm photo sizes and metadata
+                    $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $photo_url, $available_sizes, true, true);
+
+                    // Check for rate limiting
+                    if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
+                        return 'rate_limited';
+                    }
+
+                    if (!empty($data)) {
+                        $success = true;
+                    }
+
+                    // Warm photo stats
+                    $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
+
+                    // Check for rate limiting in stats call
+                    if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
+                        return 'rate_limited';
+                    }
+
+                    if (!empty($stats)) {
+                        $success = true;
+                    }
                 }
 
-                if (!empty($stats)) {
-                    $success = true;
+                // Check if there are more pages
+                if (isset($result['has_more']) && $result['has_more']) {
+                    $page++;
+                } else {
+                    break;
                 }
             }
 
-            // Check if there are more pages
-            if (isset($result['has_more']) && $result['has_more']) {
-                $page++;
-            } else {
-                break;
+            return $success;
+        } catch (Exception $e) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr warm_url album error: ' . $e->getMessage() . ' for URL: ' . $url);
             }
+            return false;
         }
-
-        return $success;
     }
 
 
