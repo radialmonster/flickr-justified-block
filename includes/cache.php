@@ -249,7 +249,8 @@ class FlickrJustifiedCache {
 
         foreach ($urls as $url) {
             // Delegate to cache-warmers.php for actual warming logic
-            $result = FlickrJustifiedCacheWarmer::warm_url($url);
+            // Use quick_mode=true for manual warming (first page of albums only)
+            $result = FlickrJustifiedCacheWarmer::warm_url($url, true);
 
             if ($result === 'rate_limited') {
                 $rate_limited = true;

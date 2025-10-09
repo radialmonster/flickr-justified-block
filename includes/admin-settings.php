@@ -703,7 +703,7 @@ class FlickrJustifiedAdminSettings {
                                 var queue = response.data.queue;
                                 var totalUrls = queue.length;
                                 var processed = 0;
-                                var batchSize = 3; // Process 3 URLs at a time (large albums can take 60+ seconds each)
+                                var batchSize = 10; // Process 10 URLs at a time (quick mode only warms first 50 photos per album)
                                 var totalApiCalls = 0;
 
                                 $status.text('<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>');
