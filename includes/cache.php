@@ -519,9 +519,11 @@ class FlickrJustifiedCache {
             $lastupdate = 'na';
         }
 
+        // Build versioned cache key
+        $versioned_cache_key = array_merge($cache_suffix, [$lastupdate]);
+
         // Try versioned cache key (skip if force refresh)
         if (!$force_refresh) {
-            $versioned_cache_key = array_merge($cache_suffix, [$lastupdate]);
             $versioned_cached_result = self::get($versioned_cache_key);
             if (is_array($versioned_cached_result) && !empty($versioned_cached_result)) {
                 self::set($base_cache_key, $versioned_cached_result);
