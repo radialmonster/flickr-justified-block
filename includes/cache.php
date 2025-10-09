@@ -220,6 +220,60 @@ class FlickrJustifiedCache {
     }
 
     // ========================================================================
+    // CACHE WARMING METHODS
+    // ========================================================================
+
+    /**
+     * Warm a batch of URLs for manual cache warming (AJAX).
+     *
+     * @param array $urls Array of URLs to warm.
+     * @return array Result with processed, failed, rate_limited, and api_calls counts.
+     */
+    public static function warm_batch($urls) {
+        if (!is_array($urls)) {
+            return [
+                'processed' => 0,
+                'failed' => 0,
+                'total' => 0,
+                'rate_limited' => false,
+                'api_calls' => 0
+            ];
+        }
+
+        // Track API call count
+        $api_call_count_before = self::get_api_call_count();
+
+        $processed = 0;
+        $failed = 0;
+        $rate_limited = false;
+
+        foreach ($urls as $url) {
+            // Delegate to cache-warmers.php for actual warming logic
+            $result = FlickrJustifiedCacheWarmer::warm_url($url);
+
+            if ($result === 'rate_limited') {
+                $rate_limited = true;
+                break; // Stop processing this batch
+            } elseif ($result) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        $api_call_count_after = self::get_api_call_count();
+        $api_calls_made = $api_call_count_after - $api_call_count_before;
+
+        return [
+            'processed' => $processed,
+            'failed' => $failed,
+            'total' => count($urls),
+            'rate_limited' => $rate_limited,
+            'api_calls' => $api_calls_made
+        ];
+    }
+
+    // ========================================================================
     // FLICKR API CACHE METHODS
     // ========================================================================
 

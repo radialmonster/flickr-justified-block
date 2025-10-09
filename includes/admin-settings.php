@@ -1143,8 +1143,8 @@ class FlickrJustifiedAdminSettings {
             wp_send_json_error('No URLs provided');
         }
 
-        // Delegate to cache warmer's batch processing method
-        $result = FlickrJustifiedCacheWarmer::warm_batch($urls);
+        // Delegate to cache.php for manual batch warming
+        $result = FlickrJustifiedCache::warm_batch($urls);
 
         wp_send_json_success($result);
     }
