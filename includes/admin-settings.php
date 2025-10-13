@@ -872,26 +872,16 @@ class FlickrJustifiedAdminSettings {
         $encrypted_api_key = isset($options['api_key']) ? $options['api_key'] : '';
 
         if (empty($encrypted_api_key)) {
-            self::log('No encrypted API key found in options');
             return '';
         }
 
-        // Try to decrypt the API key
+        // Decrypt the API key
         $decrypted_key = self::decrypt_api_key($encrypted_api_key);
 
-        // If decryption fails, the key might be stored in plain text (legacy)
         if (empty($decrypted_key)) {
-            self::log('Decryption failed, checking if legacy plain text key');
-            // Check if it looks like a plain text API key (not base64 encrypted)
-            if (!preg_match('/^[A-Za-z0-9+\/]+=*$/', $encrypted_api_key)) {
-                self::log('Using legacy plain text API key');
-                return trim($encrypted_api_key); // Return as-is for legacy compatibility
-            }
-            self::log('API key looks encrypted but decryption failed');
             return '';
         }
 
-        self::log('Successfully decrypted API key, length: ' . strlen($decrypted_key));
         return trim($decrypted_key);
     }
 
