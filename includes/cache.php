@@ -501,7 +501,8 @@ class FlickrJustifiedCache {
         $photo_info = [];
         if ($needs_metadata) {
             // If metadata needed, fetch photo_info now and reuse it
-            $photo_info = self::get_photo_info($photo_id);
+            // IMPORTANT: Pass force_refresh to ensure we get fresh photo_info when cache is cleared
+            $photo_info = self::get_photo_info($photo_id, $force_refresh);
         } else {
             // Just check if we have it cached (don't fetch if not needed)
             $info_cache_key = ['photo_info', $photo_id];
