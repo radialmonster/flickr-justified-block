@@ -502,41 +502,9 @@ class FlickrJustifiedCache {
             }
         }
 
-        // Get photo info ONCE (will use cache if available)
-        // We need this for lastupdate timestamp for versioning
-        $photo_info = [];
-        if ($needs_metadata) {
-            // If metadata needed, fetch photo_info now and reuse it
-            // IMPORTANT: Pass force_refresh to ensure we get fresh photo_info when cache is cleared
-            $photo_info = self::get_photo_info($photo_id, $force_refresh);
-        } else {
-            // Just check if we have it cached (don't fetch if not needed)
-            $info_cache_key = ['photo_info', $photo_id];
-            $photo_info = self::get($info_cache_key);
-            if (false === $photo_info) {
-                $photo_info = [];
-            }
-        }
-
-        $lastupdate = '';
-        if (isset($photo_info['dates']['lastupdate'])) {
-            $lastupdate = (string) $photo_info['dates']['lastupdate'];
-        }
-        if ('' === $lastupdate) {
-            $lastupdate = 'na';
-        }
-
-        // Build versioned cache key
-        $versioned_cache_key = array_merge($cache_suffix, [$lastupdate]);
-
-        // Try versioned cache key (skip if force refresh)
-        if (!$force_refresh) {
-            $versioned_cached_result = self::get($versioned_cache_key);
-            if (is_array($versioned_cached_result) && !empty($versioned_cached_result)) {
-                self::set($base_cache_key, $versioned_cached_result);
-                return $versioned_cached_result;
-            }
-        }
+        // SIMPLIFIED: Cache versioning removed - causes issues when cache is cleared
+        // After cache clearing, we should ALWAYS fetch fresh data from Flickr API
+        // The base cache key is sufficient for our needs
 
         // Fetch from API
         $api_key = self::get_api_key();
@@ -600,17 +568,15 @@ class FlickrJustifiedCache {
         $result = self::map_sizes_with_dimensions($data['sizes']['size'], $requested_sizes);
 
         if (!empty($result)) {
-            // Add metadata if requested (reuse photo_info we already fetched)
+            // Add metadata if requested
             if ($needs_metadata) {
-                if (empty($photo_info)) {
-                    // Should not happen, but fallback just in case
-                    $photo_info = self::get_photo_info($photo_id);
-                }
+                // Always fetch fresh photo_info when cache is cleared to ensure we have latest data
+                $photo_info = self::get_photo_info($photo_id, $force_refresh);
 
                 if (!empty($photo_info)) {
                     $result['_photo_info'] = $photo_info;
 
-                    // Get stats from same photo_info (no extra API call)
+                    // Get stats from photo_info (will fetch fresh if force_refresh)
                     $stats = self::get_photo_stats($photo_id);
                     if (!empty($stats)) {
                         $result['_stats'] = $stats;
@@ -622,12 +588,7 @@ class FlickrJustifiedCache {
                 }
             }
 
-            if (!isset($result['_lastupdate'])) {
-                $result['_lastupdate'] = $lastupdate;
-            }
-
-            // Cache both versioned and base keys
-            self::set($versioned_cache_key, $result);
+            // Cache the result with the base key only (no versioning)
             self::set($base_cache_key, $result);
         }
 
