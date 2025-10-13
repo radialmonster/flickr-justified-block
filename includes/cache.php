@@ -204,13 +204,17 @@ class FlickrJustifiedCache {
      * Check if response indicates rate limiting
      * Returns true if rate limited, false otherwise
      */
-    public static function is_rate_limited_response($response, $data = null) {
+    public static function is_rate_limited_response($response, $data = null, $context = null) {
         // Check HTTP status code
         if (!is_wp_error($response)) {
             $code = (int) wp_remote_retrieve_response_code($response);
             if ($code === 429) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr rate limit detected: HTTP 429');
+                    $log_msg = 'Flickr rate limit detected: HTTP 429';
+                    if ($context) {
+                        $log_msg .= ' | ' . $context;
+                    }
+                    error_log($log_msg);
                 }
                 return true;
             }
@@ -223,7 +227,11 @@ class FlickrJustifiedCache {
                 // Flickr doesn't have a specific rate limit error code, but typically returns generic errors
                 // We'll rely on 429 HTTP status primarily
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr API error response: ' . print_r($data, true));
+                    $log_msg = 'Flickr API error response: ' . print_r($data, true);
+                    if ($context) {
+                        $log_msg .= "\n" . $context;
+                    }
+                    error_log($log_msg);
                 }
             }
         }
@@ -370,8 +378,11 @@ class FlickrJustifiedCache {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
 
+        // Build context string for error logging - use short photo URL format
+        $context = 'Photo ID: ' . $photo_id . ' | Short URL: https://flic.kr/p/' . base_convert($photo_id, 10, 58);
+
         // Check for rate limiting
-        if (self::is_rate_limited_response($response, $data)) {
+        if (self::is_rate_limited_response($response, $data, $context)) {
             return ['rate_limited' => true];
         }
 
@@ -537,8 +548,14 @@ class FlickrJustifiedCache {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
 
+        // Build context string for error logging
+        $context = 'Photo ID: ' . $photo_id;
+        if (!empty($page_url)) {
+            $context .= ' | Photo URL: ' . $page_url;
+        }
+
         // Check for rate limiting
-        if (self::is_rate_limited_response($response, $data)) {
+        if (self::is_rate_limited_response($response, $data, $context)) {
             return ['rate_limited' => true];
         }
 
@@ -694,8 +711,11 @@ class FlickrJustifiedCache {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
 
+        // Build context string for error logging
+        $context = 'Username: ' . $username;
+
         // Check for rate limiting
-        if (self::is_rate_limited_response($response, $data)) {
+        if (self::is_rate_limited_response($response, $data, $context)) {
             return false; // Return false for user ID resolution
         }
 
@@ -765,8 +785,11 @@ class FlickrJustifiedCache {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
 
+        // Build context string for error logging
+        $context = 'Album ID: ' . $photoset_id . ' | User: ' . $user_id . ' | Album URL: https://flickr.com/photos/' . $user_id . '/albums/' . $photoset_id;
+
         // Check for rate limiting
-        if (self::is_rate_limited_response($response, $data)) {
+        if (self::is_rate_limited_response($response, $data, $context)) {
             return ['rate_limited' => true];
         }
 
@@ -861,8 +884,11 @@ class FlickrJustifiedCache {
 
         $data = json_decode($body, true);
 
+        // Build context string for error logging
+        $context = 'Album ID: ' . $photoset_id . ' | User: ' . $user_id . ' | Album URL: https://flickr.com/photos/' . $user_id . '/albums/' . $photoset_id;
+
         // Check for rate limiting
-        if (self::is_rate_limited_response($response, $data)) {
+        if (self::is_rate_limited_response($response, $data, $context)) {
             return ['rate_limited' => true];
         }
 
