@@ -499,6 +499,31 @@
         }, 100);
     }
 
+    // IMPORTANT: Set up MutationObserver FIRST, before any init attempts
+    // This ensures we catch galleries that load dynamically (AJAX/async)
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1 && node.querySelector &&
+                        node.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]')) {
+                        console.log('PhotoSwipe: New gallery detected, initializing...');
+                        setTimeout(() => {
+                            prepareGalleryData();
+                            initializedOnce = true;
+                        }, 100);
+                    }
+                });
+            }
+        });
+    });
+
+    // Start observing immediately (before init checks)
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
     // Wait for DOM and initialize - use multiple event triggers
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
@@ -508,25 +533,6 @@
 
     // Also initialize when window loads (after all resources)
     window.addEventListener('load', init);
-
-    // Re-initialize when new galleries are added (for dynamic content)
-    const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            if (mutation.type === 'childList') {
-                mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1 && node.querySelector &&
-                        node.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]')) {
-                        setTimeout(prepareGalleryData, 100);
-                    }
-                });
-            }
-        });
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
 
     // Listen for custom event from lazy loading to re-initialize PhotoSwipe
     document.addEventListener('flickr-gallery-updated', function(event) {
