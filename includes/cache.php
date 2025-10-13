@@ -174,6 +174,12 @@ class FlickrJustifiedCache {
              OR option_name LIKE '_transient_timeout_flickr_lazy_load_%'"
         );
 
+        // IMPORTANT: Flush WordPress object cache if using persistent caching (Redis, Memcached, etc.)
+        // This ensures transients are completely removed from memory, not just the database
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
+
         return true;
     }
 
