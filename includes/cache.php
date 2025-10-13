@@ -378,8 +378,8 @@ class FlickrJustifiedCache {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
 
-        // Build context string for error logging - use short photo URL format
-        $context = 'Photo ID: ' . $photo_id . ' | Short URL: https://flic.kr/p/' . base_convert($photo_id, 10, 58);
+        // Build context string for error logging - use direct photo URL
+        $context = 'Photo ID: ' . $photo_id . ' | Direct URL: https://www.flickr.com/photo.gne?id=' . $photo_id;
 
         // Check for rate limiting
         if (self::is_rate_limited_response($response, $data, $context)) {
