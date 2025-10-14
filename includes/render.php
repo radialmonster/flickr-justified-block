@@ -941,18 +941,23 @@ function flickr_justified_render_block($attributes) {
                                             } else {
                                                 console.warn("Flickr Gallery: initJustifiedGallery not found");
                                             }
-                                            // Initialize lazy loading for async-loaded galleries
-                                            if (window.initFlickrAlbumLazyLoading) {
-                                                console.log("Flickr Gallery: Initializing lazy loading");
-                                                window.initFlickrAlbumLazyLoading();
-                                            } else {
-                                                console.warn("Flickr Gallery: initFlickrAlbumLazyLoading not found");
-                                            }
-                                            // Trigger PhotoSwipe initialization
-                                            console.log("Flickr Gallery: Triggering PhotoSwipe initialization event");
-                                            var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
-                                            document.dispatchEvent(event);
-                                            console.log("Flickr Gallery: Initialization complete");
+
+                                            // CRITICAL: Wait for layout to stabilize before initializing event handlers
+                                            // Use setTimeout to ensure DOM is ready after justified layout
+                                            setTimeout(function() {
+                                                // Initialize lazy loading for async-loaded galleries
+                                                if (window.initFlickrAlbumLazyLoading) {
+                                                    console.log("Flickr Gallery: Initializing lazy loading");
+                                                    window.initFlickrAlbumLazyLoading();
+                                                } else {
+                                                    console.warn("Flickr Gallery: initFlickrAlbumLazyLoading not found");
+                                                }
+                                                // Trigger PhotoSwipe initialization
+                                                console.log("Flickr Gallery: Triggering PhotoSwipe initialization event");
+                                                var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
+                                                document.dispatchEvent(event);
+                                                console.log("Flickr Gallery: Initialization complete");
+                                            }, 200);
                                         } catch(initError) {
                                             console.error("Flickr Gallery: Initialization failed but gallery HTML is visible:", initError);
                                             console.error("Error stack:", initError.stack);

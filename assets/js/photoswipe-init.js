@@ -170,7 +170,8 @@
             }
 
             // Safety timeout to resolve even if fullscreenchange never fires
-            setTimeout(finish, 1200);
+            // Reduced timeout to prevent blocking on mobile
+            setTimeout(finish, 500);
         });
     }
 
@@ -256,6 +257,7 @@
 
     /**
      * Delegated click handler for PhotoSwipe
+     * Handles both click and touch events for better mobile support
      */
     function delegatedClickHandler(event) {
         const clickedItem = event.target.closest('a.flickr-builtin-lightbox');
@@ -263,6 +265,17 @@
 
         event.preventDefault();
         event.stopPropagation();
+
+        // On mobile, ensure we're not double-firing for touch+click
+        if (event.type === 'touchend' && clickedItem._pswpTouchHandled) {
+            return;
+        }
+        if (event.type === 'touchend') {
+            clickedItem._pswpTouchHandled = true;
+            setTimeout(() => {
+                delete clickedItem._pswpTouchHandled;
+            }, 500);
+        }
 
         const gallery = clickedItem.closest('.flickr-justified-grid');
         const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
@@ -309,6 +322,8 @@
             // Avoid attaching twice
             if (!gallery._pswpBound) {
                 gallery.addEventListener('click', delegatedClickHandler, true); // one listener per gallery
+                // Also add touch event for better mobile support
+                gallery.addEventListener('touchend', delegatedClickHandler, true);
                 gallery._pswpBound = true;
             }
             // Reindex after any DOM changes (cheap)
@@ -327,7 +342,9 @@
             const fullscreenAPI = getFullscreenAPI();
             // Use fullscreen on mobile/tablet devices in any orientation
             const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-            const container = isMobile && fullscreenAPI ? getContainer() : null;
+            // Only use fullscreen on small mobile screens (not tablets)
+            const isSmallMobile = isMobile && window.innerWidth <= 768;
+            const container = isSmallMobile && fullscreenAPI ? getContainer() : null;
             const fullscreenPromiseFactory = container ? getFullscreenPromise(fullscreenAPI, container) : null;
             let ensureFullscreenPromise = null;
 
@@ -365,8 +382,8 @@
                 }
             };
 
-            // Add fullscreen support for mobile
-            if (isMobile && fullscreenAPI && container && fullscreenPromiseFactory) {
+            // Add fullscreen support for mobile (but don't block lightbox opening)
+            if (isSmallMobile && fullscreenAPI && container && fullscreenPromiseFactory) {
                 let fullscreenPromiseInstance = null;
                 ensureFullscreenPromise = () => {
                     if (!fullscreenPromiseInstance) {
@@ -378,6 +395,7 @@
                     return fullscreenPromiseInstance;
                 };
 
+                // Use openPromise to trigger fullscreen, but with shorter timeout
                 lightboxOptions.openPromise = ensureFullscreenPromise;
                 lightboxOptions.appendToEl = container;
                 // Disable animations when using fullscreen (smoother experience)
