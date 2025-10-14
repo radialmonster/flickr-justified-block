@@ -947,7 +947,7 @@ function flickr_justified_render_block($attributes) {
                                 container.innerHTML = "<p style=\"color: #d63638;\">Error loading gallery</p>";
                             }
                         } catch(e) {
-                            container.innerHTML = "<p style=\"color: #d63638;\">Error: " + e.message + "</p>";
+                            container.innerHTML = "<p style=\\"color: #d63638;\\">Error: " + e.message + "</p>";
                         }
                     } else {
                         container.innerHTML = "<p style=\"color: #d63638;\">Network error loading gallery</p>";
