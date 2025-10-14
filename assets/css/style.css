@@ -305,3 +305,35 @@
     text-align: center;
   }
 }
+
+/* Async loading states */
+.flickr-justified-loading {
+    padding: 40px;
+    text-align: center;
+    background: #f0f0f1;
+    border-radius: 4px;
+}
+
+.flickr-justified-loading p {
+    margin: 0;
+    color: #666;
+}
+
+.flickr-justified-loading p.flickr-loading-icon {
+    margin-bottom: 10px;
+}
+
+.flickr-justified-loading .dashicons {
+    animation: rotation 2s infinite linear;
+    font-size: 24px;
+}
+
+.flickr-loading-retry {
+    margin: 0 !important;
+    color: #666 !important;
+}
+
+@keyframes rotation {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(359deg); }
+}

@@ -905,10 +905,9 @@ function flickr_justified_render_block($attributes) {
         $attributes_json = wp_json_encode($attributes);
 
         return sprintf(
-            '<div id="%s" class="flickr-justified-loading" data-attributes="%s" data-target-id="%s" style="padding: 40px; text-align: center; background: #f0f0f1; border-radius: 4px;">
-                <p style="margin: 0; color: #666;"><span class="dashicons dashicons-update-alt" style="animation: rotation 2s infinite linear; font-size: 24px;"></span></p>
-                <p style="margin: 10px 0 0 0; color: #666;">%s</p>
-                <style>@keyframes rotation { from { transform: rotate(0deg); } to { transform: rotate(359deg); } }</style>
+            '<div id="%s" class="flickr-justified-loading" data-attributes="%s" data-target-id="%s">
+                <p class="flickr-loading-icon"><span class="dashicons dashicons-update-alt"></span></p>
+                <p>%s</p>
             </div>
             <script>
             (function() {
@@ -984,7 +983,7 @@ function flickr_justified_render_block($attributes) {
                     function handleError(errorType) {
                         if (retryCount < maxRetries) {
                             retryCount++;
-                            container.innerHTML = "<p style=\"margin: 0; color: #666;\">Loading failed, retrying...</p>";
+                            container.innerHTML = "<p class=\"flickr-loading-retry\">Loading failed, retrying...</p>";
                             setTimeout(loadGallery, 2000); // Retry after 2 seconds
                         } else {
                             container.innerHTML = "<p>Failed to load gallery: " + errorType + "</p>";
