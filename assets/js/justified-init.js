@@ -411,6 +411,8 @@
     // Make initJustifiedGallery and shared helpers accessible to lazy loading function
     window.initJustifiedGallery = initJustifiedGallery;
     window.flickrJustifiedHelpers = flickrGalleryHelpers;
+    // Expose lazy loading initialization for async-loaded galleries
+    window.initFlickrAlbumLazyLoading = initFlickrAlbumLazyLoading;
 
     /**
      * Lazy loading for Flickr albums/sets - loads additional pages when user scrolls

@@ -939,6 +939,10 @@ function flickr_justified_render_block($attributes) {
                                     if (window.initJustifiedGallery) {
                                         window.initJustifiedGallery();
                                     }
+                                    // Initialize lazy loading for async-loaded galleries
+                                    if (window.initFlickrAlbumLazyLoading) {
+                                        window.initFlickrAlbumLazyLoading();
+                                    }
                                     // Trigger PhotoSwipe initialization
                                     var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
                                     document.dispatchEvent(event);
