@@ -403,9 +403,13 @@
             const fullscreenAPI = getFullscreenAPI();
             // Use fullscreen on mobile/tablet devices in any orientation
             const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-            // Only use fullscreen on small mobile screens (not tablets)
-            const isSmallMobile = isMobile && window.innerWidth <= 768;
-            const container = isSmallMobile && fullscreenAPI ? getContainer() : null;
+
+            // Detect actual mobile devices (not tablets) by checking smallest screen dimension
+            // This works in both portrait and landscape orientations
+            const smallestDimension = Math.min(window.screen.width, window.screen.height);
+            const isActualMobile = isMobile && smallestDimension <= 428; // iPhone 14 Pro Max width
+
+            const container = isActualMobile && fullscreenAPI ? getContainer() : null;
             const fullscreenPromiseFactory = container ? getFullscreenPromise(fullscreenAPI, container) : null;
             let ensureFullscreenPromise = null;
 
@@ -444,7 +448,7 @@
             };
 
             // Add fullscreen support for mobile (but don't block lightbox opening)
-            if (isSmallMobile && fullscreenAPI && container && fullscreenPromiseFactory) {
+            if (isActualMobile && fullscreenAPI && container && fullscreenPromiseFactory) {
                 let fullscreenPromiseInstance = null;
                 ensureFullscreenPromise = () => {
                     if (!fullscreenPromiseInstance) {
