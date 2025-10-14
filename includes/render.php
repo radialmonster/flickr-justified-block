@@ -984,7 +984,7 @@ function flickr_justified_render_block($attributes) {
                     function handleError(errorType) {
                         if (retryCount < maxRetries) {
                             retryCount++;
-                            container.innerHTML = "<p style='margin: 0; color: #666;'>Loading failed, retrying...</p>";
+                            container.innerHTML = "<p style=\"margin: 0; color: #666;\">Loading failed, retrying...</p>";
                             setTimeout(loadGallery, 2000); // Retry after 2 seconds
                         } else {
                             container.innerHTML = "<p>Failed to load gallery: " + errorType + "</p>";
