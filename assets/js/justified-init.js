@@ -590,18 +590,22 @@
                 gallery.appendChild(loadingIndicator);
             } else if (!indicatorWasPersisting) {
                 loadingIndicator.textContent = baseLoadingMessage;
-                if (loadingIndicator.dataset) {
-                    loadingIndicator.dataset.shouldPersist = 'false';
-                }
+            }
+
+            // CRITICAL: Mark indicator as persistent so it survives reinitialization
+            if (loadingIndicator.dataset) {
+                loadingIndicator.dataset.shouldPersist = 'true';
             }
 
             // Force the indicator to be visible immediately
-            setTimeout(() => {
-                if (loadingIndicator.parentNode) {
-                    console.log('🔔 Loading indicator should now be visible');
+            // Make sure it's rendered in the DOM before attempting to scroll to it
+            console.log('🔔 Loading indicator should now be visible');
+            requestAnimationFrame(() => {
+                if (loadingIndicator && loadingIndicator.parentNode) {
                     loadingIndicator.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    console.log('🔔 Scrolled to loading indicator');
                 }
-            }, 50);
+            });
 
             // Load next page for each set (in parallel)
             const loadPromises = setsToLoad.map(setData => loadSetPage(gallery, setData, setMetadata));
