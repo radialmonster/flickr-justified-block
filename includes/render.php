@@ -913,7 +913,7 @@ function flickr_justified_render_block($attributes) {
         $attributes_json = wp_json_encode($attributes);
 
         return sprintf(
-            '<div id="%s" class="flickr-justified-loading" data-attributes="%s" style="padding: 40px; text-align: center; background: #f0f0f1; border-radius: 4px;">
+            '<div id="%s" class="flickr-justified-loading" data-attributes="%s" data-target-id="%s" style="padding: 40px; text-align: center; background: #f0f0f1; border-radius: 4px;">
                 <p style="margin: 0; color: #666;"><span class="dashicons dashicons-update-alt" style="animation: rotation 2s infinite linear; font-size: 24px;"></span></p>
                 <p style="margin: 10px 0 0 0; color: #666;">%s</p>
                 <style>@keyframes rotation { from { transform: rotate(0deg); } to { transform: rotate(359deg); } }</style>
@@ -922,6 +922,8 @@ function flickr_justified_render_block($attributes) {
             (function() {
                 var container = document.getElementById("%s");
                 if (!container) return;
+
+                var targetGalleryId = container.getAttribute("data-target-id");
 
                 var xhr = new XMLHttpRequest();
                 xhr.open("POST", "%s", true);
@@ -932,8 +934,8 @@ function flickr_justified_render_block($attributes) {
                             var response = JSON.parse(xhr.responseText);
                             if (response.success && response.data && response.data.html) {
                                 container.outerHTML = response.data.html;
-                                // Trigger gallery initialization events
-                                var newBlock = document.querySelector(".flickr-justified-grid");
+                                // Find the specific gallery that was just loaded using its unique ID
+                                var newBlock = targetGalleryId ? document.getElementById(targetGalleryId) : document.querySelector(".flickr-justified-grid");
                                 if (newBlock) {
                                     // Initialize justified layout
                                     if (window.initJustifiedGallery) {
@@ -965,6 +967,7 @@ function flickr_justified_render_block($attributes) {
             </script>',
             esc_attr($block_id),
             esc_attr($attributes_json),
+            esc_attr('flickr-justified-' . uniqid()),
             esc_html__('Loading gallery...', 'flickr-justified-block'),
             esc_js($block_id),
             esc_url(admin_url('admin-ajax.php')),
