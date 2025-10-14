@@ -916,45 +916,85 @@ function flickr_justified_render_block($attributes) {
                 if (!container) return;
 
                 var targetGalleryId = container.getAttribute("data-target-id");
+                var retryCount = 0;
+                var maxRetries = 1;
 
-                var xhr = new XMLHttpRequest();
-                xhr.open("POST", "%s", true);
-                xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        try {
-                            var response = JSON.parse(xhr.responseText);
-                            if (response.success && response.data && response.data.html) {
-                                container.outerHTML = response.data.html;
-                                // Find the specific gallery that was just loaded using its unique ID
-                                var newBlock = targetGalleryId ? document.getElementById(targetGalleryId) : document.querySelector(".flickr-justified-grid");
-                                if (newBlock) {
-                                    // Initialize justified layout
-                                    if (window.initJustifiedGallery) {
-                                        window.initJustifiedGallery();
+                function loadGallery() {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("POST", "%s", true);
+                    xhr.timeout = 10000; // 10 second timeout
+                    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+
+                    xhr.onload = function() {
+                        if (xhr.status === 200) {
+                            try {
+                                var response = JSON.parse(xhr.responseText);
+                                if (response.success && response.data && response.data.html) {
+                                    container.outerHTML = response.data.html;
+                                    // Find the specific gallery that was just loaded using its unique ID
+                                    var newBlock = targetGalleryId ? document.getElementById(targetGalleryId) : document.querySelector(".flickr-justified-grid");
+                                    if (newBlock) {
+                                        try {
+                                            // Initialize justified layout
+                                            if (window.initJustifiedGallery) {
+                                                console.log("Flickr Gallery: Initializing justified layout");
+                                                window.initJustifiedGallery();
+                                            } else {
+                                                console.warn("Flickr Gallery: initJustifiedGallery not found");
+                                            }
+                                            // Initialize lazy loading for async-loaded galleries
+                                            if (window.initFlickrAlbumLazyLoading) {
+                                                console.log("Flickr Gallery: Initializing lazy loading");
+                                                window.initFlickrAlbumLazyLoading();
+                                            } else {
+                                                console.warn("Flickr Gallery: initFlickrAlbumLazyLoading not found");
+                                            }
+                                            // Trigger PhotoSwipe initialization
+                                            console.log("Flickr Gallery: Triggering PhotoSwipe initialization event");
+                                            var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
+                                            document.dispatchEvent(event);
+                                            console.log("Flickr Gallery: Initialization complete");
+                                        } catch(initError) {
+                                            console.error("Flickr Gallery: Initialization failed but gallery HTML is visible:", initError);
+                                            console.error("Error stack:", initError.stack);
+                                        }
+                                    } else {
+                                        console.error("Flickr Gallery: Could not find gallery element after loading. Target ID:", targetGalleryId);
                                     }
-                                    // Initialize lazy loading for async-loaded galleries
-                                    if (window.initFlickrAlbumLazyLoading) {
-                                        window.initFlickrAlbumLazyLoading();
-                                    }
-                                    // Trigger PhotoSwipe initialization
-                                    var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
-                                    document.dispatchEvent(event);
+                                } else {
+                                    console.error("Flickr Gallery: Invalid response data:", response);
+                                    container.innerHTML = "<p>Error loading gallery</p>";
                                 }
-                            } else {
-                                container.innerHTML = "<p>Error loading gallery</p>";
+                            } catch(e) {
+                                container.innerHTML = "<p>Error parsing gallery data: " + e.message + "</p>";
                             }
-                        } catch(e) {
-                            container.innerHTML = "<p>Error: " + e.message + "</p>";
+                        } else {
+                            handleError("Server error (HTTP " + xhr.status + ")");
                         }
-                    } else {
-                        container.innerHTML = "<p>Network error loading gallery</p>";
+                    };
+
+                    xhr.onerror = function() {
+                        handleError("Network error");
+                    };
+
+                    xhr.ontimeout = function() {
+                        handleError("Request timed out");
+                    };
+
+                    function handleError(errorType) {
+                        if (retryCount < maxRetries) {
+                            retryCount++;
+                            container.innerHTML = "<p style='margin: 0; color: #666;'>Loading failed, retrying...</p>";
+                            setTimeout(loadGallery, 2000); // Retry after 2 seconds
+                        } else {
+                            container.innerHTML = "<p>Failed to load gallery: " + errorType + "</p>";
+                        }
                     }
-                };
-                xhr.onerror = function() {
-                    container.innerHTML = "<p>Network error loading gallery</p>";
-                };
-                xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
+
+                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
+                }
+
+                loadGallery();
             })();
             </script>',
             esc_attr($block_id),
