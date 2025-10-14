@@ -944,17 +944,17 @@ function flickr_justified_render_block($attributes) {
                                     document.dispatchEvent(event);
                                 }
                             } else {
-                                container.innerHTML = '<p style="color: #d63638;">Error loading gallery</p>';
+                                container.innerHTML = "<p>Error loading gallery</p>";
                             }
                         } catch(e) {
-                            container.innerHTML = '<p style="color: #d63638;">Error: ' + e.message + '</p>';
+                            container.innerHTML = "<p>Error: " + e.message + "</p>";
                         }
                     } else {
-                        container.innerHTML = '<p style="color: #d63638;">Network error loading gallery</p>';
+                        container.innerHTML = "<p>Network error loading gallery</p>";
                     }
                 };
                 xhr.onerror = function() {
-                    container.innerHTML = '<p style="color: #d63638;">Network error loading gallery</p>';
+                    container.innerHTML = "<p>Network error loading gallery</p>";
                 };
                 xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
             })();
