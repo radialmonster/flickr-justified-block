@@ -258,24 +258,46 @@
     /**
      * Delegated click handler for PhotoSwipe
      * Handles both click and touch events for better mobile support
+     * Distinguishes between tap (open lightbox) and scroll (don't open)
      */
     function delegatedClickHandler(event) {
         const clickedItem = event.target.closest('a.flickr-builtin-lightbox');
         if (!clickedItem) return;
 
-        event.preventDefault();
-        event.stopPropagation();
-
-        // On mobile, ensure we're not double-firing for touch+click
-        if (event.type === 'touchend' && clickedItem._pswpTouchHandled) {
-            return;
-        }
+        // On touch devices, check if this was a scroll gesture vs a tap
         if (event.type === 'touchend') {
+            const touchData = clickedItem._touchData;
+
+            // If no touch data or touch moved significantly, this was a scroll - don't open lightbox
+            if (!touchData || touchData.moved) {
+                console.log('PhotoSwipe: Ignoring touchend - user was scrolling');
+                delete clickedItem._touchData;
+                return;
+            }
+
+            // Check if touch was too long (probably a long-press, not a tap)
+            const touchDuration = Date.now() - touchData.startTime;
+            if (touchDuration > 500) { // More than 500ms = long press
+                console.log('PhotoSwipe: Ignoring touchend - long press detected');
+                delete clickedItem._touchData;
+                return;
+            }
+
+            // Clean up touch data
+            delete clickedItem._touchData;
+
+            // Prevent double-firing for touch+click
+            if (clickedItem._pswpTouchHandled) {
+                return;
+            }
             clickedItem._pswpTouchHandled = true;
             setTimeout(() => {
                 delete clickedItem._pswpTouchHandled;
             }, 500);
         }
+
+        event.preventDefault();
+        event.stopPropagation();
 
         const gallery = clickedItem.closest('.flickr-justified-grid');
         const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
@@ -312,6 +334,40 @@
         openPhotoSwipe(galleryData, index);
     }
 
+    /**
+     * Track touch start to distinguish tap from scroll
+     */
+    function handleTouchStart(event) {
+        const target = event.target.closest('a.flickr-builtin-lightbox');
+        if (!target) return;
+
+        const touch = event.touches[0];
+        target._touchData = {
+            startX: touch.clientX,
+            startY: touch.clientY,
+            startTime: Date.now(),
+            moved: false
+        };
+    }
+
+    /**
+     * Track touch move to detect scrolling
+     */
+    function handleTouchMove(event) {
+        const target = event.target.closest('a.flickr-builtin-lightbox');
+        if (!target || !target._touchData) return;
+
+        const touch = event.touches[0];
+        const deltaX = Math.abs(touch.clientX - target._touchData.startX);
+        const deltaY = Math.abs(touch.clientY - target._touchData.startY);
+
+        // If finger moved more than 10px in any direction, consider it a scroll
+        if (deltaX > 10 || deltaY > 10) {
+            target._touchData.moved = true;
+            console.log('PhotoSwipe: Touch movement detected (scroll):', deltaX, deltaY);
+        }
+    }
+
     // Prepare gallery data for PhotoSwipe
     function prepareGalleryData() {
         const galleries = document.querySelectorAll('.flickr-justified-grid[data-use-builtin-lightbox="1"]');
@@ -322,10 +378,12 @@
             // Avoid attaching twice
             if (!gallery._pswpBound) {
                 gallery.addEventListener('click', delegatedClickHandler, true); // one listener per gallery
-                // Also add touch event for better mobile support (especially Firefox)
+
+                // Touch gesture detection for mobile
+                gallery.addEventListener('touchstart', handleTouchStart, { passive: true });
+                gallery.addEventListener('touchmove', handleTouchMove, { passive: true });
                 gallery.addEventListener('touchend', delegatedClickHandler, true);
-                // Add passive listeners for better scroll performance
-                gallery.addEventListener('touchstart', function() {}, { passive: true });
+
                 gallery._pswpBound = true;
                 console.log('PhotoSwipe: Event handlers bound to gallery', gallery.id || 'unnamed');
             }
