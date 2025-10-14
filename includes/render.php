@@ -990,7 +990,7 @@ function flickr_justified_render_block($attributes) {
                         }
                     }
 
-                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent("%s"));
+                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
                 }
 
                 loadGallery();
@@ -1002,7 +1002,7 @@ function flickr_justified_render_block($attributes) {
             esc_html__('Loading gallery...', 'flickr-justified-block'),
             esc_js($block_id),
             esc_url(admin_url('admin-ajax.php')),
-            esc_js($attributes_json)
+            'container.getAttribute("data-attributes")'
         );
     }
 
