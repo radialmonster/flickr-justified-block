@@ -963,7 +963,7 @@ function flickr_justified_render_block($attributes) {
             esc_html__('Loading gallery...', 'flickr-justified-block'),
             esc_js($block_id),
             esc_url(admin_url('admin-ajax.php')),
-            wp_json_encode($attributes_json)
+            esc_js($attributes_json)
         );
     }
 
