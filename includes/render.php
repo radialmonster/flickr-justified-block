@@ -990,7 +990,7 @@ function flickr_justified_render_block($attributes) {
                         }
                     }
 
-                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
+                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent("%s"));
                 }
 
                 loadGallery();
