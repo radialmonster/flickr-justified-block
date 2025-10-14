@@ -322,9 +322,12 @@
             // Avoid attaching twice
             if (!gallery._pswpBound) {
                 gallery.addEventListener('click', delegatedClickHandler, true); // one listener per gallery
-                // Also add touch event for better mobile support
+                // Also add touch event for better mobile support (especially Firefox)
                 gallery.addEventListener('touchend', delegatedClickHandler, true);
+                // Add passive listeners for better scroll performance
+                gallery.addEventListener('touchstart', function() {}, { passive: true });
                 gallery._pswpBound = true;
+                console.log('PhotoSwipe: Event handlers bound to gallery', gallery.id || 'unnamed');
             }
             // Reindex after any DOM changes (cheap)
             const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
