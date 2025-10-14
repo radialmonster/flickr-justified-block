@@ -288,14 +288,6 @@ function flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 
 }
 
 /**
- * Get photoset photos (non-paginated, first page only)
- */
-function flickr_justified_get_photoset_photos($user_id, $photoset_id, $set_url = '') {
-    $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, 1, 50);
-    return $result['photos'];
-}
-
-/**
  * Get full photoset photos (all pages aggregated)
  */
 function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
