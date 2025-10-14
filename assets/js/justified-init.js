@@ -345,9 +345,15 @@
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initJustifiedGallery);
+        document.addEventListener('DOMContentLoaded', () => {
+            initJustifiedGallery();
+            // Initialize lazy loading after galleries are set up
+            initFlickrAlbumLazyLoading();
+        });
     } else {
         initJustifiedGallery();
+        // Initialize lazy loading after galleries are set up
+        initFlickrAlbumLazyLoading();
     }
 
     let resizeTimeout;
@@ -391,7 +397,13 @@
             const shouldInit = mutations.some(m =>
                 Array.from(m.addedNodes).some(n => n.nodeType === 1 && n.classList && n.classList.contains('flickr-justified-grid') && !n.classList.contains('justified-initialized'))
             );
-            if (shouldInit) setTimeout(initJustifiedGallery, 150);
+            if (shouldInit) {
+                setTimeout(() => {
+                    initJustifiedGallery();
+                    // Also initialize lazy loading for newly added galleries
+                    initFlickrAlbumLazyLoading();
+                }, 150);
+            }
         });
         observer.observe(document.body, { childList: true, subtree: true });
     }
@@ -1115,7 +1127,7 @@
         module.exports = Object.assign({ flickrGalleryHelpers }, testHooks);
     }
 
-    // Initialize lazy loading for Flickr albums
-    initFlickrAlbumLazyLoading();
+    // NOTE: initFlickrAlbumLazyLoading() is now called after initJustifiedGallery()
+    // to ensure galleries are in the DOM before lazy loading observers attach
 })();
 
