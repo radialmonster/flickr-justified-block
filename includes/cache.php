@@ -436,6 +436,11 @@ class FlickrJustifiedCache {
         // Get photo info (will use cache if available)
         $photo_info = self::get_photo_info($photo_id);
 
+        // Check for rate limiting
+        if (isset($photo_info['rate_limited']) && $photo_info['rate_limited']) {
+            return ['rate_limited' => true];
+        }
+
         if (empty($photo_info)) {
             return [];
         }

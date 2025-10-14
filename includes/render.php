@@ -1017,8 +1017,14 @@ function flickr_justified_render_block($attributes) {
     $photo_items = [];
     $set_metadata = [];
     $position_counter = 0;
+    $rate_limited = false; // Track if we hit rate limiting
 
     foreach ($url_lines as $url) {
+        // Stop processing if we hit rate limiting
+        if ($rate_limited) {
+            break;
+        }
+
         if (null !== $remaining_limit && $remaining_limit <= 0) {
             break;
         }
@@ -1035,6 +1041,13 @@ function flickr_justified_render_block($attributes) {
 
                 $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
             }
+
+            // Check if album fetch was rate limited
+            if (isset($set_result['rate_limited']) && $set_result['rate_limited']) {
+                $rate_limited = true;
+                break;
+            }
+
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
 
             if ('views_desc' !== $sort_order && null !== $remaining_limit) {
@@ -1043,6 +1056,11 @@ function flickr_justified_render_block($attributes) {
 
             $added_count = 0;
             foreach ($set_photos as $photo_url) {
+                // Stop processing if we hit rate limiting
+                if ($rate_limited) {
+                    break;
+                }
+
                 if (null !== $remaining_limit && $remaining_limit <= 0) {
                     break;
                 }
@@ -1078,6 +1096,14 @@ function flickr_justified_render_block($attributes) {
                     $photo_id = flickr_justified_extract_photo_id($photo_url);
                     if ($photo_id) {
                         $stats = flickr_justified_get_photo_stats($photo_id);
+
+                        // Check for rate limiting
+                        if (isset($stats['rate_limited']) && $stats['rate_limited']) {
+                            $rate_limited = true;
+                            // Don't add this photo since we don't have its stats
+                            break;
+                        }
+
                         if (!empty($stats) && is_array($stats)) {
                             $item['stats'] = $stats;
                             $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
@@ -1161,6 +1187,14 @@ function flickr_justified_render_block($attributes) {
             $photo_id = flickr_justified_extract_photo_id($url);
             if ($photo_id) {
                 $stats = flickr_justified_get_photo_stats($photo_id);
+
+                // Check for rate limiting
+                if (isset($stats['rate_limited']) && $stats['rate_limited']) {
+                    $rate_limited = true;
+                    // Stop processing, don't add this photo
+                    break;
+                }
+
                 if (!empty($stats) && is_array($stats)) {
                     $item['stats'] = $stats;
                     $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
@@ -1180,6 +1214,15 @@ function flickr_justified_render_block($attributes) {
 
     if (empty($photo_items)) {
         return '';
+    }
+
+    // Log when we return partial results due to rate limiting
+    if ($rate_limited && defined('WP_DEBUG') && WP_DEBUG) {
+        error_log(sprintf(
+            'Flickr Justified Block: Rate limit detected, rendering partial gallery with %d photos (out of %d URLs requested)',
+            count($photo_items),
+            count($url_lines)
+        ));
     }
 
     if ('views_desc' === $sort_order) {
