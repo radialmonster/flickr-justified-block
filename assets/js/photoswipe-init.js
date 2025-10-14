@@ -411,25 +411,13 @@
             const smallestDimension = Math.min(screenWidth, screenHeight);
             const largestDimension = Math.max(screenWidth, screenHeight);
 
-            console.log('PhotoSwipe Fullscreen Detection:', {
-                isMobile,
-                screenWidth,
-                screenHeight,
-                smallestDimension,
-                largestDimension,
-                innerWidth: window.innerWidth,
-                innerHeight: window.innerHeight
-            });
-
             // Use fullscreen on phones (not tablets)
             // Most phones have smallest dimension < 500px, tablets >= 600px
-            // If detection is unclear, default to fullscreen for better mobile UX
+            // Additional check for smaller tablets/large phones: dimensions ≤ 768 × 1024
             const isActualMobile = isMobile && (
                 smallestDimension < 500 ||
-                (smallestDimension <= 768 && largestDimension <= 1024) // catch edge cases
+                (smallestDimension <= 768 && largestDimension <= 1024)
             );
-
-            console.log('PhotoSwipe: isActualMobile =', isActualMobile, ', will use fullscreen =', !!(isActualMobile && fullscreenAPI));
 
             const container = isActualMobile && fullscreenAPI ? getContainer() : null;
             const fullscreenPromiseFactory = container ? getFullscreenPromise(fullscreenAPI, container) : null;
