@@ -333,6 +333,13 @@
 
                 const reinitEvent = new CustomEvent('flickrGalleryReorganized', { detail: { grid: grid } });
                 document.dispatchEvent(reinitEvent);
+
+                // CRITICAL: Also dispatch flickr-gallery-updated for PhotoSwipe initialization
+                // This ensures PhotoSwipe event handlers are attached for synchronously-rendered galleries
+                setTimeout(() => {
+                    const photoswipeEvent = new CustomEvent('flickr-gallery-updated', { detail: { gallery: grid } });
+                    document.dispatchEvent(photoswipeEvent);
+                }, 100);
             }
 
             // Do the initial layout right now.
