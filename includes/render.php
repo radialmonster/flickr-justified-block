@@ -932,10 +932,16 @@ function flickr_justified_render_block($attributes) {
                             var response = JSON.parse(xhr.responseText);
                             if (response.success && response.data && response.data.html) {
                                 container.outerHTML = response.data.html;
-                                // Trigger resize to initialize justified layout
-                                if (window.flickrJustifiedInitBlock) {
-                                    var newBlock = document.querySelector(".flickr-justified-grid");
-                                    if (newBlock) window.flickrJustifiedInitBlock(newBlock);
+                                // Trigger gallery initialization events
+                                var newBlock = document.querySelector(".flickr-justified-grid");
+                                if (newBlock) {
+                                    // Initialize justified layout
+                                    if (window.initJustifiedGallery) {
+                                        window.initJustifiedGallery();
+                                    }
+                                    // Trigger PhotoSwipe initialization
+                                    var event = new CustomEvent('flickr-gallery-updated', { detail: { gallery: newBlock } });
+                                    document.dispatchEvent(event);
                                 }
                             } else {
                                 container.innerHTML = "<p style=\"color: #d63638;\">Error loading gallery</p>";
