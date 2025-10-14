@@ -406,8 +406,26 @@
 
             // Detect actual mobile devices (not tablets) by checking smallest screen dimension
             // This works in both portrait and landscape orientations
-            const smallestDimension = Math.min(window.screen.width, window.screen.height);
-            const isActualMobile = isMobile && smallestDimension <= 428; // iPhone 14 Pro Max width
+            const screenWidth = window.screen.width;
+            const screenHeight = window.screen.height;
+            const smallestDimension = Math.min(screenWidth, screenHeight);
+            const largestDimension = Math.max(screenWidth, screenHeight);
+
+            console.log('PhotoSwipe Fullscreen Detection:', {
+                isMobile,
+                screenWidth,
+                screenHeight,
+                smallestDimension,
+                largestDimension,
+                innerWidth: window.innerWidth,
+                innerHeight: window.innerHeight
+            });
+
+            // Use fullscreen on phones (not tablets)
+            // Most phones have smallest dimension < 500px, tablets >= 600px
+            const isActualMobile = isMobile && smallestDimension < 500;
+
+            console.log('PhotoSwipe: isActualMobile =', isActualMobile, ', will use fullscreen =', !!(isActualMobile && fullscreenAPI));
 
             const container = isActualMobile && fullscreenAPI ? getContainer() : null;
             const fullscreenPromiseFactory = container ? getFullscreenPromise(fullscreenAPI, container) : null;
