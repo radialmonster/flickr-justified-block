@@ -423,7 +423,11 @@
 
             // Use fullscreen on phones (not tablets)
             // Most phones have smallest dimension < 500px, tablets >= 600px
-            const isActualMobile = isMobile && smallestDimension < 500;
+            // If detection is unclear, default to fullscreen for better mobile UX
+            const isActualMobile = isMobile && (
+                smallestDimension < 500 ||
+                (smallestDimension <= 768 && largestDimension <= 1024) // catch edge cases
+            );
 
             console.log('PhotoSwipe: isActualMobile =', isActualMobile, ', will use fullscreen =', !!(isActualMobile && fullscreenAPI));
 
