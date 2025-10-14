@@ -940,21 +940,21 @@ function flickr_justified_render_block($attributes) {
                                         window.initJustifiedGallery();
                                     }
                                     // Trigger PhotoSwipe initialization
-                                    var event = new CustomEvent(\\'flickr-gallery-updated\\', { detail: { gallery: newBlock } });
+                                    var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
                                     document.dispatchEvent(event);
                                 }
                             } else {
-                                container.innerHTML = "<p style=\\"color: #d63638;\\">Error loading gallery</p>";
+                                container.innerHTML = '<p style="color: #d63638;">Error loading gallery</p>';
                             }
                         } catch(e) {
-                            container.innerHTML = "<p style=\\"color: #d63638;\\">Error: " + e.message + "</p>";
+                            container.innerHTML = '<p style="color: #d63638;">Error: ' + e.message + '</p>';
                         }
                     } else {
-                        container.innerHTML = "<p style=\\"color: #d63638;\\">Network error loading gallery</p>";
+                        container.innerHTML = '<p style="color: #d63638;">Network error loading gallery</p>';
                     }
                 };
                 xhr.onerror = function() {
-                    container.innerHTML = "<p style=\\"color: #d63638;\\">Network error loading gallery</p>";
+                    container.innerHTML = '<p style="color: #d63638;">Network error loading gallery</p>';
                 };
                 xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
             })();
