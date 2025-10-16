@@ -683,117 +683,162 @@ class FlickrJustifiedAdminSettings {
                     </div>
                 </div>
                 <script>
-                jQuery(document).ready(function($) {
-                    $('#flickr-warm-cache-btn').on('click', function() {
-                        var $btn = $(this);
-                        var $progress = $('#flickr-warm-cache-progress');
-                        var $status = $('#flickr-warm-cache-status');
-                        var $details = $('#flickr-warm-cache-details');
-                        var $bar = $('#flickr-warm-cache-bar');
+                document.addEventListener('DOMContentLoaded', function() {
+                    const warmCacheBtn = document.getElementById('flickr-warm-cache-btn');
+                    if (!warmCacheBtn) return;
 
-                        $btn.prop('disabled', true).text('<?php esc_attr_e('Processing...', 'flickr-justified-block'); ?>');
-                        $progress.show();
-                        $status.text('<?php esc_js(_e('Scanning posts for Flickr URLs...', 'flickr-justified-block')); ?>');
+                    warmCacheBtn.addEventListener('click', function() {
+                        const btn = this;
+                        const progress = document.getElementById('flickr-warm-cache-progress');
+                        const status = document.getElementById('flickr-warm-cache-status');
+                        const details = document.getElementById('flickr-warm-cache-details');
+                        const bar = document.getElementById('flickr-warm-cache-bar');
 
-                        // First, rebuild known URLs
-                        $.post(ajaxurl, {
+                        btn.disabled = true;
+                        btn.textContent = '<?php esc_attr_e('Processing...', 'flickr-justified-block'); ?>';
+                        progress.style.display = 'block';
+                        status.textContent = '<?php esc_js(_e('Scanning posts for Flickr URLs...', 'flickr-justified-block')); ?>';
+
+                        const post = (url, data) => {
+                            const formData = new URLSearchParams();
+                            for (const key in data) {
+                                formData.append(key, data[key]);
+                            }
+                            return fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: formData
+                            }).then(response => {
+                                if (!response.ok) throw new Error('Network response was not ok.');
+                                return response.json();
+                            });
+                        };
+
+                        const ajax = (options) => {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), options.timeout || 30000);
+                            
+                            const formData = new URLSearchParams();
+                            for (const key in options.data) {
+                                if (Array.isArray(options.data[key])) {
+                                    options.data[key].forEach(val => formData.append(key + '[]', val));
+                                } else {
+                                    formData.append(key, options.data[key]);
+                                }
+                            }
+
+                            return fetch(options.url, {
+                                method: options.type || 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: formData,
+                                signal: controller.signal
+                            })
+                            .then(response => {
+                                clearTimeout(timeoutId);
+                                if (!response.ok) throw new Error('Network response was not ok.');
+                                return response.json();
+                            })
+                            .then(options.success)
+                            .catch(error => {
+                                clearTimeout(timeoutId);
+                                let errorStatus = error.name === 'AbortError' ? 'timeout' : 'error';
+                                options.error(null, errorStatus, error);
+                            });
+                        };
+
+                        post(ajaxurl, {
                             action: 'flickr_rebuild_urls',
                             nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
-                        }, function(response) {
+                        })
+                        .then(response => {
                             if (response.success) {
-                                var queue = response.data.queue;
-                                var totalUrls = queue.length;
-                                var processed = 0;
-                                var batchSize = 1; // Process 1 URL at a time (albums with 200+ photos need time)
-                                var totalApiCalls = 0;
+                                const queue = response.data.queue;
+                                const totalUrls = queue.length;
+                                let processed = 0;
+                                const batchSize = 1;
+                                let totalApiCalls = 0;
 
-                                $status.text('<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>');
+                                status.textContent = '<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>';
 
-                                function processBatch(startIndex, retryCount) {
-                                    retryCount = retryCount || 0;
-
+                                function processBatch(startIndex, retryCount = 0) {
                                     if (startIndex >= totalUrls) {
-                                        // Done!
-                                        $bar.css('width', '100%');
-                                        $status.html('<strong style="color: #00a32a;">✓ <?php esc_js(_e('Complete!', 'flickr-justified-block')); ?></strong>');
-                                        $details.text('<?php esc_js(_e('Warmed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls). Pages should now load much faster!', 'flickr-justified-block')); ?>');
-                                        $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                        bar.style.width = '100%';
+                                        status.innerHTML = '<strong style="color: #00a32a;">✓ <?php esc_js(_e('Complete!', 'flickr-justified-block')); ?></strong>';
+                                        details.textContent = '<?php esc_js(_e('Warmed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls). Pages should now load much faster!', 'flickr-justified-block')); ?>';
+                                        btn.disabled = false;
+                                        btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                                         return;
                                     }
 
-                                    var batch = queue.slice(startIndex, startIndex + batchSize);
+                                    const batch = queue.slice(startIndex, startIndex + batchSize);
 
-                                    $.ajax({
+                                    ajax({
                                         url: ajaxurl,
                                         type: 'POST',
-                                        timeout: 300000, // 5 minutes timeout for large albums
+                                        timeout: 300000,
                                         data: {
                                             action: 'flickr_warm_batch',
                                             urls: batch,
                                             nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
                                         },
                                         success: function(batchResponse) {
-                                        if (batchResponse.success) {
-                                            var data = batchResponse.data;
-                                            processed += data.processed;
-                                            totalApiCalls += (data.api_calls || 0);
+                                            if (batchResponse.success) {
+                                                const data = batchResponse.data;
+                                                processed += data.processed;
+                                                totalApiCalls += (data.api_calls || 0);
 
-                                            var percent = Math.round((startIndex + batch.length) / totalUrls * 100);
-                                            $bar.css('width', percent + '%');
+                                                const percent = Math.round((startIndex + batch.length) / totalUrls * 100);
+                                                bar.style.width = percent + '%';
 
-                                            // Check if we hit rate limit
-                                            if (data.rate_limited) {
-                                                var diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
-                                                var pauseSeconds = 60; // Pause for 60 seconds
-                                                var pauseMinutes = Math.round(pauseSeconds / 60);
-                                                $status.html('⏸ <?php esc_js(_e('Rate limit detected. Will retry in', 'flickr-justified-block')); ?> ' + pauseMinutes + ' <?php esc_js(_e('minute(s)...', 'flickr-justified-block')); ?>' + diagnosticMsg);
-                                                $details.html('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
-                                                    '<em style="color: #666;"><?php esc_js(_e('Manual warming will retry automatically. You can close this page - the automatic background warmer will continue.', 'flickr-justified-block')); ?></em>');
+                                                if (data.rate_limited) {
+                                                    const diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
+                                                    const pauseSeconds = 60;
+                                                    const pauseMinutes = Math.round(pauseSeconds / 60);
+                                                    status.innerHTML = '⏸ <?php esc_js(_e('Rate limit detected. Will retry in', 'flickr-justified-block')); ?> ' + pauseMinutes + ' <?php esc_js(_e('minute(s)...', 'flickr-justified-block')); ?>' + diagnosticMsg;
+                                                    details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
+                                                        '<em style="color: #666;"><?php esc_js(_e('Manual warming will retry automatically. You can close this page - the automatic background warmer will continue.', 'flickr-justified-block')); ?></em>';
 
-                                                // Wait and retry same batch
-                                                setTimeout(function() {
-                                                    $status.text('<?php esc_js(_e('Resuming...', 'flickr-justified-block')); ?>');
-                                                    processBatch(startIndex, retryCount + 1);
-                                                }, pauseSeconds * 1000);
+                                                    setTimeout(() => {
+                                                        status.textContent = '<?php esc_js(_e('Resuming...', 'flickr-justified-block')); ?>';
+                                                        processBatch(startIndex, retryCount + 1);
+                                                    }, pauseSeconds * 1000);
+                                                } else {
+                                                    details.textContent = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>';
+                                                    processBatch(startIndex + batchSize, 0);
+                                                }
                                             } else {
-                                                // Success - update progress and continue
-                                                $details.text('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>');
-
-                                                // Process next batch
-                                                processBatch(startIndex + batchSize, 0);
+                                                status.innerHTML = '<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (batchResponse.data || '<?php esc_js(_e('Unknown error', 'flickr-justified-block')); ?>');
+                                                btn.disabled = false;
+                                                btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                                             }
-                                        } else {
-                                            $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (batchResponse.data || '<?php esc_js(_e('Unknown error', 'flickr-justified-block')); ?>'));
-                                            $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
-                                        }
                                         },
-                                        error: function(xhr, status, error) {
-                                            var errorMsg = '<?php esc_js(_e('Network error', 'flickr-justified-block')); ?>';
-                                            if (status === 'timeout') {
+                                        error: function(xhr, errorStatus, error) {
+                                            let errorMsg = '<?php esc_js(_e('Network error', 'flickr-justified-block')); ?>';
+                                            if (errorStatus === 'timeout') {
                                                 errorMsg = '<?php esc_js(_e('Request timed out. Large albums may take several minutes.', 'flickr-justified-block')); ?>';
                                             }
+                                            status.innerHTML = '<strong style="color: #d63638;">✗ ' + errorMsg + '</strong>';
 
-                                            $status.html('<strong style="color: #d63638;">✗ ' + errorMsg + '</strong>');
-
-                                            // Show progress and next steps
                                             if (processed > 0) {
-                                                $details.html('<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
-                                                    '<em style="color: #666;"><?php esc_js(_e('The automatic background warmer will continue processing remaining URLs.', 'flickr-justified-block')); ?></em>');
+                                                details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
+                                                    '<em style="color: #666;"><?php esc_js(_e('The automatic background warmer will continue processing remaining URLs.', 'flickr-justified-block')); ?></em>';
                                             }
-
-                                            $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                            btn.disabled = false;
+                                            btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                                         }
                                     });
                                 }
-
-                                processBatch(0, 0);
+                                processBatch(0);
                             } else {
-                                $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (response.data || '<?php esc_js(_e('Could not scan posts', 'flickr-justified-block')); ?>'));
-                                $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                                status.innerHTML = '<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (response.data || '<?php esc_js(_e('Could not scan posts', 'flickr-justified-block')); ?>');
+                                btn.disabled = false;
+                                btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                             }
-                        }).fail(function() {
-                            $status.html('<strong style="color: #d63638;">✗ <?php esc_js(_e('Network error. Please try again.', 'flickr-justified-block')); ?></strong>');
-                            $btn.prop('disabled', false).text('<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>');
+                        })
+                        .catch(error => {
+                            status.innerHTML = '<strong style="color: #d63638;">✗ <?php esc_js(_e('Network error. Please try again.', 'flickr-justified-block')); ?></strong>';
+                            btn.disabled = false;
+                            btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                         });
                     });
                 });
@@ -1017,16 +1062,10 @@ class FlickrJustifiedAdminSettings {
             return;
         }
 
-        wp_enqueue_script('jquery');
-
-        $handle = 'flickr-justified-admin';
-        $admin_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/admin.js';
-        $admin_js_ver  = @filemtime($admin_js_path);
-
         wp_enqueue_script(
             $handle,
             FLICKR_JUSTIFIED_PLUGIN_URL . 'assets/js/admin.js',
-            ['jquery'],
+            [],
             $admin_js_ver ? $admin_js_ver : FLICKR_JUSTIFIED_VERSION,
             true
         );

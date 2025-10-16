@@ -21,3 +21,7 @@ Thumbs.db
 
 # Cache
 .cache/
+
+# Local development
+.claude/
+view test/
