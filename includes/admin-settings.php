@@ -699,56 +699,17 @@ class FlickrJustifiedAdminSettings {
                         progress.style.display = 'block';
                         status.textContent = '<?php esc_js(_e('Scanning posts for Flickr URLs...', 'flickr-justified-block')); ?>';
 
-                        const post = (url, data) => {
-                            const formData = new URLSearchParams();
-                            for (const key in data) {
-                                formData.append(key, data[key]);
-                            }
-                            return fetch(url, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                                body: formData
-                            }).then(response => {
-                                if (!response.ok) throw new Error('Network response was not ok.');
-                                return response.json();
-                            });
-                        };
+                        const initialFormData = new URLSearchParams();
+                        initialFormData.append('action', 'flickr_rebuild_urls');
+                        initialFormData.append('nonce', '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>');
 
-                        const ajax = (options) => {
-                            const controller = new AbortController();
-                            const timeoutId = setTimeout(() => controller.abort(), options.timeout || 30000);
-                            
-                            const formData = new URLSearchParams();
-                            for (const key in options.data) {
-                                if (Array.isArray(options.data[key])) {
-                                    options.data[key].forEach(val => formData.append(key + '[]', val));
-                                } else {
-                                    formData.append(key, options.data[key]);
-                                }
-                            }
-
-                            return fetch(options.url, {
-                                method: options.type || 'POST',
-                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                                body: formData,
-                                signal: controller.signal
-                            })
-                            .then(response => {
-                                clearTimeout(timeoutId);
-                                if (!response.ok) throw new Error('Network response was not ok.');
-                                return response.json();
-                            })
-                            .then(options.success)
-                            .catch(error => {
-                                clearTimeout(timeoutId);
-                                let errorStatus = error.name === 'AbortError' ? 'timeout' : 'error';
-                                options.error(null, errorStatus, error);
-                            });
-                        };
-
-                        post(ajaxurl, {
-                            action: 'flickr_rebuild_urls',
-                            nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
+                        fetch(ajaxurl, {
+                            method: 'POST',
+                            body: initialFormData
+                        })
+                        .then(response => {
+                            if (!response.ok) throw new Error('Network response was not ok for rebuilding URLs.');
+                            return response.json();
                         })
                         .then(response => {
                             if (response.success) {
@@ -757,6 +718,14 @@ class FlickrJustifiedAdminSettings {
                                 let processed = 0;
                                 const batchSize = 1;
                                 let totalApiCalls = 0;
+
+                                if (totalUrls === 0) {
+                                    status.textContent = '<?php esc_js(_e('No Flickr URLs found to warm.', 'flickr-justified-block')); ?>';
+                                    btn.disabled = false;
+                                    btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
+                                    progress.style.display = 'none';
+                                    return;
+                                }
 
                                 status.textContent = '<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>';
 
@@ -771,72 +740,78 @@ class FlickrJustifiedAdminSettings {
                                     }
 
                                     const batch = queue.slice(startIndex, startIndex + batchSize);
+                                    const batchFormData = new URLSearchParams();
+                                    batchFormData.append('action', 'flickr_warm_batch');
+                                    batch.forEach(url => batchFormData.append('urls[]', url));
+                                    batchFormData.append('nonce', '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>');
 
-                                    ajax({
-                                        url: ajaxurl,
-                                        type: 'POST',
-                                        timeout: 300000,
-                                        data: {
-                                            action: 'flickr_warm_batch',
-                                            urls: batch,
-                                            nonce: '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>'
-                                        },
-                                        success: function(batchResponse) {
-                                            if (batchResponse.success) {
-                                                const data = batchResponse.data;
-                                                processed += data.processed;
-                                                totalApiCalls += (data.api_calls || 0);
+                                    const controller = new AbortController();
+                                    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
-                                                const percent = Math.round((startIndex + batch.length) / totalUrls * 100);
-                                                bar.style.width = percent + '%';
+                                    fetch(ajaxurl, {
+                                        method: 'POST',
+                                        body: batchFormData,
+                                        signal: controller.signal
+                                    })
+                                    .then(res => {
+                                        clearTimeout(timeoutId);
+                                        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+                                        return res.json();
+                                    })
+                                    .then(batchResponse => {
+                                        if (batchResponse.success) {
+                                            const data = batchResponse.data;
+                                            processed += data.processed;
+                                            totalApiCalls += (data.api_calls || 0);
 
-                                                if (data.rate_limited) {
-                                                    const diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
-                                                    const pauseSeconds = 60;
-                                                    const pauseMinutes = Math.round(pauseSeconds / 60);
-                                                    status.innerHTML = '⏸ <?php esc_js(_e('Rate limit detected. Will retry in', 'flickr-justified-block')); ?> ' + pauseMinutes + ' <?php esc_js(_e('minute(s)...', 'flickr-justified-block')); ?>' + diagnosticMsg;
-                                                    details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
-                                                        '<em style="color: #666;"><?php esc_js(_e('Manual warming will retry automatically. You can close this page - the automatic background warmer will continue.', 'flickr-justified-block')); ?></em>';
+                                            const percent = Math.round((startIndex + batch.length) / totalUrls * 100);
+                                            bar.style.width = percent + '%';
 
-                                                    setTimeout(() => {
-                                                        status.textContent = '<?php esc_js(_e('Resuming...', 'flickr-justified-block')); ?>';
-                                                        processBatch(startIndex, retryCount + 1);
-                                                    }, pauseSeconds * 1000);
-                                                } else {
-                                                    details.textContent = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>';
-                                                    processBatch(startIndex + batchSize, 0);
-                                                }
-                                            } else {
-                                                status.innerHTML = '<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (batchResponse.data || '<?php esc_js(_e('Unknown error', 'flickr-justified-block')); ?>');
-                                                btn.disabled = false;
-                                                btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
-                                            }
-                                        },
-                                        error: function(xhr, errorStatus, error) {
-                                            let errorMsg = '<?php esc_js(_e('Network error', 'flickr-justified-block')); ?>';
-                                            if (errorStatus === 'timeout') {
-                                                errorMsg = '<?php esc_js(_e('Request timed out. Large albums may take several minutes.', 'flickr-justified-block')); ?>';
-                                            }
-                                            status.innerHTML = '<strong style="color: #d63638;">✗ ' + errorMsg + '</strong>';
-
-                                            if (processed > 0) {
+                                            if (data.rate_limited) {
+                                                const diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
+                                                const pauseSeconds = 60;
+                                                const pauseMinutes = Math.round(pauseSeconds / 60);
+                                                status.innerHTML = '⏸ <?php esc_js(_e('Rate limit detected. Will retry in', 'flickr-justified-block')); ?> ' + pauseMinutes + ' <?php esc_js(_e('minute(s)...', 'flickr-justified-block')); ?>' + diagnosticMsg;
                                                 details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
-                                                    '<em style="color: #666;"><?php esc_js(_e('The automatic background warmer will continue processing remaining URLs.', 'flickr-justified-block')); ?></em>';
+                                                    '<em style="color: #666;"><?php esc_js(_e('Manual warming will retry automatically. You can close this page - the automatic background warmer will continue.', 'flickr-justified-block')); ?></em>';
+
+                                                setTimeout(() => {
+                                                    status.textContent = '<?php esc_js(_e('Resuming...', 'flickr-justified-block')); ?>';
+                                                    processBatch(startIndex, retryCount + 1);
+                                                }, pauseSeconds * 1000);
+                                            } else {
+                                                details.textContent = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>';
+                                                processBatch(startIndex + batchSize, 0);
                                             }
-                                            btn.disabled = false;
-                                            btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
+                                        } else {
+                                            throw new Error(batchResponse.data || '<?php esc_js(_e('Unknown error during batch processing.', 'flickr-justified-block')); ?>');
                                         }
+                                    })
+                                    .catch(err => {
+                                        clearTimeout(timeoutId);
+                                        let errorMsg = '<?php esc_js(_e('Network error', 'flickr-justified-block')); ?>';
+                                        if (err.name === 'AbortError') {
+                                            errorMsg = '<?php esc_js(_e('Request timed out. Large albums may take several minutes.', 'flickr-justified-block')); ?>';
+                                        } else if(err.message) {
+                                            errorMsg = err.message;
+                                        }
+                                        status.innerHTML = `<strong style="color: #d63638;">✗ ${errorMsg}</strong>`;
+
+                                        if (processed > 0) {
+                                            details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
+                                                '<em style="color: #666;"><?php esc_js(_e('The automatic background warmer will continue processing remaining URLs.', 'flickr-justified-block')); ?></em>';
+                                        }
+                                        btn.disabled = false;
+                                        btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                                     });
                                 }
                                 processBatch(0);
                             } else {
-                                status.innerHTML = '<strong style="color: #d63638;">✗ <?php esc_js(_e('Error:', 'flickr-justified-block')); ?></strong> ' + (response.data || '<?php esc_js(_e('Could not scan posts', 'flickr-justified-block')); ?>');
-                                btn.disabled = false;
-                                btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
+                                throw new Error(response.data || '<?php esc_js(_e('Could not scan posts.', 'flickr-justified-block')); ?>');
                             }
                         })
                         .catch(error => {
-                            status.innerHTML = '<strong style="color: #d63638;">✗ <?php esc_js(_e('Network error. Please try again.', 'flickr-justified-block')); ?></strong>';
+                            status.innerHTML = `<strong style="color: #d63638;">✗ ${error.message}</strong>`;
                             btn.disabled = false;
                             btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                         });
@@ -1061,6 +1036,10 @@ class FlickrJustifiedAdminSettings {
         if ($hook !== 'settings_page_flickr-justified-settings') {
             return;
         }
+
+        $handle = 'flickr-justified-admin';
+        $admin_js_path = FLICKR_JUSTIFIED_PLUGIN_PATH . 'assets/js/admin.js';
+        $admin_js_ver  = @filemtime($admin_js_path);
 
         wp_enqueue_script(
             $handle,
