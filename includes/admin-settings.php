@@ -25,6 +25,7 @@ class FlickrJustifiedAdminSettings {
         add_action('wp_ajax_test_flickr_api_key', [__CLASS__, 'test_api_key_ajax']);
         add_action('wp_ajax_flickr_rebuild_urls', [__CLASS__, 'ajax_rebuild_urls']);
         add_action('wp_ajax_flickr_warm_batch', [__CLASS__, 'ajax_warm_batch']);
+        add_action('wp_ajax_flickr_process_queue', [__CLASS__, 'ajax_process_queue']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_scripts']);
     }
 
@@ -672,7 +673,13 @@ class FlickrJustifiedAdminSettings {
                 <h3><?php _e('Warm Cache', 'flickr-justified-block'); ?></h3>
                 <p><?php _e('Pre-fetch Flickr data for all your posts to make pages load faster. Run this after adding new posts or if pages are loading slowly.', 'flickr-justified-block'); ?></p>
                 <p style="font-size: 12px; color: #666;"><strong><?php _e('Note:', 'flickr-justified-block'); ?></strong> <?php _e('Flickr API has a rate limit of 3600 calls per hour. If you see "Rate limit detected" immediately, you may have hit this limit from previous warming attempts. Wait an hour and try again.', 'flickr-justified-block'); ?></p>
-                <p><button type="button" id="flickr-warm-cache-btn" class="button button-primary"><?php _e('Warm Cache Now', 'flickr-justified-block'); ?></button></p>
+                <p>
+                    <button type="button" id="flickr-warm-cache-btn" class="button button-primary"><?php _e('Warm Cache Now', 'flickr-justified-block'); ?></button>
+                    <button type="button" id="flickr-process-queue-btn" class="button" style="margin-left: 10px;"><?php _e('Process Queue (with Pagination)', 'flickr-justified-block'); ?></button>
+                </p>
+                <p style="font-size: 12px; color: #666;">
+                    <em><?php _e('Use "Process Queue" to test the background pagination processor. This processes items from the queue and automatically queues additional pages for large albums.', 'flickr-justified-block'); ?></em>
+                </p>
                 <div id="flickr-warm-cache-progress" style="display: none; margin-top: 10px;">
                     <div style="background: #f0f0f1; border: 1px solid #c3c4c7; border-radius: 4px; padding: 15px;">
                         <p id="flickr-warm-cache-status"><?php _e('Initializing...', 'flickr-justified-block'); ?></p>
@@ -816,6 +823,46 @@ class FlickrJustifiedAdminSettings {
                             btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
                         });
                     });
+
+                    // Process Queue button handler
+                    const processQueueBtn = document.getElementById('flickr-process-queue-btn');
+                    if (processQueueBtn) {
+                        processQueueBtn.addEventListener('click', function() {
+                            const btn = this;
+                            const progress = document.getElementById('flickr-warm-cache-progress');
+                            const status = document.getElementById('flickr-warm-cache-status');
+
+                            btn.disabled = true;
+                            btn.textContent = '<?php esc_attr_e('Processing...', 'flickr-justified-block'); ?>';
+                            progress.style.display = 'block';
+                            status.textContent = '<?php esc_js(_e('Running background queue processor...', 'flickr-justified-block')); ?>';
+
+                            const formData = new URLSearchParams();
+                            formData.append('action', 'flickr_process_queue');
+                            formData.append('nonce', '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>');
+
+                            fetch(ajaxurl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: formData
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    status.innerHTML = '<strong style="color: #00a32a;">✓ ' + data.data.message + '</strong>';
+                                } else {
+                                    status.innerHTML = '<strong style="color: #d63638;">✗ Error: ' + data.data + '</strong>';
+                                }
+                                btn.disabled = false;
+                                btn.textContent = '<?php esc_attr_e('Process Queue (with Pagination)', 'flickr-justified-block'); ?>';
+                            })
+                            .catch(error => {
+                                status.innerHTML = '<strong style="color: #d63638;">✗ ' + error.message + '</strong>';
+                                btn.disabled = false;
+                                btn.textContent = '<?php esc_attr_e('Process Queue (with Pagination)', 'flickr-justified-block'); ?>';
+                            });
+                        });
+                    }
                 });
                 </script>
 
@@ -1178,6 +1225,36 @@ class FlickrJustifiedAdminSettings {
                 error_log('Flickr warm_batch exception: ' . $e->getMessage());
             }
             wp_send_json_error('Error warming cache: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX handler to manually trigger the background queue processor
+     */
+    public static function ajax_process_queue() {
+        check_ajax_referer('flickr_warm_cache_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        if (!class_exists('FlickrJustifiedCacheWarmer')) {
+            wp_send_json_error('Cache warmer not available');
+        }
+
+        try {
+            // Process the queue with pagination support
+            $processed = FlickrJustifiedCacheWarmer::process_queue(false);
+
+            wp_send_json_success([
+                'processed' => $processed,
+                'message' => sprintf('Processed %d item(s) from queue', $processed)
+            ]);
+        } catch (Exception $e) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr ajax_process_queue exception: ' . $e->getMessage());
+            }
+            wp_send_json_error('Error processing queue: ' . $e->getMessage());
         }
     }
 }

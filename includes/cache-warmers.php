@@ -133,11 +133,26 @@ class FlickrJustifiedCacheWarmer {
      * @return int Number of URLs processed.
      */
     public static function process_queue($process_all = false) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                'Flickr cache warmer: process_queue() called (enabled=%s, process_all=%s)',
+                self::is_enabled() ? 'yes' : 'no',
+                $process_all ? 'yes' : 'no'
+            ));
+        }
+
         if (!self::is_enabled() && !$process_all) {
             return 0;
         }
 
         $queue = self::get_queue();
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                'Flickr cache warmer: Queue has %d items',
+                count($queue)
+            ));
+        }
 
         if (empty($queue)) {
             $queue = self::prime_queue_from_known_urls();
