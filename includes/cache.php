@@ -136,10 +136,10 @@ class FlickrJustifiedCache {
 
         // Clear all transients with our prefix
         $patterns = [
-            '_transient_' . self::PREFIX . '%',
-            '_transient_timeout_' . self::PREFIX . '%',
-            '_site_transient_' . self::PREFIX . '%',
-            '_site_transient_timeout_' . self::PREFIX . '%',
+            '_transient_' . self::PREFIX . "%",
+            '_transient_timeout_' . self::PREFIX . "%",
+            '_site_transient_' . self::PREFIX . "%",
+            '_site_transient_timeout_' . self::PREFIX . "%",
         ];
 
         // Delete from options table
@@ -170,7 +170,7 @@ class FlickrJustifiedCache {
 
         // Clear rate limiting transients (for REST API lazy loading)
         $wpdb->query(
-            "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_flickr_lazy_load_%'
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_flickr_lazy_load_%' 
              OR option_name LIKE '_transient_timeout_flickr_lazy_load_%'"
         );
 
@@ -270,14 +270,25 @@ class FlickrJustifiedCache {
 
         foreach ($urls as $url) {
             try {
-                // Delegate to cache-warmers.php for actual warming logic
-                // Always warms ALL pages of albums (both manual and cron)
-                $result = FlickrJustifiedCacheWarmer::warm_url($url);
+                // For manual warming, we process one page at a time to avoid timeouts
+                // The background cron warmer handles pagination automatically
+                $result = FlickrJustifiedCacheWarmer::warm_url($url, 1);
 
                 if ($result === 'rate_limited') {
                     $rate_limited = true;
                     break; // Stop processing this batch
+                } elseif (is_array($result) && isset($result['success'])) {
+                    // Album result with pagination info
+                    if ($result['success']) {
+                        $processed++;
+                    } else {
+                        $failed++;
+                        if (defined('WP_DEBUG') && WP_DEBUG) {
+                            $errors[] = 'Failed to warm album: ' . $url;
+                        }
+                    }
                 } elseif ($result) {
+                    // Simple success (photo URL)
                     $processed++;
                 } else {
                     $failed++;
@@ -361,10 +372,24 @@ class FlickrJustifiedCache {
         $query_args = apply_filters('flickr_justified_photo_info_query_args', $query_args, $photo_id);
         $api_url = add_query_arg($query_args, 'https://api.flickr.com/services/rest/');
 
-        $response = wp_remote_get($api_url, [
-            'timeout' => 10,
-            'user-agent' => 'WordPress Flickr Justified Block'
-        ]);
+        $max_retries = 2;
+        $retry_delay = 2; // seconds
+        $response = null;
+
+        for ($attempt = 0; $attempt <= $max_retries; $attempt++) {
+            $response = wp_remote_get($api_url, [
+                'timeout' => 30,
+                'user-agent' => 'WordPress Flickr Justified Block'
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                break; // Success, exit loop
+            }
+
+            if ($attempt < $max_retries) {
+                sleep($retry_delay);
+            }
+        }
 
         // Track API call
         self::increment_api_calls();
@@ -536,10 +561,24 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
-        $response = wp_remote_get($api_url, [
-            'timeout' => 10,
-            'user-agent' => 'WordPress Flickr Justified Block'
-        ]);
+        $max_retries = 2;
+        $retry_delay = 2; // seconds
+        $response = null;
+
+        for ($attempt = 0; $attempt <= $max_retries; $attempt++) {
+            $response = wp_remote_get($api_url, [
+                'timeout' => 30,
+                'user-agent' => 'WordPress Flickr Justified Block'
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                break; // Success, exit loop
+            }
+
+            if ($attempt < $max_retries) {
+                sleep($retry_delay);
+            }
+        }
 
         // Track API call
         self::increment_api_calls();
@@ -701,10 +740,24 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
-        $response = wp_remote_get($api_url, [
-            'timeout' => 10,
-            'user-agent' => 'WordPress Flickr Justified Block'
-        ]);
+        $max_retries = 2;
+        $retry_delay = 2; // seconds
+        $response = null;
+
+        for ($attempt = 0; $attempt <= $max_retries; $attempt++) {
+            $response = wp_remote_get($api_url, [
+                'timeout' => 30,
+                'user-agent' => 'WordPress Flickr Justified Block'
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                break; // Success, exit loop
+            }
+
+            if ($attempt < $max_retries) {
+                sleep($retry_delay);
+            }
+        }
 
         // Track API call
         self::increment_api_calls();
@@ -775,10 +828,24 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
-        $response = wp_remote_get($api_url, [
-            'timeout' => 10,
-            'user-agent' => 'WordPress Flickr Justified Block'
-        ]);
+        $max_retries = 2;
+        $retry_delay = 2; // seconds
+        $response = null;
+
+        for ($attempt = 0; $attempt <= $max_retries; $attempt++) {
+            $response = wp_remote_get($api_url, [
+                'timeout' => 30,
+                'user-agent' => 'WordPress Flickr Justified Block'
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                break; // Success, exit loop
+            }
+
+            if ($attempt < $max_retries) {
+                sleep($retry_delay);
+            }
+        }
 
         // Track API call
         self::increment_api_calls();
@@ -867,10 +934,24 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
-        $response = wp_remote_get($api_url, [
-            'timeout' => 15,
-            'user-agent' => 'WordPress Flickr Justified Block'
-        ]);
+        $max_retries = 2;
+        $retry_delay = 2; // seconds
+        $response = null;
+
+        for ($attempt = 0; $attempt <= $max_retries; $attempt++) {
+            $response = wp_remote_get($api_url, [
+                'timeout' => 30,
+                'user-agent' => 'WordPress Flickr Justified Block'
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                break; // Success, exit loop
+            }
+
+            if ($attempt < $max_retries) {
+                sleep($retry_delay);
+            }
+        }
 
         // Track API call
         self::increment_api_calls();

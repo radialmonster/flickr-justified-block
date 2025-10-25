@@ -152,20 +152,33 @@ class FlickrJustifiedCacheWarmer {
         $remaining = [];
         $rate_limited = false;
 
-        foreach ($queue as $url) {
+        foreach ($queue as $queue_item) {
             if (!$process_all && $attempted >= $batch_size) {
-                $remaining[] = $url;
+                $remaining[] = $queue_item;
                 continue;
             }
 
             $attempted++;
 
-            $result = self::warm_url($url);
+            // Support both old format (string) and new format (array with url and page)
+            if (is_array($queue_item)) {
+                $url = isset($queue_item['url']) ? $queue_item['url'] : '';
+                $page = isset($queue_item['page']) ? (int) $queue_item['page'] : 1;
+            } else {
+                $url = $queue_item;
+                $page = 1;
+            }
+
+            if (empty($url)) {
+                continue;
+            }
+
+            $result = self::warm_url($url, $page);
 
             if ($result === 'rate_limited') {
                 // Rate limited - stop processing and keep this URL for retry
                 $rate_limited = true;
-                $remaining[] = $url;
+                $remaining[] = $queue_item;
 
                 // Add all remaining URLs back to queue
                 for ($i = $attempted; $i < count($queue); $i++) {
@@ -176,13 +189,40 @@ class FlickrJustifiedCacheWarmer {
                     error_log('Flickr cache warmer: Rate limited at URL ' . $attempted . ', scheduling retry in 1 hour');
                 }
                 break;
+            } elseif (is_array($result) && isset($result['success'])) {
+                // Album result with pagination info
+                if ($result['success']) {
+                    $processed++;
+
+                    // If there are more pages, add the next page to the queue
+                    if (!empty($result['has_more_pages']) && $result['current_page'] < $result['total_pages']) {
+                        $next_page = $result['current_page'] + 1;
+                        $remaining[] = [
+                            'url' => $url,
+                            'page' => $next_page,
+                        ];
+
+                        if (defined('WP_DEBUG') && WP_DEBUG) {
+                            error_log(sprintf(
+                                'Flickr cache warmer: Queuing page %d/%d for album: %s',
+                                $next_page,
+                                $result['total_pages'],
+                                $url
+                            ));
+                        }
+                    }
+                } else {
+                    // Failed - keep in queue for retry
+                    $remaining[] = $queue_item;
+                }
             } elseif ($result) {
+                // Simple success (photo URL)
                 $processed++;
                 continue;
+            } else {
+                // Failed for other reasons - keep in queue for retry
+                $remaining[] = $queue_item;
             }
-
-            // Failed for other reasons - keep in queue for retry
-            $remaining[] = $url;
         }
 
         self::save_queue($remaining);
@@ -205,17 +245,24 @@ class FlickrJustifiedCacheWarmer {
      * For albums, this warms a small batch of photos to prevent timeouts.
      *
      * @param string $url The Flickr URL to warm.
-     * @return bool|string True on success, 'rate_limited' on rate limit, false on failure.
+     * @param int $page The page number for album URLs (default 1).
+     * @return bool|string|array True on success, 'rate_limited' on rate limit, false on failure,
+     *                           or array with 'success' and 'has_more_pages' for albums.
      */
-    public static function warm_url($url) {
+    public static function warm_url($url, $page = 1) {
         if (!is_string($url) || '' === trim($url)) {
             return false;
         }
 
         $url = trim($url);
+        $page = max(1, (int) $page);
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Flickr warm_url processing: ' . $url);
+            $log_message = 'Flickr warm_url processing: ' . $url;
+            if ($page > 1) {
+                $log_message .= ' (page ' . $page . ')';
+            }
+            error_log($log_message);
         }
 
         // Check if this is a photo URL
@@ -280,8 +327,8 @@ class FlickrJustifiedCacheWarmer {
             $success = false;
             $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
-            // Fetch only the first page of the album, limited by the batch size.
-            $result = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+            // Fetch the specified page of the album, limited by the batch size.
+            $result = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $page, $per_page);
 
             // Check for rate limiting in photoset call
             if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
@@ -293,8 +340,22 @@ class FlickrJustifiedCacheWarmer {
             }
 
             $photos = array_values($result['photos']);
+            $has_more_pages = isset($result['has_more']) ? (bool) $result['has_more'] : false;
+            $current_page = isset($result['page']) ? (int) $result['page'] : $page;
+            $total_pages = isset($result['pages']) ? (int) $result['pages'] : 1;
+            $total_photos = isset($result['total']) ? (int) $result['total'] : count($photos);
 
-            // Warm each photo from the first page.
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Flickr warm_url album page %d/%d: %d photos, %d total photos in album',
+                    $current_page,
+                    $total_pages,
+                    count($photos),
+                    $total_photos
+                ));
+            }
+
+            // Warm each photo from the current page.
             foreach ($photos as $photo_url) {
                 $photo_url = trim((string) $photo_url);
                 if ('' === $photo_url) {
@@ -324,7 +385,13 @@ class FlickrJustifiedCacheWarmer {
                 }
             }
 
-            return $success;
+            // Return pagination info so caller can queue next page if needed
+            return [
+                'success' => $success,
+                'has_more_pages' => $has_more_pages,
+                'current_page' => $current_page,
+                'total_pages' => $total_pages,
+            ];
         } catch (Exception $e) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log('Flickr warm_url album error: ' . $e->getMessage() . ' for URL: ' . $url);
@@ -537,7 +604,7 @@ class FlickrJustifiedCacheWarmer {
     /**
      * Prime the queue from known URLs.
      *
-     * @param bool $force When true, overwrite the queue even if it already has entries.
+     * @param bool $force When true, merge new URLs with existing queue entries.
      * @return array Resulting queue.
      */
     private static function prime_queue_from_known_urls($force = false) {
@@ -548,13 +615,60 @@ class FlickrJustifiedCacheWarmer {
         }
 
         $urls = self::get_all_known_urls();
-        self::save_queue($urls);
 
-        return $urls;
+        if (!$force) {
+            // Simple case: queue is empty, just use the new URLs
+            self::save_queue($urls);
+            return $urls;
+        }
+
+        // When forcing, preserve in-progress paginated entries
+        // Build maps of what's currently in the queue
+        $urls_in_queue = []; // Maps URL => true if ANY page is in queue
+        $paginated_entries = []; // Keep all paginated entries (page > 1)
+
+        foreach ($current_queue as $item) {
+            if (is_array($item) && isset($item['url'])) {
+                $urls_in_queue[$item['url']] = true;
+                // Keep paginated entries (page > 1) that are still in known URLs
+                if (isset($item['page']) && $item['page'] > 1) {
+                    if (in_array($item['url'], $urls, true)) {
+                        $paginated_entries[] = $item;
+                    }
+                }
+            } elseif (is_string($item)) {
+                $urls_in_queue[$item] = true;
+            }
+        }
+
+        // Start with preserved paginated entries
+        $merged_queue = $paginated_entries;
+
+        // Add all URLs from known URLs list
+        foreach ($urls as $url) {
+            // Check if this URL (any page) is already in merged_queue
+            $already_queued = false;
+            foreach ($merged_queue as $item) {
+                $item_url = is_array($item) ? ($item['url'] ?? '') : $item;
+                if ($item_url === $url) {
+                    $already_queued = true;
+                    break;
+                }
+            }
+
+            // Only add if not already in queue (avoids duplicates and page 1 when page N exists)
+            if (!$already_queued) {
+                $merged_queue[] = $url;
+            }
+        }
+
+        self::save_queue($merged_queue);
+        return $merged_queue;
     }
 
     /**
      * Retrieve the current queue.
+     * Queue items can be either strings (legacy format) or arrays with 'url' and 'page' keys.
      */
     private static function get_queue() {
         $queue = get_option(self::OPTION_QUEUE, []);
@@ -562,8 +676,26 @@ class FlickrJustifiedCacheWarmer {
             $queue = [];
         }
 
-        $queue = array_filter(array_map('trim', $queue));
-        $queue = array_unique($queue);
+        // Clean and validate queue items
+        $queue = array_filter($queue, function($item) {
+            if (is_string($item)) {
+                return '' !== trim($item);
+            } elseif (is_array($item)) {
+                return isset($item['url']) && is_string($item['url']) && '' !== trim($item['url']);
+            }
+            return false;
+        });
+
+        // Remove exact duplicates
+        $seen = [];
+        $queue = array_filter($queue, function($item) use (&$seen) {
+            $key = is_array($item) ? ($item['url'] . '_' . (isset($item['page']) ? $item['page'] : 1)) : $item;
+            if (isset($seen[$key])) {
+                return false;
+            }
+            $seen[$key] = true;
+            return true;
+        });
 
         return array_values($queue);
     }
