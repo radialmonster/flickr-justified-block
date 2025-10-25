@@ -461,6 +461,10 @@ class FlickrJustifiedCache {
         $stats_cache_key = ['photo_stats', $photo_id];
         $cached_stats = self::get($stats_cache_key);
         if (is_array($cached_stats) && !empty($cached_stats)) {
+            // Check for negative cache (deleted/private photo)
+            if (isset($cached_stats['not_found']) && $cached_stats['not_found']) {
+                return []; // Skip deleted photos immediately
+            }
             return $cached_stats;
         }
 
@@ -473,6 +477,8 @@ class FlickrJustifiedCache {
         }
 
         if (empty($photo_info)) {
+            // Cache empty stats for deleted/private photos to skip them faster next time
+            self::set($stats_cache_key, ['not_found' => true]);
             return [];
         }
 
