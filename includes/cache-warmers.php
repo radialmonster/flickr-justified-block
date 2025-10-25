@@ -209,17 +209,18 @@ class FlickrJustifiedCacheWarmer {
                 if ($result['success']) {
                     $processed++;
 
-                    // If there are more pages, add the next page to the queue
+                    // If there are more pages, add the next page to the FRONT of the queue
+                    // This ensures we complete one album before moving to the next
                     if (!empty($result['has_more_pages']) && $result['current_page'] < $result['total_pages']) {
                         $next_page = $result['current_page'] + 1;
-                        $remaining[] = [
+                        array_unshift($remaining, [
                             'url' => $url,
                             'page' => $next_page,
-                        ];
+                        ]);
 
                         if (defined('WP_DEBUG') && WP_DEBUG) {
                             error_log(sprintf(
-                                'Flickr cache warmer: Queuing page %d/%d for album: %s',
+                                'Flickr cache warmer: Queuing page %d/%d for album (priority): %s',
                                 $next_page,
                                 $result['total_pages'],
                                 $url
