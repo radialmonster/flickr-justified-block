@@ -406,6 +406,12 @@ class FlickrJustifiedCache {
         // Build context string for error logging - use direct photo URL
         $context = 'Photo ID: ' . $photo_id . ' | Direct URL: https://www.flickr.com/photo.gne?id=' . $photo_id;
 
+        // Add current post/page context if available
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
+        }
+
         // Check for rate limiting
         if (self::is_rate_limited_response($response, $data, $context)) {
             return ['rate_limited' => true];
@@ -596,6 +602,12 @@ class FlickrJustifiedCache {
         $context = 'Photo ID: ' . $photo_id;
         if (!empty($page_url)) {
             $context .= ' | Photo URL: ' . $page_url;
+        }
+
+        // Add current post/page context if available
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
         }
 
         // Check for rate limiting
@@ -860,6 +872,12 @@ class FlickrJustifiedCache {
         // Build context string for error logging
         $context = 'Album ID: ' . $photoset_id . ' | User: ' . $user_id . ' | Album URL: https://flickr.com/photos/' . $user_id . '/albums/' . $photoset_id;
 
+        // Add current post/page context if available
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
+        }
+
         // Check for rate limiting
         if (self::is_rate_limited_response($response, $data, $context)) {
             return ['rate_limited' => true];
@@ -972,6 +990,12 @@ class FlickrJustifiedCache {
 
         // Build context string for error logging
         $context = 'Album ID: ' . $photoset_id . ' | User: ' . $user_id . ' | Album URL: https://flickr.com/photos/' . $user_id . '/albums/' . $photoset_id;
+
+        // Add current post/page context if available
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
+        }
 
         // Check for rate limiting
         if (self::is_rate_limited_response($response, $data, $context)) {

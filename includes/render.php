@@ -921,7 +921,7 @@ function flickr_justified_render_block($attributes) {
                 function loadGallery() {
                     var xhr = new XMLHttpRequest();
                     xhr.open("POST", "%s", true);
-                    xhr.timeout = 10000; // 10 second timeout
+                    xhr.timeout = 60000; // 60 second timeout (increased for sort by views with large albums)
                     xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
 
                     xhr.onload = function() {
