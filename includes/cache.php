@@ -408,6 +408,10 @@ class FlickrJustifiedCache {
 
         // Add current post/page context if available
         $post_id = get_the_ID();
+        // Fall back to global set during AJAX requests
+        if (!$post_id && isset($GLOBALS['flickr_justified_current_post_id'])) {
+            $post_id = $GLOBALS['flickr_justified_current_post_id'];
+        }
         if ($post_id) {
             $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
         }
@@ -612,6 +616,10 @@ class FlickrJustifiedCache {
 
         // Add current post/page context if available
         $post_id = get_the_ID();
+        // Fall back to global set during AJAX requests
+        if (!$post_id && isset($GLOBALS['flickr_justified_current_post_id'])) {
+            $post_id = $GLOBALS['flickr_justified_current_post_id'];
+        }
         if ($post_id) {
             $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
         }
@@ -880,6 +888,10 @@ class FlickrJustifiedCache {
 
         // Add current post/page context if available
         $post_id = get_the_ID();
+        // Fall back to global set during AJAX requests
+        if (!$post_id && isset($GLOBALS['flickr_justified_current_post_id'])) {
+            $post_id = $GLOBALS['flickr_justified_current_post_id'];
+        }
         if ($post_id) {
             $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
         }
@@ -999,6 +1011,10 @@ class FlickrJustifiedCache {
 
         // Add current post/page context if available
         $post_id = get_the_ID();
+        // Fall back to global set during AJAX requests
+        if (!$post_id && isset($GLOBALS['flickr_justified_current_post_id'])) {
+            $post_id = $GLOBALS['flickr_justified_current_post_id'];
+        }
         if ($post_id) {
             $context .= ' | Post/Page ID: ' . $post_id . ' | URL: ' . get_permalink($post_id);
         }

@@ -995,7 +995,14 @@ function flickr_justified_render_block($attributes) {
                         }
                     }
 
-                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s));
+                    var postId = "";
+                    // Try to get post ID from body class or other indicators
+                    var bodyClasses = document.body.className.match(/postid-(\d+)/);
+                    if (bodyClasses && bodyClasses[1]) {
+                        postId = bodyClasses[1];
+                    }
+
+                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s) + "&post_id=" + postId);
                 }
 
                 loadGallery();
@@ -1333,6 +1340,11 @@ function flickr_justified_ajax_load_async() {
         wp_send_json_error('Invalid attributes');
     }
 
+    // Store post ID globally for error logging context
+    if (isset($_POST['post_id']) && !empty($_POST['post_id'])) {
+        $GLOBALS['flickr_justified_current_post_id'] = absint($_POST['post_id']);
+    }
+
     // Temporarily disable async loading to render normally
     // (we're already in async context, no need to recurse)
     add_filter('flickr_justified_force_sync_render', '__return_true');
@@ -1340,6 +1352,9 @@ function flickr_justified_ajax_load_async() {
     $html = flickr_justified_render_block($attributes);
 
     remove_filter('flickr_justified_force_sync_render', '__return_true');
+
+    // Clean up global
+    unset($GLOBALS['flickr_justified_current_post_id']);
 
     wp_send_json_success(['html' => $html]);
 }
