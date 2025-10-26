@@ -26,6 +26,7 @@ class FlickrJustifiedAdminSettings {
         add_action('wp_ajax_flickr_rebuild_urls', [__CLASS__, 'ajax_rebuild_urls']);
         add_action('wp_ajax_flickr_warm_batch', [__CLASS__, 'ajax_warm_batch']);
         add_action('wp_ajax_flickr_process_queue', [__CLASS__, 'ajax_process_queue']);
+        add_action('wp_ajax_flickr_clear_photo_cache', [__CLASS__, 'ajax_clear_photo_cache']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_scripts']);
     }
 
@@ -871,8 +872,84 @@ class FlickrJustifiedAdminSettings {
                 <form method="post" action="">
                     <?php wp_nonce_field('flickr_justified_clear_cache', 'flickr_justified_clear_cache_nonce'); ?>
                     <input type="hidden" name="action" value="clear_flickr_cache" />
-                    <?php submit_button(__('Clear Flickr Cache', 'flickr-justified-block'), 'secondary', 'clear_cache', false); ?>
+                    <?php submit_button(__('Clear All Flickr Cache', 'flickr-justified-block'), 'secondary', 'clear_cache', false); ?>
                 </form>
+
+                <hr style="margin: 30px 0;">
+
+                <h3><?php _e('Clear Individual Photo Cache', 'flickr-justified-block'); ?></h3>
+                <p><?php _e('If a specific photo isn\'t displaying correctly (e.g., showing 410 Gone error), clear just that photo\'s cache. This is useful when Flickr migrates old photos to new servers.', 'flickr-justified-block'); ?></p>
+                <p style="font-size: 12px; color: #666;">
+                    <strong><?php _e('How to find the Photo ID:', 'flickr-justified-block'); ?></strong><br>
+                    <?php _e('Look at the Flickr URL. For example:', 'flickr-justified-block'); ?> <code>https://www.flickr.com/photos/username/<strong>132149878</strong>/</code><br>
+                    <?php _e('The Photo ID is the number at the end: <strong>132149878</strong>', 'flickr-justified-block'); ?>
+                </p>
+                <div style="margin-top: 15px;">
+                    <input type="text" id="flickr-refresh-photo-ids" placeholder="<?php esc_attr_e('Enter Photo ID(s), comma-separated (e.g., 132149878, 987654321)', 'flickr-justified-block'); ?>" style="width: 100%; max-width: 500px; padding: 8px;">
+                    <button type="button" id="flickr-refresh-photos-btn" class="button button-secondary" style="margin-top: 10px;">
+                        <?php _e('Clear Photo Cache', 'flickr-justified-block'); ?>
+                    </button>
+                    <div id="flickr-refresh-result" style="margin-top: 15px;"></div>
+                </div>
+
+                <script type="text/javascript">
+                    jQuery(document).ready(function($) {
+                        $('#flickr-refresh-photos-btn').on('click', function() {
+                            const button = $(this);
+                            const input = $('#flickr-refresh-photo-ids');
+                            const resultDiv = $('#flickr-refresh-result');
+                            const photoIds = input.val().trim();
+
+                            if (!photoIds) {
+                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Please enter at least one Photo ID.', 'flickr-justified-block'); ?></p></div>');
+                                return;
+                            }
+
+                            // Validate photo IDs (numbers and commas only)
+                            if (!/^[\d\s,]+$/.test(photoIds)) {
+                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Please enter only numeric Photo IDs separated by commas.', 'flickr-justified-block'); ?></p></div>');
+                                return;
+                            }
+
+                            button.prop('disabled', true);
+                            button.text('<?php esc_html_e('Clearing...', 'flickr-justified-block'); ?>');
+                            resultDiv.html('<p><?php esc_html_e('Clearing cache...', 'flickr-justified-block'); ?></p>');
+
+                            $.ajax({
+                                url: ajaxurl,
+                                type: 'POST',
+                                data: {
+                                    action: 'flickr_clear_photo_cache',
+                                    nonce: '<?php echo wp_create_nonce('flickr_clear_photo_cache'); ?>',
+                                    photo_ids: photoIds
+                                },
+                                success: function(response) {
+                                    if (response.success) {
+                                        resultDiv.html('<div class="notice notice-success inline"><p><strong><?php esc_html_e('Success!', 'flickr-justified-block'); ?></strong> ' + response.data.message + '</p></div>');
+                                        input.val('');
+                                    } else {
+                                        resultDiv.html('<div class="notice notice-error inline"><p><strong><?php esc_html_e('Error:', 'flickr-justified-block'); ?></strong> ' + response.data.message + '</p></div>');
+                                    }
+                                },
+                                error: function() {
+                                    resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('An error occurred. Please try again.', 'flickr-justified-block'); ?></p></div>');
+                                },
+                                complete: function() {
+                                    button.prop('disabled', false);
+                                    button.text('<?php esc_html_e('Clear Photo Cache', 'flickr-justified-block'); ?>');
+                                }
+                            });
+                        });
+
+                        // Allow pressing Enter to submit
+                        $('#flickr-refresh-photo-ids').on('keypress', function(e) {
+                            if (e.which === 13) {
+                                e.preventDefault();
+                                $('#flickr-refresh-photos-btn').click();
+                            }
+                        });
+                    });
+                </script>
             </div>
 
             <div class="card" style="margin-top: 20px;">
@@ -1255,6 +1332,106 @@ class FlickrJustifiedAdminSettings {
                 error_log('Flickr ajax_process_queue exception: ' . $e->getMessage());
             }
             wp_send_json_error('Error processing queue: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX handler to clear cache for specific photo IDs
+     */
+    public static function ajax_clear_photo_cache() {
+        check_ajax_referer('flickr_clear_photo_cache', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error([
+                'message' => __('Insufficient permissions', 'flickr-justified-block')
+            ]);
+        }
+
+        $photo_ids = isset($_POST['photo_ids']) ? sanitize_text_field($_POST['photo_ids']) : '';
+
+        if (empty($photo_ids)) {
+            wp_send_json_error([
+                'message' => __('No photo IDs provided', 'flickr-justified-block')
+            ]);
+        }
+
+        // Parse comma-separated photo IDs
+        $photo_ids = array_map('trim', explode(',', $photo_ids));
+        $photo_ids = array_filter($photo_ids, 'is_numeric');
+
+        if (empty($photo_ids)) {
+            wp_send_json_error([
+                'message' => __('Invalid photo IDs provided', 'flickr-justified-block')
+            ]);
+        }
+
+        global $wpdb;
+        $cleared = [];
+        $errors = [];
+
+        foreach ($photo_ids as $photo_id) {
+            try {
+                // Delete transients for photo dimensions/sizes
+                $deleted_dims = $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$wpdb->options}
+                     WHERE option_name LIKE %s",
+                    '%flickr_justified_dims_' . $photo_id . '%'
+                ));
+
+                // Delete transients for photo info
+                $deleted_info = $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$wpdb->options}
+                     WHERE option_name LIKE %s",
+                    '%flickr_justified_photo_' . $photo_id . '%'
+                ));
+
+                // Delete transients for photo stats
+                $deleted_stats = $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$wpdb->options}
+                     WHERE option_name LIKE %s",
+                    '%flickr_justified_stats_' . $photo_id . '%'
+                ));
+
+                $total_deleted = $deleted_dims + $deleted_info + $deleted_stats;
+
+                if ($total_deleted > 0 || true) { // Always count as success even if no cache existed
+                    $cleared[] = $photo_id;
+                    self::log("Cleared cache for photo ID: {$photo_id} ({$total_deleted} cache entries removed)");
+                }
+            } catch (Exception $e) {
+                $errors[] = $photo_id;
+                self::log("Error clearing cache for photo ID {$photo_id}: " . $e->getMessage());
+            }
+        }
+
+        if (!empty($cleared)) {
+            $message = sprintf(
+                _n(
+                    'Successfully cleared cache for photo %s. Refresh your page to see updated images.',
+                    'Successfully cleared cache for %d photos: %s. Refresh your page to see updated images.',
+                    count($cleared),
+                    'flickr-justified-block'
+                ),
+                count($cleared),
+                implode(', ', $cleared)
+            );
+
+            if (!empty($errors)) {
+                $message .= ' ' . sprintf(
+                    __('Failed to clear: %s', 'flickr-justified-block'),
+                    implode(', ', $errors)
+                );
+            }
+
+            wp_send_json_success([
+                'message' => $message,
+                'cleared' => $cleared,
+                'errors' => $errors
+            ]);
+        } else {
+            wp_send_json_error([
+                'message' => __('Failed to clear cache for any photos', 'flickr-justified-block')
+            ]);
         }
     }
 }
