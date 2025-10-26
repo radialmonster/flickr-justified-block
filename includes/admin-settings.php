@@ -880,12 +880,14 @@ class FlickrJustifiedAdminSettings {
                 <h3><?php _e('Clear Individual Photo Cache', 'flickr-justified-block'); ?></h3>
                 <p><?php _e('If a specific photo isn\'t displaying correctly (e.g., showing 410 Gone error), clear just that photo\'s cache. This is useful when Flickr migrates old photos to new servers.', 'flickr-justified-block'); ?></p>
                 <p style="font-size: 12px; color: #666;">
-                    <strong><?php _e('How to find the Photo ID:', 'flickr-justified-block'); ?></strong><br>
-                    <?php _e('Look at the Flickr URL. For example:', 'flickr-justified-block'); ?> <code>https://www.flickr.com/photos/username/<strong>132149878</strong>/</code><br>
-                    <?php _e('The Photo ID is the number at the end: <strong>132149878</strong>', 'flickr-justified-block'); ?>
+                    <strong><?php _e('Accepted formats:', 'flickr-justified-block'); ?></strong><br>
+                    • <?php _e('Photo IDs:', 'flickr-justified-block'); ?> <code>132149878</code><br>
+                    • <?php _e('Photo page URLs:', 'flickr-justified-block'); ?> <code>https://www.flickr.com/photos/username/132149878/</code><br>
+                    • <?php _e('Image URLs:', 'flickr-justified-block'); ?> <code>https://live.staticflickr.com/103/276208727_02aefaf69f_o.jpg</code><br>
+                    • <?php _e('Multiple entries (comma or newline separated)', 'flickr-justified-block'); ?>
                 </p>
                 <div style="margin-top: 15px;">
-                    <input type="text" id="flickr-refresh-photo-ids" placeholder="<?php esc_attr_e('Enter Photo ID(s), comma-separated (e.g., 132149878, 987654321)', 'flickr-justified-block'); ?>" style="width: 100%; max-width: 500px; padding: 8px;">
+                    <textarea id="flickr-refresh-photo-ids" placeholder="<?php esc_attr_e('Paste Photo IDs, photo URLs, or image URLs (one per line or comma-separated)', 'flickr-justified-block'); ?>" style="width: 100%; max-width: 500px; padding: 8px; min-height: 80px; font-family: monospace; font-size: 13px;"></textarea>
                     <button type="button" id="flickr-refresh-photos-btn" class="button button-secondary" style="margin-top: 10px;">
                         <?php _e('Clear Photo Cache', 'flickr-justified-block'); ?>
                     </button>
@@ -894,26 +896,68 @@ class FlickrJustifiedAdminSettings {
 
                 <script type="text/javascript">
                     jQuery(document).ready(function($) {
+                        // Extract photo ID from various Flickr URL formats
+                        function extractPhotoId(input) {
+                            input = input.trim();
+                            if (!input) return null;
+
+                            // Already a numeric ID
+                            if (/^\d+$/.test(input)) {
+                                return input;
+                            }
+
+                            // Photo page URL: https://www.flickr.com/photos/username/132149878/
+                            let match = input.match(/flickr\.com\/photos\/[^\/]+\/(\d+)/i);
+                            if (match) return match[1];
+
+                            // Image URL: https://live.staticflickr.com/103/276208727_02aefaf69f_o.jpg
+                            // or: https://farm{n}.staticflickr.com/103/276208727_02aefaf69f_o.jpg
+                            match = input.match(/staticflickr\.com\/\d+\/(\d+)_/i);
+                            if (match) return match[1];
+
+                            return null;
+                        }
+
                         $('#flickr-refresh-photos-btn').on('click', function() {
                             const button = $(this);
-                            const input = $('#flickr-refresh-photo-ids');
+                            const textarea = $('#flickr-refresh-photo-ids');
                             const resultDiv = $('#flickr-refresh-result');
-                            const photoIds = input.val().trim();
+                            const rawInput = textarea.val().trim();
 
-                            if (!photoIds) {
-                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Please enter at least one Photo ID.', 'flickr-justified-block'); ?></p></div>');
+                            if (!rawInput) {
+                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Please enter at least one Photo ID or URL.', 'flickr-justified-block'); ?></p></div>');
                                 return;
                             }
 
-                            // Validate photo IDs (numbers and commas only)
-                            if (!/^[\d\s,]+$/.test(photoIds)) {
-                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Please enter only numeric Photo IDs separated by commas.', 'flickr-justified-block'); ?></p></div>');
+                            // Split by newlines and commas
+                            const lines = rawInput.split(/[\r\n,]+/);
+                            const photoIds = [];
+                            const failed = [];
+
+                            lines.forEach(function(line) {
+                                const id = extractPhotoId(line);
+                                if (id) {
+                                    photoIds.push(id);
+                                } else if (line.trim()) {
+                                    failed.push(line.trim());
+                                }
+                            });
+
+                            if (photoIds.length === 0) {
+                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Could not extract any valid Photo IDs. Please check your input.', 'flickr-justified-block'); ?></p></div>');
                                 return;
+                            }
+
+                            if (failed.length > 0) {
+                                resultDiv.html('<div class="notice notice-warning inline"><p><?php esc_html_e('Warning: Could not extract Photo IDs from some entries:', 'flickr-justified-block'); ?> ' + failed.join(', ') + '</p></div>');
                             }
 
                             button.prop('disabled', true);
                             button.text('<?php esc_html_e('Clearing...', 'flickr-justified-block'); ?>');
-                            resultDiv.html('<p><?php esc_html_e('Clearing cache...', 'flickr-justified-block'); ?></p>');
+
+                            // Show what IDs were extracted
+                            const extractedMsg = '<?php esc_html_e('Extracted Photo IDs:', 'flickr-justified-block'); ?> ' + photoIds.join(', ');
+                            resultDiv.html('<p>' + extractedMsg + '<br><?php esc_html_e('Clearing cache...', 'flickr-justified-block'); ?></p>');
 
                             $.ajax({
                                 url: ajaxurl,
@@ -921,12 +965,12 @@ class FlickrJustifiedAdminSettings {
                                 data: {
                                     action: 'flickr_clear_photo_cache',
                                     nonce: '<?php echo wp_create_nonce('flickr_clear_photo_cache'); ?>',
-                                    photo_ids: photoIds
+                                    photo_ids: photoIds.join(',')
                                 },
                                 success: function(response) {
                                     if (response.success) {
                                         resultDiv.html('<div class="notice notice-success inline"><p><strong><?php esc_html_e('Success!', 'flickr-justified-block'); ?></strong> ' + response.data.message + '</p></div>');
-                                        input.val('');
+                                        textarea.val('');
                                     } else {
                                         resultDiv.html('<div class="notice notice-error inline"><p><strong><?php esc_html_e('Error:', 'flickr-justified-block'); ?></strong> ' + response.data.message + '</p></div>');
                                     }
@@ -941,9 +985,9 @@ class FlickrJustifiedAdminSettings {
                             });
                         });
 
-                        // Allow pressing Enter to submit
-                        $('#flickr-refresh-photo-ids').on('keypress', function(e) {
-                            if (e.which === 13) {
+                        // Allow pressing Ctrl+Enter (or Cmd+Enter on Mac) to submit
+                        $('#flickr-refresh-photo-ids').on('keydown', function(e) {
+                            if ((e.ctrlKey || e.metaKey) && e.which === 13) {
                                 e.preventDefault();
                                 $('#flickr-refresh-photos-btn').click();
                             }
