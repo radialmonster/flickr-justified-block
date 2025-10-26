@@ -311,22 +311,47 @@
                     .filter(img => !(img.complete && img.naturalWidth > 0));
 
                 if (imgsNeedingDecode.length > 0) {
+                    // Track relayout attempts to prevent infinite loops
+                    if (!grid._relayoutAttempts) grid._relayoutAttempts = 0;
+
                     imgsNeedingDecode.forEach(img => {
-                        const relayout = () => {
+                        // Skip if image already failed multiple times
+                        if (img._relayoutFailed) return;
+
+                        const relayoutOnSuccess = () => {
+                            // Only relayout if image successfully loaded
+                            if (!img.complete || img.naturalWidth === 0) return;
+
                             // schedule a single reflow per grid
                             if (grid._pendingRelayout) return;
+
+                            // Prevent infinite relayout loops (max 3 attempts)
+                            if (grid._relayoutAttempts >= 3) {
+                                console.warn('Flickr Gallery: Maximum relayout attempts reached, stopping to prevent infinite loop');
+                                return;
+                            }
+
                             grid._pendingRelayout = true;
+                            grid._relayoutAttempts++;
+
                             requestAnimationFrame(() => {
                                 grid.classList.remove('justified-initialized');
                                 initJustifiedGallery();
                                 grid._pendingRelayout = false;
                             });
                         };
+
+                        const handleError = () => {
+                            // Mark image as failed and don't trigger relayout
+                            img._relayoutFailed = true;
+                            console.warn('Flickr Gallery: Image failed to load, skipping relayout:', img.src);
+                        };
+
                         if (typeof img.decode === 'function') {
-                            img.decode().then(relayout).catch(relayout);
+                            img.decode().then(relayoutOnSuccess).catch(handleError);
                         } else {
-                            img.addEventListener('load', relayout, { once: true });
-                            img.addEventListener('error', relayout, { once: true });
+                            img.addEventListener('load', relayoutOnSuccess, { once: true });
+                            img.addEventListener('error', handleError, { once: true });
                         }
                     });
                 }
