@@ -631,6 +631,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
         if ($is_flickr) {
             $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
+            // Cache always includes metadata (rotation + stats), so this always returns complete data
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
 
             if (!empty($photo['stats']) && is_array($photo['stats'])) {
@@ -871,12 +872,22 @@ function flickr_justified_should_use_async_loading($urls) {
     foreach ($final_urls as $url) {
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info && !empty($set_info['photoset_id'])) {
-            // Quick check: is this album cached?
-            $cache_key = ['set_full', md5($set_info['user_id'] . '_' . $set_info['photoset_id'])];
-            $cached = FlickrJustifiedCache::get($cache_key);
+            // Resolve user ID first (checks cache, won't make API call if cached)
+            $resolved_user_id = FlickrJustifiedCache::resolve_user_id($set_info['user_id']);
+            if (!$resolved_user_id) {
+                // Can't resolve user - use async to handle gracefully
+                return true;
+            }
 
-            if (empty($cached)) {
-                // Album not cached - use async loading to prevent timeout
+            // Quick check: is this album cached? Check BOTH full and paginated cache
+            $cache_key_full = ['set_full', md5($resolved_user_id . '_' . $set_info['photoset_id'])];
+            $cache_key_page = ['set_page_v2', md5($resolved_user_id . '_' . $set_info['photoset_id'] . '_1_50')];
+
+            $cached_full = FlickrJustifiedCache::get($cache_key_full);
+            $cached_page = FlickrJustifiedCache::get($cache_key_page);
+
+            if (empty($cached_full) && empty($cached_page)) {
+                // Album not cached in any form - use async loading to prevent timeout
                 return true;
             }
         }

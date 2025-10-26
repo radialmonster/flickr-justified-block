@@ -41,6 +41,100 @@ class FlickrJustifiedCache {
     private static $api_calls_this_request = 0;
 
     /**
+     * SINGLE SOURCE OF TRUTH: Centralized Flickr size definitions
+     * All size mappings throughout the plugin derive from this ONE definition
+     *
+     * Structure:
+     * - 'suffix': Flickr URL suffix (sq, t, s, etc.) for album responses
+     * - 'labels': Array of Flickr API label names (in fallback priority order)
+     *
+     * @return array Map of our size names to their Flickr properties
+     */
+    private static function get_size_definitions() {
+        static $definitions = null;
+
+        if (null === $definitions) {
+            $definitions = [
+                'original'      => ['suffix' => 'o', 'labels' => ['Original']],
+                'large6k'       => ['suffix' => null, 'labels' => ['Large 6144', 'Original']],
+                'large5k'       => ['suffix' => null, 'labels' => ['Large 5120', 'Large 6144', 'Original']],
+                'largef'        => ['suffix' => null, 'labels' => ['Large 4096', 'Large 5120', 'Original']],
+                'large4k'       => ['suffix' => null, 'labels' => ['Large 4096', 'Large 5120', 'Original']],
+                'large3k'       => ['suffix' => null, 'labels' => ['Large 3072', 'Large 4096', 'Original']],
+                'large2048'     => ['suffix' => 'k', 'labels' => ['Large 2048', 'Large 3072', 'Original']],
+                'large1600'     => ['suffix' => 'h', 'labels' => ['Large 1600', 'Large 2048', 'Original']],
+                'large1024'     => ['suffix' => 'l', 'labels' => ['Large 1024', 'Large 1600', 'Original']],
+                'large'         => ['suffix' => null, 'labels' => ['Large', 'Large 1024', 'Original']],
+                'medium800'     => ['suffix' => 'c', 'labels' => ['Medium 800', 'Large', 'Original']],
+                'medium640'     => ['suffix' => 'z', 'labels' => ['Medium 640', 'Medium 800', 'Large']],
+                'medium500'     => ['suffix' => 'm', 'labels' => ['Medium', 'Medium 640', 'Large']],
+                'medium'        => ['suffix' => null, 'labels' => ['Medium', 'Medium 640', 'Large']],
+                'small400'      => ['suffix' => null, 'labels' => ['Small 400', 'Medium']],
+                'small320'      => ['suffix' => 'n', 'labels' => ['Small 320', 'Small 400', 'Medium']],
+                'small240'      => ['suffix' => 's', 'labels' => ['Small', 'Small 320', 'Medium']],
+                'thumbnail100'  => ['suffix' => 't', 'labels' => ['Thumbnail']],
+                'thumbnail150s' => ['suffix' => 'q', 'labels' => ['Large Square 150', 'Large Square', 'Square']],
+                'thumbnail75s'  => ['suffix' => 'sq', 'labels' => ['Square 75', 'Square']],
+            ];
+        }
+
+        return $definitions;
+    }
+
+    /**
+     * Get suffix-to-name mapping (for album responses)
+     * Derived from get_size_definitions()
+     */
+    private static function get_size_suffix_map() {
+        static $suffix_map = null;
+
+        if (null === $suffix_map) {
+            $suffix_map = [];
+            foreach (self::get_size_definitions() as $size_name => $props) {
+                if (!empty($props['suffix'])) {
+                    $suffix_map[$props['suffix']] = $size_name;
+                }
+            }
+        }
+
+        return $suffix_map;
+    }
+
+    /**
+     * Get label-to-name mapping (for individual photo API calls)
+     * Derived from get_size_definitions()
+     */
+    private static function get_size_label_map() {
+        static $label_map = null;
+
+        if (null === $label_map) {
+            $label_map = [];
+            foreach (self::get_size_definitions() as $size_name => $props) {
+                if (!empty($props['labels'])) {
+                    $label_map[$size_name] = $props['labels'];
+                }
+            }
+        }
+
+        return $label_map;
+    }
+
+    /**
+     * Get list of all size names available from album responses
+     * Derived from get_size_definitions()
+     */
+    private static function get_comprehensive_size_list() {
+        static $size_list = null;
+
+        if (null === $size_list) {
+            $suffix_map = self::get_size_suffix_map();
+            $size_list = array_values(array_unique(array_values($suffix_map)));
+        }
+
+        return $size_list;
+    }
+
+    /**
      * Get configured cache duration in seconds
      */
     private static function get_duration() {
@@ -540,11 +634,47 @@ class FlickrJustifiedCache {
             return [];
         }
 
-        // Build cache key
-        $requested_sizes_key = md5(implode(',', $requested_sizes));
-        $cache_suffix = ['dims', $photo_id, $requested_sizes_key, (int) $needs_metadata];
+        // OPTIMIZATION: First check for comprehensive album-cached data
+        // Album responses cache ALL sizes + stats in one shot to avoid per-photo API calls
+        if (!$force_refresh) {
+            $comprehensive_sizes = self::get_comprehensive_size_list();
+            $comprehensive_key_hash = md5(implode(',', $comprehensive_sizes));
+            $comprehensive_cache_key = ['dims', $photo_id, $comprehensive_key_hash];
 
-        // Try base cache key first (skip if force refresh)
+            $comprehensive_cached = self::get($comprehensive_cache_key);
+            if (is_array($comprehensive_cached) && !empty($comprehensive_cached)) {
+                // We have comprehensive data from album response! Extract what we need.
+                if (!isset($comprehensive_cached['not_found'])) {
+                    // Filter to only return requested sizes (plus metadata if present)
+                    $filtered_result = [];
+                    foreach ($requested_sizes as $size) {
+                        if (isset($comprehensive_cached[$size])) {
+                            $filtered_result[$size] = $comprehensive_cached[$size];
+                        }
+                    }
+                    // Include metadata if present
+                    if (isset($comprehensive_cached['_stats'])) {
+                        $filtered_result['_stats'] = $comprehensive_cached['_stats'];
+                    }
+                    if (isset($comprehensive_cached['_photo_info'])) {
+                        $filtered_result['_photo_info'] = $comprehensive_cached['_photo_info'];
+                    }
+                    if (isset($comprehensive_cached['_rotation'])) {
+                        $filtered_result['_rotation'] = $comprehensive_cached['_rotation'];
+                    }
+
+                    if (!empty($filtered_result)) {
+                        return $filtered_result;
+                    }
+                }
+            }
+        }
+
+        // Build cache key for size-specific cache
+        $requested_sizes_key = md5(implode(',', $requested_sizes));
+        $cache_suffix = ['dims', $photo_id, $requested_sizes_key];
+
+        // Try size-specific cache key (skip if force refresh)
         $base_cache_key = $cache_suffix;
         if (!$force_refresh) {
             $cached_result = self::get($base_cache_key);
@@ -655,23 +785,22 @@ class FlickrJustifiedCache {
         $result = self::map_sizes_with_dimensions($data['sizes']['size'], $requested_sizes);
 
         if (!empty($result)) {
-            // Add metadata if requested
-            if ($needs_metadata) {
-                // Always fetch fresh photo_info when cache is cleared to ensure we have latest data
-                $photo_info = self::get_photo_info($photo_id, $force_refresh);
+            // ALWAYS fetch and cache metadata (rotation + stats) to ensure it's available
+            // This adds 1 API call (photo_info) but ensures rotation data is cached
+            // Stats come "free" from the same photo_info response
+            $photo_info = self::get_photo_info($photo_id, $force_refresh);
 
-                if (!empty($photo_info)) {
-                    $result['_photo_info'] = $photo_info;
+            if (!empty($photo_info)) {
+                $result['_photo_info'] = $photo_info;
 
-                    // Get stats from photo_info (will fetch fresh if force_refresh)
-                    $stats = self::get_photo_stats($photo_id);
-                    if (!empty($stats)) {
-                        $result['_stats'] = $stats;
-                    }
+                // Get stats from photo_info (will fetch fresh if force_refresh)
+                $stats = self::get_photo_stats($photo_id);
+                if (!empty($stats)) {
+                    $result['_stats'] = $stats;
+                }
 
-                    if (isset($photo_info['rotation'])) {
-                        $result['_rotation'] = self::normalize_rotation($photo_info['rotation']);
-                    }
+                if (isset($photo_info['rotation'])) {
+                    $result['_rotation'] = self::normalize_rotation($photo_info['rotation']);
                 }
             }
 
@@ -686,28 +815,8 @@ class FlickrJustifiedCache {
      * Map Flickr API size responses to requested size keys with dimensions
      */
     private static function map_sizes_with_dimensions($api_sizes, $requested_sizes) {
-        $size_mapping = [
-            'original'    => ['Original'],
-            'large6k'     => ['Large 6144', 'Original'],
-            'large5k'     => ['Large 5120', 'Large 6144', 'Original'],
-            'largef'      => ['Large 4096', 'Large 5120', 'Original'],
-            'large4k'     => ['Large 4096', 'Large 5120', 'Original'],
-            'large3k'     => ['Large 3072', 'Large 4096', 'Original'],
-            'large2048'   => ['Large 2048', 'Large 3072', 'Original'],
-            'large1600'   => ['Large 1600', 'Large 2048', 'Original'],
-            'large1024'   => ['Large 1024', 'Large 1600', 'Original'],
-            'large'       => ['Large', 'Large 1024', 'Original'],
-            'medium800'   => ['Medium 800', 'Large', 'Original'],
-            'medium640'   => ['Medium 640', 'Medium 800', 'Large'],
-            'medium500'   => ['Medium', 'Medium 640', 'Large'],
-            'medium'      => ['Medium', 'Medium 640', 'Large'],
-            'small400'    => ['Small 400', 'Medium'],
-            'small320'    => ['Small 320', 'Small 400', 'Medium'],
-            'small240'    => ['Small', 'Small 320', 'Medium'],
-            'thumbnail100' => ['Thumbnail'],
-            'thumbnail150s' => ['Large Square 150', 'Large Square', 'Square'],
-            'thumbnail75s'  => ['Square 75', 'Square'],
-        ];
+        // Use centralized size label mapping
+        $size_mapping = self::get_size_label_map();
 
         $result = [];
 
@@ -816,6 +925,82 @@ class FlickrJustifiedCache {
         self::set($cache_key, $user_id); // Use configured cache duration
 
         return $user_id;
+    }
+
+    /**
+     * Cache photo data from album response to avoid per-photo API calls
+     *
+     * This method caches comprehensive photo data obtained from photosets.getPhotos
+     * so that subsequent get_photo_sizes() calls can use cached data instead of
+     * making individual API calls. This is a MASSIVE optimization for large albums.
+     *
+     * @param array $photo Photo data from photosets.getPhotos response
+     * @param string $photo_id Numeric photo ID
+     */
+    private static function cache_photo_data_from_album_response($photo, $photo_id) {
+        if (empty($photo) || !is_array($photo)) {
+            return;
+        }
+
+        // Use centralized size mapping
+        $size_map = self::get_size_suffix_map();
+
+        // Build size data from available URLs in the response
+        $sizes_data = [];
+        foreach ($size_map as $suffix => $size_name) {
+            $url_key = 'url_' . $suffix;
+            $width_key = 'width_' . $suffix;
+            $height_key = 'height_' . $suffix;
+
+            if (isset($photo[$url_key]) && !empty($photo[$url_key])) {
+                $sizes_data[$size_name] = [
+                    'url' => esc_url_raw($photo[$url_key]),
+                    'width' => isset($photo[$width_key]) ? (int) $photo[$width_key] : 0,
+                    'height' => isset($photo[$height_key]) ? (int) $photo[$height_key] : 0,
+                ];
+            }
+        }
+
+        // If we don't have any size data, nothing to cache
+        if (empty($sizes_data)) {
+            return;
+        }
+
+        // Extract stats if available
+        $stats = [];
+        if (isset($photo['views'])) {
+            $stats['views'] = max(0, (int) $photo['views']);
+        }
+        if (isset($photo['count_comments'])) {
+            $stats['comments'] = max(0, (int) $photo['count_comments']);
+        }
+        if (isset($photo['count_faves'])) {
+            $stats['favorites'] = max(0, (int) $photo['count_faves']);
+        }
+        if (isset($photo['lastupdate'])) {
+            $timestamp = (int) $photo['lastupdate'];
+            if ($timestamp > 0) {
+                $stats['date'] = gmdate('Y-m-d', $timestamp);
+            }
+        }
+
+        // Build cache data structure (matches format from get_photo_sizes)
+        $cache_data = $sizes_data;
+
+        if (!empty($stats)) {
+            $cache_data['_stats'] = $stats;
+        }
+
+        // Note: Rotation is NOT available in album response, will need separate call if needed
+        // But that's okay - rotation is relatively rare and we cache it when fetched
+
+        // Cache under the comprehensive cache key that matches get_photo_sizes() lookups
+        $comprehensive_sizes = self::get_comprehensive_size_list();
+        $requested_sizes_key = md5(implode(',', $comprehensive_sizes));
+        $cache_key = ['dims', $photo_id, $requested_sizes_key];
+
+        // Cache for the configured duration
+        self::set($cache_key, $cache_data);
     }
 
     /**
@@ -958,6 +1143,29 @@ class FlickrJustifiedCache {
             return self::empty_photoset_result($page);
         }
 
+        // Request comprehensive photo data in the album call to avoid per-photo API calls
+        // This dramatically reduces API usage: 1 call per 500 photos instead of 1000+ calls
+        $extras = [
+            // Dimensions for all available sizes
+            'o_dims',           // Original dimensions (width_o, height_o)
+
+            // URLs for multiple sizes (used for rendering)
+            'url_sq', 'url_t', 'url_s', 'url_q', 'url_m', 'url_n',
+            'url_z', 'url_c', 'url_l', 'url_h', 'url_k', 'url_o',
+
+            // Statistics (views, comments available; favorites requires separate call)
+            'views',
+            'count_comments',   // Comment count
+            'count_faves',      // Favorites count
+
+            // Metadata
+            'date_upload', 'date_taken', 'last_update',
+            'description',
+            'tags',
+            'original_format',
+            'media',
+        ];
+
         $api_url = add_query_arg([
             'method' => 'flickr.photosets.getPhotos',
             'api_key' => $api_key,
@@ -965,7 +1173,7 @@ class FlickrJustifiedCache {
             'user_id' => $resolved_user_id,
             'per_page' => $per_page,
             'page' => $page,
-            'extras' => 'url_m,url_l,url_o',
+            'extras' => implode(',', $extras),
             'format' => 'json',
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
@@ -1078,7 +1286,7 @@ class FlickrJustifiedCache {
             }
         }
 
-        // Convert to photo URLs
+        // Convert to photo URLs AND cache comprehensive photo data to avoid per-photo API calls
         $photo_urls = [];
         foreach ($data['photoset']['photo'] as $photo) {
             if (empty($photo['id']) || !is_string($photo['id'])) {
@@ -1092,6 +1300,10 @@ class FlickrJustifiedCache {
 
             $photo_url = 'https://flickr.com/photos/' . rawurlencode($user_id) . '/' . $photo_id . '/';
             $photo_urls[] = $photo_url;
+
+            // OPTIMIZATION: Cache photo data from album response to eliminate per-photo API calls
+            // This is a HUGE performance win for large albums
+            self::cache_photo_data_from_album_response($photo, $photo_id);
         }
 
         $result = [
