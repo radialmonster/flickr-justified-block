@@ -1436,16 +1436,30 @@ class FlickrJustifiedAdminSettings {
                     '%flickr_justified_stats_' . $photo_id . '%'
                 ));
 
-                $total_deleted = $deleted_dims + $deleted_info + $deleted_stats;
+                // IMPORTANT: Also clear any album caches that might contain this photo
+                // This ensures photos in albums get refreshed URLs
+                $deleted_albums = $wpdb->query(
+                    "DELETE FROM {$wpdb->options}
+                     WHERE option_name LIKE '_transient_flickr_justified_set%'
+                        OR option_name LIKE '_transient_timeout_flickr_justified_set%'"
+                );
+
+                $total_deleted = $deleted_dims + $deleted_info + $deleted_stats + $deleted_albums;
 
                 if ($total_deleted > 0 || true) { // Always count as success even if no cache existed
                     $cleared[] = $photo_id;
-                    self::log("Cleared cache for photo ID: {$photo_id} ({$total_deleted} cache entries removed)");
+                    self::log("Cleared cache for photo ID: {$photo_id} ({$total_deleted} cache entries removed, including album caches)");
                 }
             } catch (Exception $e) {
                 $errors[] = $photo_id;
                 self::log("Error clearing cache for photo ID {$photo_id}: " . $e->getMessage());
             }
+        }
+
+        // Also flush WordPress object cache if available (Redis, Memcached, etc.)
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+            self::log("Flushed WordPress object cache");
         }
 
         if (!empty($cleared)) {
