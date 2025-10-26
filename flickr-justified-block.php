@@ -667,3 +667,92 @@ register_deactivation_hook(__FILE__, [FlickrJustifiedCacheWarmer::class, 'handle
 add_action('save_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_save'], 20, 3);
 add_action('trashed_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_deletion']);
 add_action('deleted_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_deletion']);
+
+/**
+ * Handle URL parameter to force refresh specific photo cache
+ * Usage: Add ?flickr_refresh=PHOTO_ID to any page URL
+ * Example: ?flickr_refresh=132149878
+ * Multiple photos: ?flickr_refresh=132149878,987654321
+ */
+add_action('init', function() {
+    if (!isset($_GET['flickr_refresh'])) {
+        return;
+    }
+
+    // Allow admins to refresh any photo, or use nonce for non-admins
+    $has_permission = current_user_can('edit_posts');
+
+    // Allow nonce-based access for non-admins
+    if (!$has_permission && isset($_GET['flickr_refresh_nonce'])) {
+        $has_permission = wp_verify_nonce($_GET['flickr_refresh_nonce'], 'flickr_refresh_photo');
+    }
+
+    if (!$has_permission) {
+        return;
+    }
+
+    $photo_ids = sanitize_text_field($_GET['flickr_refresh']);
+
+    // Support comma-separated list of photo IDs
+    $photo_ids = array_map('trim', explode(',', $photo_ids));
+    $photo_ids = array_filter($photo_ids, 'is_numeric');
+
+    if (empty($photo_ids)) {
+        return;
+    }
+
+    $cleared = [];
+    foreach ($photo_ids as $photo_id) {
+        // Delete all cache entries for this photo ID
+        global $wpdb;
+
+        // Delete transients for photo dimensions/sizes
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->options}
+             WHERE option_name LIKE %s",
+            '%flickr_justified_dims_' . $photo_id . '%'
+        ));
+
+        // Delete transients for photo info
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->options}
+             WHERE option_name LIKE %s",
+            '%flickr_justified_photo_' . $photo_id . '%'
+        ));
+
+        // Delete transients for photo stats
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->options}
+             WHERE option_name LIKE %s",
+            '%flickr_justified_stats_' . $photo_id . '%'
+        ));
+
+        $cleared[] = $photo_id;
+    }
+
+    // Show admin notice
+    if (!empty($cleared)) {
+        add_action('admin_notices', function() use ($cleared) {
+            echo '<div class="notice notice-success is-dismissible"><p>';
+            printf(
+                esc_html__('Cleared cache for %d photo(s): %s. Refresh the page to see updated images.', 'flickr-justified-block'),
+                count($cleared),
+                implode(', ', array_map('esc_html', $cleared))
+            );
+            echo '</p></div>';
+        });
+
+        // Also show notice on frontend for logged-in users
+        if (!is_admin()) {
+            add_action('wp_footer', function() use ($cleared) {
+                echo '<div style="position:fixed;bottom:20px;right:20px;background:#00a32a;color:white;padding:15px 20px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:999999;font-family:sans-serif;">';
+                printf(
+                    esc_html__('✓ Cleared cache for %d photo(s): %s. Refresh this page to see updated images.', 'flickr-justified-block'),
+                    count($cleared),
+                    implode(', ', array_map('esc_html', $cleared))
+                );
+                echo '</div>';
+            }, 999);
+        }
+    }
+}, 5);
