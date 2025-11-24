@@ -166,10 +166,14 @@ class FlickrJustifiedCache {
      * Get the current cache version
      */
     private static function get_version() {
-        $version = get_option('flickr_justified_cache_version');
-        if (!$version) {
-            $version = 1;
-            add_option('flickr_justified_cache_version', $version);
+        static $version = null;
+
+        if (null === $version) {
+            $version = get_option('flickr_justified_cache_version');
+            if (!$version) {
+                $version = 1;
+                add_option('flickr_justified_cache_version', $version);
+            }
         }
         return $version;
     }
