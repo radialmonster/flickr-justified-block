@@ -153,13 +153,25 @@ class FlickrJustifiedCache {
     }
 
     /**
-     * Build a cache key with our prefix
+     * Build a cache key with our prefix and version
      */
     private static function key($parts) {
         if (is_array($parts)) {
             $parts = implode('_', $parts);
         }
-        return self::PREFIX . $parts;
+        return self::PREFIX . $parts . '_v' . self::get_version();
+    }
+
+    /**
+     * Get the current cache version
+     */
+    private static function get_version() {
+        $version = get_option('flickr_justified_cache_version');
+        if (!$version) {
+            $version = 1;
+            add_option('flickr_justified_cache_version', $version);
+        }
+        return $version;
     }
 
     /**
@@ -228,6 +240,10 @@ class FlickrJustifiedCache {
         // Clear in-memory request cache
         self::$request_cache = [];
 
+        // Increment cache version to invalidate object cache entries without flushing entire site
+        $current_version = (int) get_option('flickr_justified_cache_version', 1);
+        update_option('flickr_justified_cache_version', $current_version + 1);
+
         // Clear all transients with our prefix
         $patterns = [
             '_transient_' . self::PREFIX . "%",
@@ -267,12 +283,6 @@ class FlickrJustifiedCache {
             "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_flickr_lazy_load_%' 
              OR option_name LIKE '_transient_timeout_flickr_lazy_load_%'"
         );
-
-        // IMPORTANT: Flush WordPress object cache if using persistent caching (Redis, Memcached, etc.)
-        // This ensures transients are completely removed from memory, not just the database
-        if (function_exists('wp_cache_flush')) {
-            wp_cache_flush();
-        }
 
         return true;
     }

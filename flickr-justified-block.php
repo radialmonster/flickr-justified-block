@@ -679,13 +679,8 @@ add_action('init', function() {
         return;
     }
 
-    // Allow admins to refresh any photo, or use nonce for non-admins
+    // Allow admins to refresh any photo
     $has_permission = current_user_can('edit_posts');
-
-    // Allow nonce-based access for non-admins
-    if (!$has_permission && isset($_GET['flickr_refresh_nonce'])) {
-        $has_permission = wp_verify_nonce($_GET['flickr_refresh_nonce'], 'flickr_refresh_photo');
-    }
 
     if (!$has_permission) {
         return;
