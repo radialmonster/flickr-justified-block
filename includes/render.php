@@ -337,7 +337,9 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
             $total_photos = max($total_photos, (int) $page_result['total']);
         }
 
-        $all_photos = array_merge($all_photos, array_values($page_result['photos']));
+        foreach ($page_result['photos'] as $photo) {
+            $all_photos[] = $photo;
+        }
         $pages_fetched++;
 
         $last_has_more = !empty($page_result['has_more']);
