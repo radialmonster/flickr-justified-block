@@ -694,11 +694,16 @@ class FlickrJustifiedCache {
                 if (!isset($comprehensive_cached['not_found'])) {
                     // Filter to only return requested sizes (plus metadata if present)
                     $filtered_result = [];
+                    $missing_sizes = [];
+
                     foreach ($requested_sizes as $size) {
                         if (isset($comprehensive_cached[$size])) {
                             $filtered_result[$size] = $comprehensive_cached[$size];
+                        } else {
+                            $missing_sizes[] = $size;
                         }
                     }
+
                     // Include metadata if present
                     if (isset($comprehensive_cached['_stats'])) {
                         $filtered_result['_stats'] = $comprehensive_cached['_stats'];
@@ -710,9 +715,14 @@ class FlickrJustifiedCache {
                         $filtered_result['_rotation'] = $comprehensive_cached['_rotation'];
                     }
 
-                    if (!empty($filtered_result)) {
+                    // Only return cached data if we have ALL requested sizes
+                    // If we're missing any sizes, proceed to individual API call below
+                    if (empty($missing_sizes) && !empty($filtered_result)) {
                         return $filtered_result;
                     }
+
+                    // If we have SOME sizes but not all, fall through to individual API call
+                    // This ensures cache warmer fetches ALL sizes including larger ones
                 }
             }
         }
@@ -744,6 +754,10 @@ class FlickrJustifiedCache {
         $api_key = self::get_api_key();
         if (empty($api_key)) {
             return [];
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf('Flickr: Making individual API call for photo %s to get all sizes', $photo_id));
         }
 
         $api_url = add_query_arg([
@@ -830,6 +844,19 @@ class FlickrJustifiedCache {
 
         // Map API sizes to requested sizes with dimensions
         $result = self::map_sizes_with_dimensions($data['sizes']['size'], $requested_sizes);
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $available_labels = array_column($data['sizes']['size'], 'label');
+            error_log(sprintf('Flickr photo %s: API returned %d sizes: %s',
+                $photo_id,
+                count($available_labels),
+                implode(', ', $available_labels)
+            ));
+            error_log(sprintf('Flickr photo %s: Mapped %d sizes from API response',
+                $photo_id,
+                count($result)
+            ));
+        }
 
         if (!empty($result)) {
             // ALWAYS fetch and cache metadata (rotation + stats) to ensure it's available
@@ -989,6 +1016,15 @@ class FlickrJustifiedCache {
             return;
         }
 
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            static $logged_full_keys = false;
+            if (!$logged_full_keys) {
+                $all_keys = is_array($photo) ? implode(', ', array_keys($photo)) : 'not_array';
+                error_log('Flickr cache_photo_data FULL KEYS: ' . $all_keys);
+                $logged_full_keys = true;
+            }
+        }
+
         // Use centralized size mapping
         $size_map = self::get_size_suffix_map();
 
@@ -1010,7 +1046,14 @@ class FlickrJustifiedCache {
 
         // If we don't have any size data, nothing to cache
         if (empty($sizes_data)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr cache: No size data to cache for photo ' . $photo_id);
+            }
             return;
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Flickr cache: Caching photo ' . $photo_id . ' with ' . count($sizes_data) . ' sizes');
         }
 
         // Extract stats if available
@@ -1192,13 +1235,23 @@ class FlickrJustifiedCache {
 
         // Request comprehensive photo data in the album call to avoid per-photo API calls
         // This dramatically reduces API usage: 1 call per 500 photos instead of 1000+ calls
+        // IMPORTANT: Only use documented extras that photosets.getPhotos actually supports
+        // Unsupported extras may cause Flickr to ignore the entire extras parameter
         $extras = [
             // Dimensions for all available sizes
             'o_dims',           // Original dimensions (width_o, height_o)
 
-            // URLs for multiple sizes (used for rendering)
-            'url_sq', 'url_t', 'url_s', 'url_q', 'url_m', 'url_n',
-            'url_z', 'url_c', 'url_l', 'url_h', 'url_k', 'url_o',
+            // URLs for multiple sizes - ONLY the documented ones supported by photosets.getPhotos
+            // See: https://www.flickr.com/services/api/flickr.photosets.getPhotos.html
+            'url_sq',  // Square 75x75
+            'url_t',   // Thumbnail 100 on longest side
+            'url_s',   // Small 240 on longest side
+            'url_m',   // Medium 500 on longest side
+            'url_o',   // Original (requires permission)
+
+            // NOTE: These undocumented extras (url_q, url_n, url_z, url_c, url_l, url_h, url_k)
+            // are NOT supported by photosets.getPhotos and may cause Flickr to reject the request
+            // For larger sizes, individual photos will fall back to flickr.photos.getSizes API
 
             // Statistics (views, comments available; favorites requires separate call)
             'views',
