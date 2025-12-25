@@ -67,12 +67,9 @@ class FlickrJustifiedCacheWarmer {
             $schedules = [];
         }
 
-        $cache_duration = (int) flickr_justified_get_admin_setting('get_cache_duration', WEEK_IN_SECONDS);
-        if ($cache_duration <= 0) {
-            $cache_duration = WEEK_IN_SECONDS;
-        }
-
-        $interval = (int) max(HOUR_IN_SECONDS, min($cache_duration, DAY_IN_SECONDS));
+        // Use the configured delay interval (fast or slow mode) for recurring schedule
+        // This ensures the warmer runs frequently to process the queue in small batches
+        $interval = self::get_delay_interval();
 
         $schedules[self::CRON_SCHEDULE] = [
             'interval' => $interval,
@@ -294,7 +291,7 @@ class FlickrJustifiedCacheWarmer {
             try {
                 // Warm photo sizes and metadata using cache.php directly
                 $available_sizes = flickr_justified_get_available_flickr_sizes(true);
-                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $url, $available_sizes, true, true);
+                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $url, $available_sizes, true, false);
 
                 // Check for rate limiting
                 if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
@@ -316,6 +313,10 @@ class FlickrJustifiedCacheWarmer {
                 if (!empty($stats)) {
                     $success = true;
                 }
+
+                // Add delay to respect Flickr's rate limit (3,600 calls/hour = 1 per second)
+                // Each photo can make 2 API calls (sizes + stats), so 2 seconds is safe
+                sleep(2);
             } catch (Exception $e) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log('Flickr warm_url photo error: ' . $e->getMessage());
@@ -384,7 +385,7 @@ class FlickrJustifiedCacheWarmer {
                 $photo_id = $matches[1];
 
                 // Warm photo sizes and metadata
-                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $photo_url, $available_sizes, true, true);
+                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $photo_url, $available_sizes, true, false);
                 if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
                     return 'rate_limited';
                 }
@@ -399,6 +400,10 @@ class FlickrJustifiedCacheWarmer {
                 if (!empty($data)) {
                     $success = true;
                 }
+
+                // Add delay between photos to respect Flickr's rate limit (3,600 calls/hour = 1 per second)
+                // Each photo can make 2 API calls (sizes + stats), so 2 seconds per photo is safe
+                sleep(2);
             }
 
             // Return pagination info so caller can queue next page if needed

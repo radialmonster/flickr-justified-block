@@ -870,7 +870,7 @@ function flickr_justified_should_use_async_loading($urls) {
         }
     }
 
-    // Check if any URLs are albums
+    // Check if any URLs are albums or uncached photos
     foreach ($final_urls as $url) {
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info && !empty($set_info['photoset_id'])) {
@@ -891,6 +891,21 @@ function flickr_justified_should_use_async_loading($urls) {
             if (empty($cached_full) && empty($cached_page)) {
                 // Album not cached in any form - use async loading to prevent timeout
                 return true;
+            }
+        } elseif (flickr_justified_is_flickr_photo_url($url)) {
+            // Check if individual photo is cached
+            $photo_id = flickr_justified_extract_photo_id($url);
+            if ($photo_id) {
+                // Check if photo sizes are cached
+                $available_sizes = flickr_justified_get_available_flickr_sizes();
+                $size_key_hash = md5(implode(',', $available_sizes));
+                $cache_key = ['dims', $photo_id, $size_key_hash];
+                $cached_photo = FlickrJustifiedCache::get($cache_key);
+
+                if (empty($cached_photo) || (isset($cached_photo['not_found']) && $cached_photo['not_found'])) {
+                    // Photo not cached - use async loading to prevent timeout/rate limit
+                    return true;
+                }
             }
         }
     }

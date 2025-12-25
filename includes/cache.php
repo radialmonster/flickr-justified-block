@@ -282,6 +282,39 @@ class FlickrJustifiedCache {
         delete_option('flickr_justified_cache_warmer_queue');
         delete_option('flickr_justified_known_flickr_urls');
 
+        // Automatically rebuild known URLs and queue from posts after clearing
+        if (class_exists('FlickrJustifiedCacheWarmer')) {
+            $map = FlickrJustifiedCacheWarmer::rebuild_known_urls();
+
+            // Prime the queue from the rebuilt known URLs
+            $queue_method = new ReflectionMethod('FlickrJustifiedCacheWarmer', 'prime_queue_from_known_urls');
+            $queue_method->setAccessible(true);
+            $queue = $queue_method->invoke(null, true);
+
+            // Reschedule the cron with correct interval (in case it was using old schedule)
+            $clear_method = new ReflectionMethod('FlickrJustifiedCacheWarmer', 'clear_scheduled_events');
+            $clear_method->setAccessible(true);
+            $clear_method->invoke(null);
+
+            // Schedule with new interval
+            $schedule_method = new ReflectionMethod('FlickrJustifiedCacheWarmer', 'maybe_schedule_recurring_event');
+            $schedule_method->setAccessible(true);
+            $schedule_method->invoke(null);
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                $url_count = 0;
+                foreach ($map as $urls) {
+                    $url_count += count($urls);
+                }
+                error_log(sprintf(
+                    'Flickr cache cleared - rebuilt %d posts with %d URLs, queue has %d items, rescheduled cron',
+                    count($map),
+                    $url_count,
+                    count($queue)
+                ));
+            }
+        }
+
         // Clear rate limiting transients (for REST API lazy loading)
         $wpdb->query(
             "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_flickr_lazy_load_%' 
