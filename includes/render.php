@@ -888,8 +888,23 @@ function flickr_justified_should_use_async_loading($urls) {
             $cached_full = FlickrJustifiedCache::get($cache_key_full);
             $cached_page = FlickrJustifiedCache::get($cache_key_page);
 
-            if (empty($cached_full) && empty($cached_page)) {
-                // Album not cached in any form - use async loading to prevent timeout
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Async check for album %s: user_id=%s, cached_full=%s, cached_page=%s',
+                    $set_info['photoset_id'],
+                    $resolved_user_id,
+                    empty($cached_full) ? 'NO' : 'YES',
+                    empty($cached_page) ? 'NO' : 'YES'
+                ));
+            }
+
+            // Use async loading if album isn't FULLY cached
+            // Even if first page is cached, we don't want to timeout fetching the full album
+            if (empty($cached_full)) {
+                // Full album not cached - use async loading to prevent timeout
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('Async check: Album not fully cached, forcing async loading');
+                }
                 return true;
             }
         } elseif (flickr_justified_is_flickr_photo_url($url)) {
@@ -926,6 +941,15 @@ function flickr_justified_render_block($attributes) {
 
     // Check if we should use async loading (for large uncached albums to prevent timeouts)
     $use_async_loading = flickr_justified_should_use_async_loading($urls);
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log(sprintf('Flickr render block: URLs=%s, use_async=%s, maxPhotos=%d, sortOrder=%s',
+            substr($urls, 0, 100),
+            $use_async_loading ? 'YES' : 'NO',
+            $max_photos,
+            $sort_order
+        ));
+    }
 
     if ($use_async_loading) {
         // Return loading placeholder that will load via AJAX
@@ -1097,7 +1121,17 @@ function flickr_justified_render_block($attributes) {
     }
 
     $needs_stats = ('views_desc' === $sort_order);
-    $remaining_limit = ($max_photos > 0 && 'views_desc' !== $sort_order) ? $max_photos : null;
+
+    // For views_desc with maxPhotos, we'll fetch ALL cached photos from the album,
+    // sort by cached view counts, and return top X. This prevents timeouts while
+    // giving accurate results as cache warmer progresses.
+    if ('views_desc' === $sort_order) {
+        // Fetch all available photos (they should be cached by the warmer)
+        // We'll sort and limit after fetching from cache
+        $remaining_limit = null;
+    } else {
+        $remaining_limit = ($max_photos > 0) ? $max_photos : null;
+    }
     $photo_items = [];
     $set_metadata = [];
     $position_counter = 0;
@@ -1116,14 +1150,16 @@ function flickr_justified_render_block($attributes) {
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
             if ('views_desc' === $sort_order) {
+                // For views sorting: fetch full album list from cache (warmer should have cached it)
+                // We'll only process photos that have cached stats to avoid timeouts
                 $set_result = flickr_justified_get_full_photoset_photos($set_info['user_id'], $set_info['photoset_id']);
-            } else {
-                $per_page = 50;
-                if (null !== $remaining_limit) {
-                    $per_page = max(1, min(50, $remaining_limit));
-                }
-
+            } elseif (null !== $remaining_limit) {
+                // For input order with limit: use paginated fetching
+                $per_page = max(1, min(50, $remaining_limit));
                 $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+            } else {
+                // No sorting, no limit: fetch full album
+                $set_result = flickr_justified_get_full_photoset_photos($set_info['user_id'], $set_info['photoset_id']);
             }
 
             // Check if album fetch was rate limited
@@ -1134,7 +1170,51 @@ function flickr_justified_render_block($attributes) {
 
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
 
-            if ('views_desc' !== $sort_order && null !== $remaining_limit) {
+            // For views_desc: only process photos that have cached stats (skip uncached to avoid timeouts)
+            if ('views_desc' === $sort_order) {
+                $original_photos = $set_photos; // Save original list
+                $total_photos = count($set_photos);
+                $cached_photos = [];
+                foreach ($set_photos as $photo_url) {
+                    $photo_id = flickr_justified_extract_photo_id($photo_url);
+                    if ($photo_id) {
+                        // Check if stats are cached (without making API call)
+                        $stats_cache_key = ['stats', $photo_id];
+                        $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
+                        if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
+                            // Stats are cached, include this photo
+                            $cached_photos[] = $photo_url;
+                        }
+                        // Skip photos without cached stats - they'll be included once warmer caches them
+                    }
+                }
+
+                $cached_count = count($cached_photos);
+                $skipped_count = $total_photos - $cached_count;
+
+                if (defined('WP_DEBUG') && WP_DEBUG && $skipped_count > 0) {
+                    error_log(sprintf(
+                        'Flickr views_desc: Using %d cached photos, skipped %d uncached (%.1f%% cached)',
+                        $cached_count,
+                        $skipped_count,
+                        ($cached_count / $total_photos) * 100
+                    ));
+                }
+
+                // If NO photos have cached stats yet, fall back to input order to show something
+                // Otherwise user sees empty gallery while cache warmer progresses
+                if ($cached_count === 0 && $total_photos > 0) {
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('Flickr views_desc: No cached stats yet, falling back to input order');
+                    }
+                    // Use original photos in input order - won't be sorted by views but at least shows something
+                    $set_photos = $original_photos;
+                } else {
+                    // Use filtered cached photos
+                    $set_photos = $cached_photos;
+                }
+            } elseif (null !== $remaining_limit) {
+                // For input order: limit normally
                 $set_photos = array_slice($set_photos, 0, $remaining_limit);
             }
 
