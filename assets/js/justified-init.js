@@ -345,6 +345,10 @@
                             // Mark image as failed and don't trigger relayout
                             img._relayoutFailed = true;
                             console.warn('Flickr Gallery: Image failed to load, skipping relayout:', img.src);
+
+                            // Dispatch error event so fallback system can catch it
+                            const errorEvent = new Event('error');
+                            img.dispatchEvent(errorEvent);
                         };
 
                         if (typeof img.decode === 'function') {

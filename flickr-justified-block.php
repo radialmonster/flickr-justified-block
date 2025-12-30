@@ -261,6 +261,24 @@ class FlickrJustifiedBlock {
                     true
                 );
             }
+
+            // Image fallback handler (detects 404s and fetches fresh URLs)
+            $fallback_script = self::get_script_registration_data('assets/js/image-fallback.js');
+            if ($fallback_script) {
+                wp_enqueue_script(
+                    'flickr-justified-fallback',
+                    $fallback_script['url'],
+                    [], // No dependencies needed
+                    $fallback_script['version'],
+                    true
+                );
+
+                // Pass AJAX URL to JavaScript
+                wp_localize_script('flickr-justified-fallback', 'flickrJustifiedAjax', [
+                    'ajaxurl' => admin_url('admin-ajax.php'),
+                    'nonce' => wp_create_nonce('flickr_justified_refresh')
+                ]);
+            }
         }
     }
 
@@ -751,3 +769,52 @@ add_action('init', function() {
         }
     }
 }, 5);
+
+/**
+ * AJAX handler to fetch fresh photo URL from Flickr API
+ * Used by image-fallback.js when images fail to load (404)
+ */
+function flickr_justified_ajax_refresh_photo_url() {
+    // This is public content - no nonce check needed
+    // (Same URLs would be visible on page load)
+
+    $photo_id = isset($_POST['photo_id']) ? sanitize_text_field($_POST['photo_id']) : '';
+    $size = isset($_POST['size']) ? sanitize_text_field($_POST['size']) : 'large';
+
+    if (empty($photo_id)) {
+        wp_send_json_error('No photo ID provided');
+    }
+
+    // Validate size
+    $valid_sizes = ['original', 'large2048', 'large1600', 'large1024', 'large',
+                    'medium800', 'medium640', 'medium500', 'small320', 'small240'];
+    if (!in_array($size, $valid_sizes)) {
+        $size = 'large';
+    }
+
+    // Force refresh from API (bypass cache)
+    $photo_data = FlickrJustifiedCache::get_photo_sizes(
+        $photo_id,
+        'https://www.flickr.com/photos/_/' . $photo_id . '/',
+        [$size],
+        false,
+        true // force_refresh = true
+    );
+
+    if (empty($photo_data) || !isset($photo_data[$size])) {
+        wp_send_json_error('Could not fetch photo data from Flickr');
+    }
+
+    $size_data = $photo_data[$size];
+
+    // Return the fresh URL and dimensions
+    wp_send_json_success([
+        'url' => $size_data['url'],
+        'width' => $size_data['width'],
+        'height' => $size_data['height'],
+        'photo_id' => $photo_id,
+        'size' => $size
+    ]);
+}
+add_action('wp_ajax_flickr_justified_refresh_photo_url', 'flickr_justified_ajax_refresh_photo_url');
+add_action('wp_ajax_nopriv_flickr_justified_refresh_photo_url', 'flickr_justified_ajax_refresh_photo_url');

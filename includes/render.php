@@ -953,7 +953,11 @@ function flickr_justified_render_block($attributes) {
 
     if ($use_async_loading) {
         // Return loading placeholder that will load via AJAX
-        $block_id = 'flickr-justified-async-' . uniqid();
+        $placeholder_id = 'flickr-justified-async-' . uniqid();
+        $target_gallery_id = 'flickr-justified-' . uniqid();
+
+        // Store target gallery ID in attributes so rendered gallery uses same ID
+        $attributes['_target_gallery_id'] = $target_gallery_id;
         $attributes_json = wp_json_encode($attributes);
 
         return sprintf(
@@ -1060,11 +1064,11 @@ function flickr_justified_render_block($attributes) {
                 loadGallery();
             })();
             </script>',
-            esc_attr($block_id),
+            esc_attr($placeholder_id),
             esc_attr($attributes_json),
-            esc_attr('flickr-justified-' . uniqid()),
+            esc_attr($target_gallery_id),
             esc_html__('Loading gallery...', 'flickr-justified-block'),
-            esc_js($block_id),
+            esc_js($placeholder_id),
             esc_url(admin_url('admin-ajax.php')),
             'container.getAttribute("data-attributes")'
         );
@@ -1409,7 +1413,8 @@ function flickr_justified_render_block($attributes) {
     }
 
     // Generate unique ID for this block instance
-    $block_id = 'flickr-justified-' . uniqid();
+    // Use target gallery ID if provided (from async loading), otherwise generate new one
+    $block_id = isset($attributes['_target_gallery_id']) ? $attributes['_target_gallery_id'] : 'flickr-justified-' . uniqid();
 
     return flickr_justified_render_justified_gallery(
         $photo_items,
