@@ -14,7 +14,7 @@
             if (Number.isFinite(fromDataset)) {
                 return Math.max(0, fromDataset);
             }
-            return gallery.querySelectorAll('.flickr-card').length;
+            return gallery.querySelectorAll('.flickr-justified-card').length;
         },
 
         setLoadedCount(gallery, value) {
@@ -134,6 +134,7 @@
         const img = card.querySelector('img');
         const anchor = card.querySelector('a');
 
+        // Handle rotation for dimension swapping
         let rotationSource = card.dataset?.rotation;
         if (rotationSource === undefined && anchor) {
             rotationSource = anchor.getAttribute('data-rotation');
@@ -145,26 +146,24 @@
         const rotation = normalizeRotation(rotationSource);
         const swapDimensions = shouldSwapDimensions(rotation);
 
-        if (img) {
-            const natW = img.naturalWidth;
-            const natH = img.naturalHeight;
-            if (natW > 0 && natH > 0) {
-                const width = swapDimensions ? natH : natW;
-                const height = swapDimensions ? natW : natH;
-                return width / height;
-            }
+        // Priority 1: Natural dimensions if image is loaded
+        if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            const width = swapDimensions ? img.naturalHeight : img.naturalWidth;
+            const height = swapDimensions ? img.naturalWidth : img.naturalHeight;
+            return width / height;
         }
 
+        // Priority 2: Data attributes (accurate for Flickr + cached non-Flickr)
         const widthAttr = parseInt(
-            (img && img.getAttribute('data-width')) ||
-            (anchor && anchor.getAttribute('data-width')) ||
+            img?.getAttribute('data-width') ||
+            anchor?.getAttribute('data-width') ||
             card.getAttribute('data-width') ||
             '0',
             10
         );
         const heightAttr = parseInt(
-            (img && img.getAttribute('data-height')) ||
-            (anchor && anchor.getAttribute('data-height')) ||
+            img?.getAttribute('data-height') ||
+            anchor?.getAttribute('data-height') ||
             card.getAttribute('data-height') ||
             '0',
             10
@@ -176,7 +175,9 @@
             return width / height;
         }
 
-        return 1.5; // sensible default for landscape-ish galleries
+        // Priority 3: Fallback (matches CSS aspect-ratio: 3/2)
+        // Only reached for non-Flickr images with no cached dimensions
+        return 3 / 2;
     }
 
     function getImagesPerRow(containerWidth, breakpoints, responsiveSettings) {
@@ -197,7 +198,7 @@
     function initJustifiedGallery() {
         const grids = document.querySelectorAll('.flickr-justified-grid:not(.justified-initialized)');
         grids.forEach(grid => {
-            const cards = grid.querySelectorAll('.flickr-card');
+            const cards = grid.querySelectorAll('.flickr-justified-card');
             if (cards.length === 0) return;
 
             // Build rows immediately (use data-* aspect ratios / fallbacks).
@@ -287,7 +288,7 @@
                     previousRowHeight = actualRowHeight;
 
                     const row = document.createElement('div');
-                    row.className = 'flickr-row';
+                    row.className = 'flickr-justified-row';
                     row.style.height = `${actualRowHeight}px`;
 
                     rowCards.forEach(({ element: card, img, ar: aspectRatio }) => {
@@ -306,59 +307,11 @@
 
                 grid.classList.add('justified-initialized');
 
-                // Optional refinement: relayout when images decode for pixel-perfect sizing
-                const imgsNeedingDecode = Array.from(grid.querySelectorAll('.flickr-card img'))
-                    .filter(img => !(img.complete && img.naturalWidth > 0));
-
-                if (imgsNeedingDecode.length > 0) {
-                    // Track relayout attempts to prevent infinite loops
-                    if (!grid._relayoutAttempts) grid._relayoutAttempts = 0;
-
-                    imgsNeedingDecode.forEach(img => {
-                        // Skip if image already failed multiple times
-                        if (img._relayoutFailed) return;
-
-                        const relayoutOnSuccess = () => {
-                            // Only relayout if image successfully loaded
-                            if (!img.complete || img.naturalWidth === 0) return;
-
-                            // schedule a single reflow per grid
-                            if (grid._pendingRelayout) return;
-
-                            // Prevent infinite relayout loops (max 3 attempts)
-                            if (grid._relayoutAttempts >= 3) {
-                                console.warn('Flickr Gallery: Maximum relayout attempts reached, stopping to prevent infinite loop');
-                                return;
-                            }
-
-                            grid._pendingRelayout = true;
-                            grid._relayoutAttempts++;
-
-                            requestAnimationFrame(() => {
-                                grid.classList.remove('justified-initialized');
-                                initJustifiedGallery();
-                                grid._pendingRelayout = false;
-                            });
-                        };
-
-                        const handleError = () => {
-                            // Mark image as failed and don't trigger relayout
-                            img._relayoutFailed = true;
-                            console.warn('Flickr Gallery: Image failed to load, skipping relayout:', img.src);
-
-                            // Dispatch error event so fallback system can catch it
-                            const errorEvent = new Event('error');
-                            img.dispatchEvent(errorEvent);
-                        };
-
-                        if (typeof img.decode === 'function') {
-                            img.decode().then(relayoutOnSuccess).catch(handleError);
-                        } else {
-                            img.addEventListener('load', relayoutOnSuccess, { once: true });
-                            img.addEventListener('error', handleError, { once: true });
-                        }
-                    });
-                }
+                // No decode-triggered relayout needed: dimensions are accurate from server-side cache
+                // - Flickr images: dimensions from API
+                // - Non-Flickr images: dimensions from getimagesize() with caching
+                // - CSS aspect-ratio fallback handles rare missing dimensions
+                // - Browser's native scroll anchoring prevents scroll jumps
 
                 const reinitEvent = new CustomEvent('flickrGalleryReorganized', { detail: { grid: grid } });
                 document.dispatchEvent(reinitEvent);
@@ -444,11 +397,12 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // Make initJustifiedGallery and shared helpers accessible to lazy loading function
-    window.initJustifiedGallery = initJustifiedGallery;
-    window.flickrJustifiedHelpers = flickrGalleryHelpers;
-    // Expose lazy loading initialization for async-loaded galleries
-    window.initFlickrAlbumLazyLoading = initFlickrAlbumLazyLoading;
+    // Create namespaced object to avoid conflicts with other plugins
+    // All plugin functions are exposed under window.flickrJustified
+    window.flickrJustified = window.flickrJustified || {};
+    window.flickrJustified.initGallery = initJustifiedGallery;
+    window.flickrJustified.helpers = flickrGalleryHelpers;
+    window.flickrJustified.initAlbumLazyLoading = initFlickrAlbumLazyLoading;
 
     /**
      * Lazy loading for Flickr albums/sets - loads additional pages when user scrolls
@@ -458,7 +412,7 @@
 
         // Helper visible to all inner functions
         function getLastImageInGallery(gallery) {
-            const cards = gallery.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
+            const cards = gallery.querySelectorAll(':scope > .flickr-justified-row .flickr-justified-card, :scope > .flickr-justified-card');
             if (!cards.length) return null;
             const lastCard = cards[cards.length - 1];
             return lastCard.querySelector('img');
@@ -676,50 +630,17 @@
                 const pendingSets = setMetadata.some(set => !set.loadingError && set.current_page < set.total_pages);
 
                 if (hasSuccess) {
-                    // Capture current scroll position before any DOM manipulation
-                    const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
-
-                    // Capture a stable viewport anchor - find the first card currently visible in viewport
-                    const anchorResult = (() => {
-                        const cards = gallery.querySelectorAll(':scope > .flickr-row .flickr-card, :scope > .flickr-card');
-                        const viewportTop = currentScrollTop;
-                        const viewportBottom = viewportTop + window.innerHeight;
-
-                        console.log(`🎯 [PAGE LOAD] Finding anchor. Viewport: ${Math.round(viewportTop)} to ${Math.round(viewportBottom)}, Total cards: ${cards.length}`);
-
-                        // Find first card that's visible in viewport (stable reference)
-                        for (const card of cards) {
-                            const rect = card.getBoundingClientRect();
-                            const cardTop = rect.top + viewportTop;
-                            const cardBottom = cardTop + rect.height;
-
-                            if (cardBottom > viewportTop && cardTop < viewportBottom) {
-                                const img = card.querySelector('img');
-                                const imgSrc = img ? img.src.substring(img.src.lastIndexOf('/') + 1) : 'no-img';
-                                console.log(`🎯 [PAGE LOAD] Found anchor: ${imgSrc} at position ${Math.round(cardTop)}px`);
-                                return { card, top: cardTop };
-                            }
-                        }
-                        console.log('🎯 [PAGE LOAD] WARNING: No anchor card found!');
-                        return { card: null, top: null };
-                    })();
-
-                    const anchorCard = anchorResult.card;
-                    const anchorTop = anchorResult.top;
-
-                    // Re-initialize the justified layout with new photos
-                    console.log('🔄 Starting gallery reinitialization...');
-                    gallery.classList.remove('justified-initialized');
+                    // Simplified reinitialization: browser handles scroll anchoring automatically
+                    // No manual anchor tracking needed - CSS overflow-anchor does this for free
+                    console.log('🔄 Reinitializing gallery with new photos...');
 
                     // Stop observing the old last image before reinitialization
                     const observer = gallery._flickrLazyObserver;
                     if (observer && gallery._lastObservedImage) {
                         observer.unobserve(gallery._lastObservedImage);
-                        console.log('👁️ Stopped observing old last image');
                     }
 
-                    // Reinitialize immediately using aspect-ratio fallbacks (no decode wait)
-                    reinitializeGallery(anchorCard, anchorTop, currentScrollTop);
+                    reinitializeGallery();
                 }
 
                 if (hasRecoverable && pendingSets) {
@@ -736,30 +657,24 @@
                     shouldRemoveIndicator = true;
                 }
 
-                function reinitializeGallery(anchorCard, anchorTop, scrollBeforeReinit) {
-                    // Helper for consistent scroll position reading
-                    const getScrollTop = () => window.pageYOffset || document.documentElement.scrollTop || 0;
-
-                    console.log('📐 Dispatching gallery reorganized event...');
-                    document.dispatchEvent(new CustomEvent('flickrGalleryReorganized', { detail: { grid: gallery } }));
+                function reinitializeGallery() {
+                    console.log('📐 Reinitializing gallery layout...');
 
                     // Move existing cards out of row wrappers
-                    gallery.querySelectorAll(':scope > .flickr-row').forEach(row => {
-                        row.querySelectorAll(':scope > .flickr-card').forEach(card => gallery.appendChild(card));
+                    gallery.querySelectorAll(':scope > .flickr-justified-row').forEach(row => {
+                        row.querySelectorAll(':scope > .flickr-justified-card').forEach(card =>
+                            gallery.appendChild(card)
+                        );
                         row.remove();
                     });
 
                     gallery.querySelector('.flickr-staging')?.remove();
 
                     // Add new photos
-                    let newlyCreated = 0;
                     if (gallery._pendingPhotos?.length > 0) {
                         gallery._pendingPhotos.forEach(photoData => {
                             const card = createPhotoCard(photoData, gallery);
-                            if (card) {
-                                gallery.appendChild(card);
-                                newlyCreated++;
-                            }
+                            if (card) gallery.appendChild(card);
                         });
                         delete gallery._pendingPhotos;
                     }
@@ -767,67 +682,24 @@
                     // Sort if needed
                     const sortOrder = gallery.dataset.sortOrder || 'input';
                     if (sortOrder === SORT_VIEWS_DESC) {
-                        const cardsToSort = Array.from(gallery.querySelectorAll('.flickr-card'));
-                        cardsToSort.sort((a, b) => {
-                            const viewsDiff = parseInt(b.dataset.views || '0', 10) - parseInt(a.dataset.views || '0', 10);
+                        const cards = Array.from(gallery.querySelectorAll('.flickr-justified-card'));
+                        cards.sort((a, b) => {
+                            const viewsDiff = parseInt(b.dataset.views || '0', 10) -
+                                            parseInt(a.dataset.views || '0', 10);
                             if (viewsDiff !== 0) return viewsDiff;
-                            return parseInt(a.dataset.position || '0', 10) - parseInt(b.dataset.position || '0', 10);
+                            return parseInt(a.dataset.position || '0', 10) -
+                                   parseInt(b.dataset.position || '0', 10);
                         });
-                        cardsToSort.forEach(card => gallery.appendChild(card));
+                        cards.forEach(card => gallery.appendChild(card));
                     }
 
-                    if (newlyCreated > 0 || sortOrder === SORT_VIEWS_DESC) {
-                        setLoadedCount(gallery, gallery.querySelectorAll('.flickr-card').length);
-                    }
+                    setLoadedCount(gallery, gallery.querySelectorAll('.flickr-justified-card').length);
 
-                    // Rebuild rows (this changes layout and may cause scroll jump)
-                    console.log(`📍 [PAGE LOAD] Before reinit - scroll: ${Math.round(scrollBeforeReinit)}px, anchor at: ${Math.round(anchorTop)}px`);
-
+                    // Rebuild layout - browser will handle scroll anchoring
                     gallery.classList.remove('justified-initialized');
-
-                    // Save scroll before initJustifiedGallery which may reset it
-                    const savedScroll = scrollBeforeReinit;
                     initJustifiedGallery();
 
-                    // IMMEDIATELY restore scroll if it jumped
-                    const scrollAfterReinit = getScrollTop();
-                    const scrollJump = scrollAfterReinit - savedScroll;
-                    console.log(`📍 [PAGE LOAD] After reinit - scroll: ${Math.round(scrollAfterReinit)}px (jumped ${Math.round(scrollJump)}px)`);
-
-                    if (Math.abs(scrollJump) > 1) {
-                        console.log(`📍 [PAGE LOAD] IMMEDIATELY restoring scroll to ${Math.round(savedScroll)}px`);
-                        window.scrollTo(0, savedScroll);
-                    }
-
-                    // CRITICAL: Restore scroll position AFTER layout completes
-                    if (anchorCard?.isConnected && anchorTop !== null) {
-                        requestAnimationFrame(() => {
-                            if (!anchorCard.isConnected) {
-                                console.log('📍 [PAGE LOAD] ERROR: Anchor card disconnected!');
-                                return;
-                            }
-
-                            const rect = anchorCard.getBoundingClientRect();
-                            const newAnchorTop = rect.top + getScrollTop();
-                            const scrollDelta = newAnchorTop - anchorTop;
-
-                            const currentScroll = getScrollTop();
-                            console.log(`📍 [PAGE LOAD] In RAF - scroll: ${Math.round(currentScroll)}px, anchor now at: ${Math.round(newAnchorTop)}px, delta: ${Math.round(scrollDelta)}px`);
-
-                            if (Math.abs(scrollDelta) > 1) {
-                                console.log(`📍 [PAGE LOAD] ADJUSTING scroll by ${Math.round(scrollDelta)}px`);
-                                window.scrollBy(0, scrollDelta);
-                                const finalScroll = getScrollTop();
-                                console.log(`📍 [PAGE LOAD] Final scroll position: ${Math.round(finalScroll)}px`);
-                            } else {
-                                console.log(`📍 [PAGE LOAD] No adjustment needed`);
-                            }
-                        });
-                    } else {
-                        console.log(`📍 [PAGE LOAD] ERROR: No anchor card (${!!anchorCard}) or position (${anchorTop})`);
-                    }
-
-                    // Re-observe new last image
+                    // Re-observe new last image for lazy loading
                     setTimeout(() => {
                         const obs = gallery._flickrLazyObserver;
                         if (obs) {
@@ -839,11 +711,13 @@
                         }
                     }, 100);
 
-                    // Ping PhotoSwipe
-                    document.dispatchEvent(new CustomEvent('flickr-gallery-updated', { detail: { gallery } }));
+                    // Notify PhotoSwipe
+                    document.dispatchEvent(new CustomEvent('flickr-gallery-updated', {
+                        detail: { gallery }
+                    }));
 
                     gallery._lastReinit = Date.now();
-                    console.log('🏁 Gallery reinitialization complete');
+                    console.log('✅ Gallery reinitialization complete');
                 }
 
                 if (indicatorShouldPersist && scheduledRetryDelay && !gallery._pendingRecoverableRetry) {
@@ -894,11 +768,17 @@
             console.log(`Loading page ${nextPage} for set ${setData.photoset_id}`);
 
             try {
+                // Get REST API URL from localized script (required - no hardcoded fallback)
+                if (typeof flickrJustifiedRest === 'undefined' || !flickrJustifiedRest.url) {
+                    console.error('Flickr Justified Block: REST API URL not configured. Album lazy loading will not work.');
+                    throw new Error('REST API URL not configured');
+                }
+
                 const sortOrder = gallery.dataset.sortOrder || 'input';
                 const photoLimit = getPhotoLimit(gallery);
                 const loadedBefore = getLoadedCount(gallery);
 
-                const response = await fetch('/wp-json/flickr-justified/v1/load-album-page', {
+                const response = await fetch(flickrJustifiedRest.url + '/load-album-page', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1057,7 +937,7 @@
             }
 
             const card = document.createElement('article');
-            card.className = 'flickr-card';
+            card.className = 'flickr-justified-card';
             card.style.position = 'relative'; // Match server-side positioning
 
             const coerceInt = (value) => {

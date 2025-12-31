@@ -6,7 +6,13 @@
     'use strict';
 
     // PhotoSwipe local files (from assets/lib directory - committed to repo)
-    const PLUGIN_URL = (window.flickrJustifiedConfig && window.flickrJustifiedConfig.pluginUrl) || '/wp-content/plugins/flickr-justified-block';
+    // Plugin URL must be provided by wp_localize_script
+    if (!window.flickrJustifiedConfig || !window.flickrJustifiedConfig.pluginUrl) {
+        console.error('Flickr Justified Block: Plugin URL not configured. PhotoSwipe lightbox will not work.');
+        return;
+    }
+
+    const PLUGIN_URL = window.flickrJustifiedConfig.pluginUrl;
     const PHOTOSWIPE_CSS = PLUGIN_URL.replace(/\/$/, '') + '/assets/lib/photoswipe/photoswipe.css';
     const PHOTOSWIPE_JS = PLUGIN_URL.replace(/\/$/, '') + '/assets/lib/photoswipe/photoswipe.esm.js';
 
@@ -184,7 +190,7 @@
     // Get attribution settings
     function getAttributionSettings() {
         const gallery = document.querySelector('.flickr-justified-grid');
-        const firstItem = document.querySelector('.flickr-card a[data-flickr-attribution-text]');
+        const firstItem = document.querySelector('.flickr-justified-card a[data-flickr-attribution-text]');
 
         if (!gallery && !firstItem) return null;
 
@@ -232,16 +238,19 @@
 
     // Load PhotoSwipe JS
     function loadPhotoSwipeJS() {
-        if (window.PhotoSwipe) {
+        // Initialize namespace if it doesn't exist
+        window.flickrJustified = window.flickrJustified || {};
+
+        if (window.flickrJustified.PhotoSwipe) {
             console.log('PhotoSwipe already loaded');
-            return Promise.resolve(window.PhotoSwipe);
+            return Promise.resolve(window.flickrJustified.PhotoSwipe);
         }
 
         console.log('Loading PhotoSwipe from:', PHOTOSWIPE_JS);
 
         return import(PHOTOSWIPE_JS).then(module => {
             console.log('PhotoSwipe loaded successfully:', module);
-            window.PhotoSwipe = module.default;
+            window.flickrJustified.PhotoSwipe = module.default;
             return module.default;
         }).catch(error => {
             console.error('Failed to load PhotoSwipe from local files:', error);
@@ -249,7 +258,7 @@
             console.log('Attempting fallback to CDN...');
             return import('https://cdn.jsdelivr.net/npm/photoswipe@5.4.4/dist/photoswipe.esm.js').then(module => {
                 console.log('PhotoSwipe loaded from CDN fallback');
-                window.PhotoSwipe = module.default;
+                window.flickrJustified.PhotoSwipe = module.default;
                 return module.default;
             });
         });
@@ -300,7 +309,7 @@
         event.stopPropagation();
 
         const gallery = clickedItem.closest('.flickr-justified-grid');
-        const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
+        const items = gallery.querySelectorAll('.flickr-justified-card a.flickr-builtin-lightbox');
         const index = parseInt(clickedItem.getAttribute('data-pswp-index'), 10) || 0;
 
         console.log('PhotoSwipe click handler triggered for index:', index);
@@ -308,7 +317,7 @@
         const galleryData = Array.from(items).map((item) => {
             const img = item.querySelector('img');
             const flickrPage = item.getAttribute('data-flickr-page');
-            const rotationAttr = item.getAttribute('data-rotation') || item.closest('.flickr-card')?.dataset?.rotation || img?.getAttribute('data-rotation');
+            const rotationAttr = item.getAttribute('data-rotation') || item.closest('.flickr-justified-card')?.dataset?.rotation || img?.getAttribute('data-rotation');
             const rotation = normalizeRotation(rotationAttr);
 
             let width = parseInt(item.getAttribute('data-width'), 10) || (img?.naturalWidth || 1200);
@@ -388,7 +397,7 @@
                 console.log('PhotoSwipe: Event handlers bound to gallery', gallery.id || 'unnamed');
             }
             // Reindex after any DOM changes (cheap)
-            const items = gallery.querySelectorAll('.flickr-card a.flickr-builtin-lightbox');
+            const items = gallery.querySelectorAll('.flickr-justified-card a.flickr-builtin-lightbox');
             console.log('Preparing', items.length, 'items in gallery');
             items.forEach((item, idx) => item.setAttribute('data-pswp-index', idx));
             gallery.setAttribute('data-photoswipe-initialized', 'true');
@@ -399,7 +408,7 @@
     // Open PhotoSwipe gallery
     function openPhotoSwipe(galleryData, index) {
         Promise.all([loadPhotoSwipeCSS(), loadPhotoSwipeJS()]).then(() => {
-            const PhotoSwipe = window.PhotoSwipe;
+            const PhotoSwipe = window.flickrJustified.PhotoSwipe;
             const fullscreenAPI = getFullscreenAPI();
             // Use fullscreen on mobile/tablet devices in any orientation
             const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;

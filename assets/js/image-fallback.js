@@ -29,7 +29,7 @@
         }
 
         // Try to extract from data attributes
-        const card = img.closest('.flickr-card');
+        const card = img.closest('.flickr-justified-card');
         if (card && card.dataset.photoId) {
             return card.dataset.photoId;
         }
@@ -51,15 +51,19 @@
     async function fetchFreshUrl(photoId, size = 'large') {
         console.log(`🔄 Fetching fresh URL for photo ${photoId}, size: ${size}`);
 
+        // Get AJAX URL and nonce from localized script (required - no hardcoded fallback)
+        if (typeof flickrJustifiedAjax === 'undefined' || !flickrJustifiedAjax.ajaxurl || !flickrJustifiedAjax.nonce) {
+            console.error('Flickr Justified Block: AJAX URL or nonce not configured. Image fallback will not work.');
+            return null;
+        }
+
         const formData = new URLSearchParams();
         formData.append('action', 'flickr_justified_refresh_photo_url');
         formData.append('photo_id', photoId);
         formData.append('size', size);
+        formData.append('nonce', flickrJustifiedAjax.nonce);
 
-        // Get AJAX URL from localized script
-        const ajaxUrl = (typeof flickrJustifiedAjax !== 'undefined' && flickrJustifiedAjax.ajaxurl)
-            ? flickrJustifiedAjax.ajaxurl
-            : '/wp-admin/admin-ajax.php';
+        const ajaxUrl = flickrJustifiedAjax.ajaxurl;
 
         try {
             const response = await fetch(ajaxUrl, {
@@ -174,11 +178,11 @@
 
         // Trigger gallery reorganization if needed
         const gallery = img.closest('.flickr-justified-grid');
-        if (gallery && window.initJustifiedGallery) {
+        if (gallery && window.flickrJustified && window.flickrJustified.initGallery) {
             console.log('🔄 Re-initializing gallery after image update');
             gallery.classList.remove('justified-initialized');
             setTimeout(() => {
-                window.initJustifiedGallery();
+                window.flickrJustified.initGallery();
             }, 100);
         }
 

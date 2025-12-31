@@ -260,6 +260,12 @@ class FlickrJustifiedBlock {
                     $layout_script['version'],
                     true
                 );
+
+                // Pass REST API URL to JavaScript for album lazy loading
+                wp_localize_script('flickr-justified-layout', 'flickrJustifiedRest', [
+                    'url' => esc_url_raw(rest_url('flickr-justified/v1')),
+                    'nonce' => wp_create_nonce('wp_rest')
+                ]);
             }
 
             // Image fallback handler (detects 404s and fetches fresh URLs)
@@ -304,40 +310,123 @@ class FlickrJustifiedBlock {
         register_rest_route('flickr-justified/v1', '/load-album-page', [
             'methods' => 'POST',
             'callback' => [__CLASS__, 'load_album_page'],
-            'permission_callback' => '__return_true', // Public endpoint for frontend lazy loading
+            'permission_callback' => [__CLASS__, 'check_load_album_permissions'],
             'args' => [
                 'user_id' => [
                     'required' => true,
                     'type' => 'string',
-                    'sanitize_callback' => 'sanitize_text_field'
+                    'sanitize_callback' => 'sanitize_text_field',
+                    'validate_callback' => function($value) {
+                        // Flickr user IDs are typically numeric or alphanumeric with @
+                        return !empty($value) && strlen($value) < 100;
+                    }
                 ],
                 'photoset_id' => [
                     'required' => true,
                     'type' => 'string',
-                    'sanitize_callback' => 'sanitize_text_field'
+                    'sanitize_callback' => 'sanitize_text_field',
+                    'validate_callback' => function($value) {
+                        // Flickr photoset IDs are numeric
+                        return !empty($value) && strlen($value) < 100;
+                    }
                 ],
                 'page' => [
                     'required' => true,
                     'type' => 'integer',
-                    'sanitize_callback' => 'absint'
+                    'sanitize_callback' => 'absint',
+                    'validate_callback' => function($value) {
+                        // Reasonable page limit to prevent abuse
+                        return $value >= 1 && $value <= 1000;
+                    }
                 ],
                 'sort_order' => [
                     'required' => false,
                     'type' => 'string',
-                    'sanitize_callback' => 'sanitize_text_field'
+                    'sanitize_callback' => 'sanitize_text_field',
+                    'validate_callback' => function($value) {
+                        return in_array($value, ['input', 'views_desc'], true);
+                    }
                 ],
                 'max_photos' => [
                     'required' => false,
                     'type' => 'integer',
-                    'sanitize_callback' => 'absint'
+                    'sanitize_callback' => 'absint',
+                    'validate_callback' => function($value) {
+                        // Reasonable photo limit
+                        return $value >= 0 && $value <= 10000;
+                    }
                 ],
                 'loaded_count' => [
                     'required' => false,
                     'type' => 'integer',
-                    'sanitize_callback' => 'absint'
+                    'sanitize_callback' => 'absint',
+                    'validate_callback' => function($value) {
+                        return $value >= 0 && $value <= 10000;
+                    }
                 ]
             ]
         ]);
+    }
+
+    /**
+     * Permission callback for load-album-page endpoint
+     * Implements rate limiting to prevent abuse
+     */
+    public static function check_load_album_permissions($request) {
+        // Get client IP for rate limiting
+        $client_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+        // Generate rate limit key based on IP and endpoint
+        $rate_limit_key = 'flickr_justified_rate_limit_' . md5($client_ip . '_load_album');
+
+        // Get current request count and timestamp
+        $rate_data = get_transient($rate_limit_key);
+        $current_time = time();
+
+        // Rate limit: 60 requests per minute per IP
+        $max_requests = 60;
+        $time_window = 60; // seconds
+
+        if ($rate_data === false) {
+            // First request in this window
+            set_transient($rate_limit_key, [
+                'count' => 1,
+                'start_time' => $current_time
+            ], $time_window);
+            return true;
+        }
+
+        // Check if we're still in the same time window
+        $elapsed = $current_time - $rate_data['start_time'];
+
+        if ($elapsed > $time_window) {
+            // New time window, reset counter
+            set_transient($rate_limit_key, [
+                'count' => 1,
+                'start_time' => $current_time
+            ], $time_window);
+            return true;
+        }
+
+        // Still in current time window, check count
+        if ($rate_data['count'] >= $max_requests) {
+            // Rate limit exceeded
+            return new WP_Error(
+                'rate_limit_exceeded',
+                sprintf(
+                    'Rate limit exceeded. Maximum %d requests per %d seconds allowed.',
+                    $max_requests,
+                    $time_window
+                ),
+                ['status' => 429]
+            );
+        }
+
+        // Increment counter
+        $rate_data['count']++;
+        set_transient($rate_limit_key, $rate_data, $time_window);
+
+        return true;
     }
 
     /**
@@ -516,7 +605,6 @@ class FlickrJustifiedBlock {
         }
 
         // Return the photos as gallery HTML items
-        $gallery_items = [];
         $gallery_items = [];
         $position_counter = $loaded_count;
         $photos = $result['photos'];
@@ -775,8 +863,10 @@ add_action('init', function() {
  * Used by image-fallback.js when images fail to load (404)
  */
 function flickr_justified_ajax_refresh_photo_url() {
-    // This is public content - no nonce check needed
-    // (Same URLs would be visible on page load)
+    // Verify nonce for security
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'flickr_justified_refresh')) {
+        wp_send_json_error('Security check failed', 403);
+    }
 
     $photo_id = isset($_POST['photo_id']) ? sanitize_text_field($_POST['photo_id']) : '';
     $size = isset($_POST['size']) ? sanitize_text_field($_POST['size']) : 'large';

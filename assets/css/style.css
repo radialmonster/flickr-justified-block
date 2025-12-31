@@ -9,18 +9,19 @@
     flex-direction: column;
     gap: var(--gap);
     width: 100%;
+    overflow-anchor: auto; /* Enable native scroll anchoring in modern browsers */
 }
 
 /* Single image alignment - applied to rows within single-image grids to prevent flash */
-.flickr-justified-grid[data-single-image-alignment="left"] .flickr-row {
+.flickr-justified-grid[data-single-image-alignment="left"] .flickr-justified-row {
     justify-content: flex-start;
 }
 
-.flickr-justified-grid[data-single-image-alignment="center"] .flickr-row {
+.flickr-justified-grid[data-single-image-alignment="center"] .flickr-justified-row {
     justify-content: center;
 }
 
-.flickr-justified-grid[data-single-image-alignment="right"] .flickr-row {
+.flickr-justified-grid[data-single-image-alignment="right"] .flickr-justified-row {
     justify-content: flex-end;
 }
 
@@ -41,7 +42,7 @@
 }
 
 /* Row container for images */
-.flickr-row {
+.flickr-justified-row {
     display: flex;
     gap: var(--gap);
     width: 100%;
@@ -50,7 +51,7 @@
 }
 
 /* Individual card styles - dimensions set by JavaScript */
-.flickr-card {
+.flickr-justified-card {
     background: transparent;
     border-radius: 8px;
     overflow: hidden;
@@ -58,8 +59,13 @@
     flex: 0 0 auto; /* Prevent shrinking/growing from JS-calculated size */
 }
 
+/* Modern browser fallback: aspect ratio for images without dimensions */
+.flickr-justified-card:not([data-width]) {
+    aspect-ratio: 3 / 2; /* Landscape fallback for non-Flickr images */
+}
+
 /* Images sized by JavaScript - maintain crisp display */
-.flickr-card img {
+.flickr-justified-card img {
     display: block;
     object-fit: cover; /* Cover the container for justified layout */
     width: 100%;
@@ -69,7 +75,7 @@
 }
 
 /* Helps reduce CLS while images decode */
-.flickr-card img[loading="lazy"] {
+.flickr-justified-card img[loading="lazy"] {
     content-visibility: auto;
     contain-intrinsic-size: 300px 200px; /* pick a sensible average */
 }
@@ -80,15 +86,15 @@
 }
 
 /* Make anchor fill the card (consistent click target) */
-.flickr-card > a {
+.flickr-justified-card > a {
     display: block;
     width: 100%;
     height: 100%;
 }
 
 /* Individual gallery item links */
-.flickr-card .flickr-justified-item,
-.flickr-card .flickr-builtin-lightbox {
+.flickr-justified-card .flickr-justified-item,
+.flickr-justified-card .flickr-builtin-lightbox {
     display: block;
     width: 100%;
     text-decoration: none;
@@ -96,8 +102,8 @@
 }
 
 /* Focus states for accessibility */
-.flickr-card .flickr-justified-item:focus,
-.flickr-card .flickr-builtin-lightbox:focus {
+.flickr-justified-card .flickr-justified-item:focus,
+.flickr-justified-card .flickr-builtin-lightbox:focus {
     outline: 2px solid #005cee;
     outline-offset: 2px;
 }
@@ -126,7 +132,7 @@
 }
 
 /* Loading state for images */
-.flickr-card img[src=""] {
+.flickr-justified-card img[src=""] {
     background: #f0f0f0;
     min-height: 200px;
 }
@@ -150,15 +156,15 @@
 
 /* High contrast mode support */
 @media (prefers-contrast: high) {
-    .flickr-card {
+    .flickr-justified-card {
         border: 1px solid currentColor;
     }
 }
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-    .flickr-card,
-    .flickr-card img {
+    .flickr-justified-card,
+    .flickr-justified-card img {
         transition: none;
     }
 }
