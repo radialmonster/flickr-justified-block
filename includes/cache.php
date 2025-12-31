@@ -342,6 +342,31 @@ class FlickrJustifiedCache {
     }
 
     /**
+     * Check if we can make another Flickr API call without exceeding quota
+     * Flickr limit: 3600 calls per hour
+     * We use 3550 as the cutoff to leave a safety buffer
+     *
+     * @return bool True if we can make the call, false if quota exceeded
+     */
+    public static function can_make_api_call() {
+        $current_count = self::get_api_call_count();
+        $max_calls = 3550; // Conservative limit (50 call buffer)
+
+        if ($current_count >= $max_calls) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Flickr API quota check: %d/%d calls used this hour - blocking new calls',
+                    $current_count,
+                    $max_calls
+                ));
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Check if response indicates rate limiting
      * Returns true if rate limited, false otherwise
      */
@@ -512,6 +537,11 @@ class FlickrJustifiedCache {
 
         $query_args = apply_filters('flickr_justified_photo_info_query_args', $query_args, $photo_id);
         $api_url = add_query_arg($query_args, 'https://api.flickr.com/services/rest/');
+
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return ['rate_limited' => true];
+        }
 
         $max_retries = 2;
         $retry_delay = 2; // seconds
@@ -768,6 +798,11 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return ['rate_limited' => true];
+        }
+
         $max_retries = 2;
         $retry_delay = 2; // seconds
         $response = null;
@@ -949,6 +984,11 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return false; // Return false for user ID resolution
+        }
+
         $max_retries = 2;
         $retry_delay = 2; // seconds
         $response = null;
@@ -1129,6 +1169,11 @@ class FlickrJustifiedCache {
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
 
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return ['rate_limited' => true];
+        }
+
         $max_retries = 2;
         $retry_delay = 2; // seconds
         $response = null;
@@ -1277,6 +1322,11 @@ class FlickrJustifiedCache {
             'format' => 'json',
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
+
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return ['rate_limited' => true];
+        }
 
         $max_retries = 2;
         $retry_delay = 2; // seconds

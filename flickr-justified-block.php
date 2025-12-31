@@ -250,22 +250,60 @@ class FlickrJustifiedBlock {
                 ]);
             }
 
-            // Initialize justified layout script
-            $layout_script = self::get_script_registration_data('assets/js/justified-init.js');
-            if ($layout_script) {
+            // Initialize justified gallery modules (must load in order)
+
+            // 1. Helpers module (utility functions)
+            $helpers_script = self::get_script_registration_data('assets/js/justified-helpers.js');
+            if ($helpers_script) {
                 wp_enqueue_script(
-                    'flickr-justified-layout',
-                    $layout_script['url'],
-                    $layout_script['deps'],
-                    $layout_script['version'],
+                    'flickr-justified-helpers',
+                    $helpers_script['url'],
+                    $helpers_script['deps'],
+                    $helpers_script['version'],
+                    true
+                );
+            }
+
+            // 2. Layout engine module (depends on helpers)
+            $layout_engine_script = self::get_script_registration_data('assets/js/justified-layout.js');
+            if ($layout_engine_script) {
+                wp_enqueue_script(
+                    'flickr-justified-layout-engine',
+                    $layout_engine_script['url'],
+                    array_merge($layout_engine_script['deps'], ['flickr-justified-helpers']),
+                    $layout_engine_script['version'],
+                    true
+                );
+            }
+
+            // 3. Lazy loading module (depends on helpers and layout)
+            $lazy_loading_script = self::get_script_registration_data('assets/js/justified-lazy-loading.js');
+            if ($lazy_loading_script) {
+                wp_enqueue_script(
+                    'flickr-justified-lazy-loading',
+                    $lazy_loading_script['url'],
+                    array_merge($lazy_loading_script['deps'], ['flickr-justified-helpers', 'flickr-justified-layout-engine']),
+                    $lazy_loading_script['version'],
                     true
                 );
 
                 // Pass REST API URL to JavaScript for album lazy loading
-                wp_localize_script('flickr-justified-layout', 'flickrJustifiedRest', [
+                wp_localize_script('flickr-justified-lazy-loading', 'flickrJustifiedRest', [
                     'url' => esc_url_raw(rest_url('flickr-justified/v1')),
                     'nonce' => wp_create_nonce('wp_rest')
                 ]);
+            }
+
+            // 4. Main orchestrator (depends on all modules)
+            $init_script = self::get_script_registration_data('assets/js/justified-init.js');
+            if ($init_script) {
+                wp_enqueue_script(
+                    'flickr-justified-layout',
+                    $init_script['url'],
+                    array_merge($init_script['deps'], ['flickr-justified-helpers', 'flickr-justified-layout-engine', 'flickr-justified-lazy-loading']),
+                    $init_script['version'],
+                    true
+                );
             }
 
             // Image fallback handler (detects 404s and fetches fresh URLs)
@@ -383,8 +421,9 @@ class FlickrJustifiedBlock {
         $rate_data = get_transient($rate_limit_key);
         $current_time = time();
 
-        // Rate limit: 60 requests per minute per IP
-        $max_requests = 60;
+        // Rate limit: 10 requests per minute per IP
+        // Conservative limit to protect Flickr API quota (3600/hour across all users)
+        $max_requests = 10;
         $time_window = 60; // seconds
 
         if ($rate_data === false) {
@@ -531,20 +570,9 @@ class FlickrJustifiedBlock {
 
     /**
      * Load additional page from Flickr album/set for lazy loading
+     * Rate limiting is handled by check_load_album_permissions()
      */
     public static function load_album_page($request) {
-        // Simple rate limiting: limit to 10 requests per minute per IP
-        $client_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-        $rate_limit_key = 'flickr_lazy_load_' . md5($client_ip);
-        $current_requests = get_transient($rate_limit_key) ?: 0;
-
-        if ($current_requests >= 10) {
-            return new WP_Error('rate_limit_exceeded', 'Too many requests. Please wait a moment.', ['status' => 429]);
-        }
-
-        // Increment request counter
-        set_transient($rate_limit_key, $current_requests + 1, 60); // 60 seconds
-
         $user_id = $request->get_param('user_id');
         $photoset_id = $request->get_param('photoset_id');
         $page = $request->get_param('page');

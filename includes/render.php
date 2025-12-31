@@ -393,6 +393,18 @@ function flickr_justified_render_block($attributes) {
             }
 
             if (0 === $added_count) {
+                // If this was an album URL that returned no photos, don't add the album URL as a photo
+                // This happens when albums are rate-limited or fail to fetch
+                if ($set_info) {
+                    // Skip album URLs that couldn't be fetched
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log(sprintf('Skipping album URL with no photos (likely rate-limited): %s', $url));
+                    }
+                    continue;
+                }
+
+                // For non-album URLs that couldn't be processed, add as-is
+                // (this is for direct image URLs)
                 $photo_items[] = [
                     'url' => $url,
                     'is_flickr' => false,
@@ -491,8 +503,14 @@ function flickr_justified_render_block($attributes) {
         }
     }
 
-    if (empty($photo_items)) {
-        return '';
+    // Show user-friendly message when rate limited and no photos available
+    if ($rate_limited && empty($photo_items)) {
+        return sprintf(
+            '<div class="flickr-justified-notice" style="padding: 30px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; color: #856404; font-size: 16px; line-height: 1.6; margin: 20px 0;">
+                <p style="margin: 0;"><strong>This gallery is temporarily unavailable.</strong></p>
+                <p style="margin: 10px 0 0;">There are pictures but they are not loading right now due to too many recently loaded pictures to prevent overload. Please check back in a few hours.</p>
+            </div>'
+        );
     }
 
     // Log when we return partial results due to rate limiting
@@ -502,6 +520,10 @@ function flickr_justified_render_block($attributes) {
             count($photo_items),
             count($url_lines)
         ));
+    }
+
+    if (empty($photo_items)) {
+        return '';
     }
 
     if ('views_desc' === $sort_order) {
@@ -527,7 +549,7 @@ function flickr_justified_render_block($attributes) {
     // Use target gallery ID if provided (from async loading), otherwise generate new one
     $block_id = isset($attributes['_target_gallery_id']) ? $attributes['_target_gallery_id'] : 'flickr-justified-' . uniqid();
 
-    return flickr_justified_render_justified_gallery(
+    $gallery_html = flickr_justified_render_justified_gallery(
         $photo_items,
         $block_id,
         $gap,
@@ -543,5 +565,17 @@ function flickr_justified_render_block($attributes) {
             'sort_order' => $sort_order,
         ]
     );
+
+    // Prepend message if rate limited with partial results
+    if ($rate_limited && !empty($photo_items)) {
+        $partial_message = sprintf(
+            '<div class="flickr-justified-notice" style="padding: 20px; text-align: center; background: #d1ecf1; border: 1px solid #17a2b8; border-radius: 8px; color: #0c5460; font-size: 15px; line-height: 1.5; margin: 20px 0 15px;">
+                <p style="margin: 0;">Some photos could not be loaded right now due to too many recently loaded pictures to prevent overload. The gallery is showing what is currently available. Please check back in a few hours to see more.</p>
+            </div>'
+        );
+        $gallery_html = $partial_message . $gallery_html;
+    }
+
+    return $gallery_html;
 }
 
