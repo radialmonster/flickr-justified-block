@@ -35,11 +35,13 @@ function flickr_justified_render_block($attributes) {
     $use_async_loading = flickr_justified_should_use_async_loading($urls);
 
     if (defined('WP_DEBUG') && WP_DEBUG) {
+        $debug_max_photos = isset($attributes['maxPhotos']) ? (int) $attributes['maxPhotos'] : 0;
+        $debug_sort_order = isset($attributes['sortOrder']) ? $attributes['sortOrder'] : 'input';
         error_log(sprintf('Flickr render block: URLs=%s, use_async=%s, maxPhotos=%d, sortOrder=%s',
             substr($urls, 0, 100),
             $use_async_loading ? 'YES' : 'NO',
-            $max_photos,
-            $sort_order
+            $debug_max_photos,
+            $debug_sort_order
         ));
     }
 
@@ -267,48 +269,75 @@ function flickr_justified_render_block($attributes) {
 
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
 
-            // For views_desc: only process photos that have cached stats (skip uncached to avoid timeouts)
+            // For views_desc: handle Flickr API objects (which already have views) or check cached stats for URLs
             if ('views_desc' === $sort_order) {
                 $original_photos = $set_photos; // Save original list
                 $total_photos = count($set_photos);
-                $cached_photos = [];
-                foreach ($set_photos as $photo_url) {
-                    $photo_id = flickr_justified_extract_photo_id($photo_url);
-                    if ($photo_id) {
-                        // Check if stats are cached (without making API call)
-                        $stats_cache_key = ['stats', $photo_id];
-                        $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
-                        if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
-                            // Stats are cached, include this photo
-                            $cached_photos[] = $photo_url;
-                        }
-                        // Skip photos without cached stats - they'll be included once warmer caches them
-                    }
-                }
 
-                $cached_count = count($cached_photos);
-                $skipped_count = $total_photos - $cached_count;
+                // Check if we have Flickr API objects (which include views data)
+                $has_api_objects = !empty($set_photos) && is_array($set_photos[0]) && isset($set_photos[0]['id']);
 
-                if (defined('WP_DEBUG') && WP_DEBUG && $skipped_count > 0) {
-                    error_log(sprintf(
-                        'Flickr views_desc: Using %d cached photos, skipped %d uncached (%.1f%% cached)',
-                        $cached_count,
-                        $skipped_count,
-                        ($cached_count / $total_photos) * 100
-                    ));
-                }
-
-                // If NO photos have cached stats yet, fall back to input order to show something
-                // Otherwise user sees empty gallery while cache warmer progresses
-                if ($cached_count === 0 && $total_photos > 0) {
+                if ($has_api_objects) {
+                    // Modern format: Flickr API objects with views data included - no filtering needed!
+                    // Just use all photos as-is, views data is already present
                     if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('Flickr views_desc: No cached stats yet, falling back to input order');
+                        error_log(sprintf(
+                            'Flickr views_desc: Using %d photos with API data (views included)',
+                            $total_photos
+                        ));
                     }
-                    // Use original photos in input order - won't be sorted by views but at least shows something
-                    $set_photos = $original_photos;
+                    // Sort by views (descending)
+                    usort($set_photos, function($a, $b) {
+                        $views_a = isset($a['views']) ? (int) $a['views'] : 0;
+                        $views_b = isset($b['views']) ? (int) $b['views'] : 0;
+                        return $views_b - $views_a; // Descending
+                    });
+
+                    // Apply maxPhotos limit after sorting to get top N by views
+                    if ($max_photos > 0 && count($set_photos) > $max_photos) {
+                        $set_photos = array_slice($set_photos, 0, $max_photos);
+                    }
                 } else {
-                    // Use filtered cached photos
-                    $set_photos = $cached_photos;
+                    // Legacy format: URL strings - filter to only cached stats
+                    $cached_photos = [];
+                    foreach ($set_photos as $photo_url) {
+                        $photo_id = flickr_justified_extract_photo_id($photo_url);
+                        if ($photo_id) {
+                            // Check if stats are cached (without making API call)
+                            $stats_cache_key = ['stats', $photo_id];
+                            $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
+                            if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
+                                // Stats are cached, include this photo
+                                $cached_photos[] = $photo_url;
+                            }
+                            // Skip photos without cached stats - they'll be included once warmer caches them
+                        }
+                    }
+
+                    $cached_count = count($cached_photos);
+                    $skipped_count = $total_photos - $cached_count;
+
+                    if (defined('WP_DEBUG') && WP_DEBUG && $skipped_count > 0) {
+                        error_log(sprintf(
+                            'Flickr views_desc: Using %d cached photos, skipped %d uncached (%.1f%% cached)',
+                            $cached_count,
+                            $skipped_count,
+                            ($cached_count / $total_photos) * 100
+                        ));
+                    }
+
+                    // If NO photos have cached stats yet, fall back to input order to show something
+                    // Otherwise user sees empty gallery while cache warmer progresses
+                    if ($cached_count === 0 && $total_photos > 0) {
+                        if (defined('WP_DEBUG') && WP_DEBUG) {
+                            error_log('Flickr views_desc: No cached stats yet, falling back to input order');
+                        }
+                        // Use original photos in input order - won't be sorted by views but at least shows something
+                        $set_photos = $original_photos;
+                    } else {
+                        // Use filtered cached photos
+                        $set_photos = $cached_photos;
+                    }
                 }
             } elseif (null !== $remaining_limit) {
                 // For input order: limit normally
@@ -316,7 +345,7 @@ function flickr_justified_render_block($attributes) {
             }
 
             $added_count = 0;
-            foreach ($set_photos as $photo_url) {
+            foreach ($set_photos as $photo_data) {
                 // Stop processing if we hit rate limiting
                 if ($rate_limited) {
                     break;
@@ -326,60 +355,101 @@ function flickr_justified_render_block($attributes) {
                     break;
                 }
 
-                $photo_url = trim($photo_url);
-                if ('' === $photo_url) {
-                    continue;
-                }
+                // Handle both formats: Flickr API photo objects (array) or URL strings
+                $is_flickr_api_object = is_array($photo_data) && isset($photo_data['id']);
 
-                $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
-                $attribution_url = $photo_url;
-                if ($is_flickr) {
-                    $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
+                if ($is_flickr_api_object) {
+                    // Modern format: Flickr API photo object with all data included
+                    $photo_id = $photo_data['id'];
+                    $photo_url = sprintf(
+                        'https://www.flickr.com/photos/%s/%s/',
+                        isset($photo_data['owner']) ? $photo_data['owner'] : $set_info['user_id'],
+                        $photo_id
+                    );
+                    $is_flickr = true;
+
+                    // Build attribution URL for album context
+                    $attribution_url = flickr_justified_build_album_photo_attribution_url(
                         $photo_url,
                         $set_info['photoset_id'],
                         $set_info['user_id']
                     );
-                    if (!empty($album_attribution_url)) {
-                        $attribution_url = $album_attribution_url;
+                    if (empty($attribution_url)) {
+                        $attribution_url = $photo_url;
                     }
-                }
-                $item = [
-                    'url' => $photo_url,
-                    'is_flickr' => $is_flickr,
-                    'position' => $position_counter,
-                    'views' => 0,
-                    'comments' => 0,
-                    'favorites' => 0,
-                    'attribution_url' => $attribution_url,
-                ];
 
-                if ($needs_stats && $is_flickr) {
-                    $photo_id = flickr_justified_extract_photo_id($photo_url);
-                    if ($photo_id) {
-                        $stats = flickr_justified_get_photo_stats($photo_id);
+                    // Extract stats directly from API object (more efficient!)
+                    $views = isset($photo_data['views']) ? (int) $photo_data['views'] : 0;
+                    $comments = isset($photo_data['count_comments']) ? (int) $photo_data['count_comments'] : 0;
+                    $favorites = isset($photo_data['count_faves']) ? (int) $photo_data['count_faves'] : 0;
 
-                        // Check for rate limiting
-                        if (isset($stats['rate_limited']) && $stats['rate_limited']) {
-                            $rate_limited = true;
-                            // Don't add this photo since we don't have its stats
-                            break;
-                        }
+                    $item = [
+                        'url' => $photo_url,
+                        'is_flickr' => true,
+                        'position' => $position_counter,
+                        'views' => $views,
+                        'comments' => $comments,
+                        'favorites' => $favorites,
+                        'attribution_url' => $attribution_url,
+                        'flickr_data' => $photo_data, // Pass through for rendering
+                    ];
+                } else {
+                    // Legacy format: URL string
+                    $photo_url = is_string($photo_data) ? trim($photo_data) : '';
+                    if ('' === $photo_url) {
+                        continue;
+                    }
 
-                        if (!empty($stats) && is_array($stats)) {
-                            $item['stats'] = $stats;
-                            $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
-                            $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
-                            $item['favorites'] = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
+                    $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
+                    $attribution_url = $photo_url;
+                    if ($is_flickr) {
+                        $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
+                            $photo_url,
+                            $set_info['photoset_id'],
+                            $set_info['user_id']
+                        );
+                        if (!empty($album_attribution_url)) {
+                            $attribution_url = $album_attribution_url;
                         }
                     }
-                }
+                    $item = [
+                        'url' => $photo_url,
+                        'is_flickr' => $is_flickr,
+                        'position' => $position_counter,
+                        'views' => 0,
+                        'comments' => 0,
+                        'favorites' => 0,
+                        'attribution_url' => $attribution_url,
+                    ];
 
-                // Fetch dimensions for non-Flickr images (Flickr dimensions come from API in rendering phase)
-                if (!$is_flickr) {
-                    $dims = flickr_justified_get_external_image_dimensions($photo_url);
-                    if ($dims && isset($dims['width'], $dims['height'])) {
-                        $item['width'] = $dims['width'];
-                        $item['height'] = $dims['height'];
+                    if ($needs_stats && $is_flickr) {
+                        $photo_id = flickr_justified_extract_photo_id($photo_url);
+                        if ($photo_id) {
+                            $stats = flickr_justified_get_photo_stats($photo_id);
+
+                            // Check for rate limiting
+                            if (isset($stats['rate_limited']) && $stats['rate_limited']) {
+                                $rate_limited = true;
+                                // Don't add this photo since we don't have its stats
+                                break;
+                            }
+
+                            if (!empty($stats) && is_array($stats)) {
+                                $item['stats'] = $stats;
+                                $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
+                                $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
+                                $item['favorites'] = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
+                            }
+                        }
+                    }
+
+                    // Fetch dimensions for non-Flickr images (Flickr dimensions come from API in rendering phase)
+                    if (!$is_flickr) {
+                        $dims = flickr_justified_get_external_image_dimensions($photo_url);
+                        if ($dims && isset($dims['width'], $dims['height'])) {
+                            $item['width'] = $dims['width'];
+                            $item['height'] = $dims['height'];
+                        }
                     }
                 }
 
@@ -541,6 +611,7 @@ function flickr_justified_render_block($attributes) {
         });
     }
 
+    // Apply max_photos limit if specified
     if ($max_photos > 0 && count($photo_items) > $max_photos) {
         $photo_items = array_slice($photo_items, 0, $max_photos);
     }

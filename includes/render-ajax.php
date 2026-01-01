@@ -83,6 +83,19 @@ function flickr_justified_should_use_async_loading($urls) {
                 }
                 return true;
             }
+
+            // IMPORTANT: Even with cached data, large albums take too long to render HTML
+            // Rendering 1500+ photos synchronously can exceed PHP timeout (30-60s)
+            // Force async for albums with > 100 photos to keep page load fast
+            if (!empty($cached_full) && isset($cached_full['photos']) && is_array($cached_full['photos'])) {
+                $photo_count = count($cached_full['photos']);
+                if ($photo_count > 100) {
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log(sprintf('Async check: Album has %d photos (> 100), forcing async for performance', $photo_count));
+                    }
+                    return true;
+                }
+            }
         } elseif (flickr_justified_is_flickr_photo_url($url)) {
             // Check if individual photo is cached
             $photo_id = flickr_justified_extract_photo_id($url);

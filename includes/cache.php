@@ -352,6 +352,18 @@ class FlickrJustifiedCache {
         $current_count = self::get_api_call_count();
         $max_calls = 3550; // Conservative limit (50 call buffer)
 
+        $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+        $caller = isset($backtrace[1]) ? $backtrace[1]['function'] : 'unknown';
+
+        file_put_contents('/tmp/flickr_debug.log', sprintf(
+            "[%s] can_make_api_call called from %s: count=%d/%d, will_return=%s\n",
+            date('Y-m-d H:i:s'),
+            $caller,
+            $current_count,
+            $max_calls,
+            $current_count >= $max_calls ? 'FALSE' : 'TRUE'
+        ), FILE_APPEND);
+
         if ($current_count >= $max_calls) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf(
@@ -786,6 +798,11 @@ class FlickrJustifiedCache {
             return [];
         }
 
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return ['rate_limited' => true];
+        }
+
         if (defined('WP_DEBUG') && WP_DEBUG) {
             error_log(sprintf('Flickr: Making individual API call for photo %s to get all sizes', $photo_id));
         }
@@ -797,11 +814,6 @@ class FlickrJustifiedCache {
             'format' => 'json',
             'nojsoncallback' => 1,
         ], 'https://api.flickr.com/services/rest/');
-
-        // Check API quota before making call
-        if (!self::can_make_api_call()) {
-            return ['rate_limited' => true];
-        }
 
         $max_retries = 2;
         $retry_delay = 2; // seconds
@@ -958,8 +970,9 @@ class FlickrJustifiedCache {
             return false;
         }
 
-        // If it's already numeric, return as-is
-        if (is_numeric($username)) {
+        // If it's already a Flickr numeric ID format (e.g., "13122632@N00"), return as-is
+        // Flickr numeric IDs can contain digits, @, and letters
+        if (is_numeric($username) || preg_match('/^[0-9]+@N[0-9]{2}$/', $username)) {
             return $username;
         }
 
@@ -1028,16 +1041,28 @@ class FlickrJustifiedCache {
 
         $response_code = (int) wp_remote_retrieve_response_code($response);
         if ($response_code < 200 || $response_code >= 300) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log("resolve_user_id: Bad response code $response_code for username $username");
+            }
             return false;
         }
 
         if (json_last_error() !== JSON_ERROR_NONE || !isset($data['user']['id'])) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log("resolve_user_id: JSON error or missing user ID for username $username");
+            }
             return false;
         }
 
         $user_id = $data['user']['id'];
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("resolve_user_id: Successfully resolved $username to $user_id, caching...");
+        }
         self::set($cache_key, $user_id); // Use configured cache duration
 
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("resolve_user_id: Returning $user_id");
+        }
         return $user_id;
     }
 
@@ -1438,13 +1463,22 @@ class FlickrJustifiedCache {
 
         // Convert to photo URLs AND cache comprehensive photo data to avoid per-photo API calls
         $photo_urls = [];
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("get_photoset_photos: Processing " . count($data['photoset']['photo']) . " photos from API response");
+        }
         foreach ($data['photoset']['photo'] as $photo) {
             if (empty($photo['id']) || !is_string($photo['id'])) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log("get_photoset_photos: Skipping photo with invalid ID");
+                }
                 continue;
             }
 
             $photo_id = preg_replace('/[^0-9]/', '', $photo['id']);
             if (empty($photo_id)) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log("get_photoset_photos: Skipping photo with empty numeric ID");
+                }
                 continue;
             }
 
@@ -1454,6 +1488,10 @@ class FlickrJustifiedCache {
             // OPTIMIZATION: Cache photo data from album response to eliminate per-photo API calls
             // This is a HUGE performance win for large albums
             self::cache_photo_data_from_album_response($photo, $photo_id);
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("get_photoset_photos: Built " . count($photo_urls) . " photo URLs");
         }
 
         $result = [
