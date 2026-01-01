@@ -581,6 +581,9 @@
 
     let initializedOnce = false;
 
+    // Track initialized galleries to prevent duplicate initialization
+    const initializedGalleries = new WeakSet();
+
     // Initialize when DOM is ready
     function init() {
         if (!isBuiltinLightboxEnabled()) {
@@ -607,13 +610,28 @@
         mutations.forEach((mutation) => {
             if (mutation.type === 'childList') {
                 mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1 && node.querySelector &&
-                        node.querySelector('.flickr-justified-grid[data-use-builtin-lightbox="1"]')) {
-                        console.log('PhotoSwipe: New gallery detected, initializing...');
-                        setTimeout(() => {
-                            prepareGalleryData();
-                            initializedOnce = true;
-                        }, 100);
+                    if (node.nodeType === 1 && node.querySelector) {
+                        // Find all galleries in the added node (or if the node itself is a gallery)
+                        const galleries = [];
+                        if (node.matches && node.matches('.flickr-justified-grid[data-use-builtin-lightbox="1"]')) {
+                            galleries.push(node);
+                        }
+                        galleries.push(...node.querySelectorAll('.flickr-justified-grid[data-use-builtin-lightbox="1"]'));
+
+                        galleries.forEach((gallery) => {
+                            // Skip if already initialized
+                            if (initializedGalleries.has(gallery) ||
+                                gallery.getAttribute('data-photoswipe-initialized') === 'true') {
+                                return;
+                            }
+
+                            console.log('PhotoSwipe: New gallery detected, initializing...');
+                            initializedGalleries.add(gallery);
+                            setTimeout(() => {
+                                prepareGalleryData();
+                                initializedOnce = true;
+                            }, 100);
+                        });
                     }
                 });
             }
@@ -624,6 +642,12 @@
     observer.observe(document.body, {
         childList: true,
         subtree: true
+    });
+
+    // Cleanup: Disconnect observer when page unloads to prevent memory leaks
+    window.addEventListener('beforeunload', () => {
+        observer.disconnect();
+        console.log('PhotoSwipe: Observer disconnected on page unload');
     });
 
     // Wait for DOM and initialize - use multiple event triggers
