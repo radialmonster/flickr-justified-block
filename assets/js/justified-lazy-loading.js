@@ -85,7 +85,31 @@
     function createInitialState(gallery) {
         const setMetadataAttr = gallery.getAttribute('data-set-metadata');
         if (!setMetadataAttr) {
-            throw new Error('Gallery missing data-set-metadata attribute');
+            return {
+                disabled: true,
+                initialized: true,
+                setMetadata: [],
+                hasMore: false,
+                isLoading: false,
+                lastRequestId: 0,
+                abortController: null,
+                renderedPhotoIds: new Set(),
+                renderedPhotoQueue: [],
+                pendingPhotos: [],
+                io: null,
+                observerTriggered: false,
+                lastObserverFire: 0,
+                lastReinit: 0,
+                cleanup: [],
+                lastError: 'missing_metadata',
+                retryAt: null,
+                retryTimer: null,
+                failCount: 0,
+                initialized: true,
+                mutationObserver: null,
+                mutationObserverTimeout: null,
+                galleryHeight: 0,
+            };
         }
 
         let setMetadata;
@@ -122,7 +146,8 @@
             failCount: 0,
             initialized: false,
             mutationObserver: null,  // Watches for cards to arrive
-            mutationObserverTimeout: null  // Timeout to prevent watching forever
+            mutationObserverTimeout: null,  // Timeout to prevent watching forever
+            galleryHeight: 0,
         };
     }
 

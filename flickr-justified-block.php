@@ -998,16 +998,30 @@ function flickr_justified_ajax_refresh_photo_url() {
         $size = 'large';
     }
 
-    // Force refresh from API (bypass cache)
+    // Force refresh from API (bypass cache) and refresh ALL standard sizes so future renders use fresh URLs
+    $all_sizes = flickr_justified_get_available_flickr_sizes(true);
+    if (!in_array($size, $all_sizes, true)) {
+        $all_sizes[] = $size;
+    }
+
     $photo_data = FlickrJustifiedCache::get_photo_sizes(
         $photo_id,
         'https://www.flickr.com/photos/_/' . $photo_id . '/',
-        [$size],
+        $all_sizes,
         false,
         true // force_refresh = true
     );
 
-    if (empty($photo_data) || !isset($photo_data[$size])) {
+    if (empty($photo_data)) {
+        wp_send_json_error('Could not fetch photo data from Flickr');
+    }
+
+    // Prefer the requested size; fall back to any available size
+    if (!isset($photo_data[$size])) {
+        $size = flickr_justified_select_best_size($photo_data, PHP_INT_MAX, PHP_INT_MAX) ?: $size;
+    }
+
+    if (!isset($photo_data[$size])) {
         wp_send_json_error('Could not fetch photo data from Flickr');
     }
 

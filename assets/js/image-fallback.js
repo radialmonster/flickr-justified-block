@@ -161,9 +161,15 @@
             return;
         }
 
-        // Update image src
+        // Update image src and reset responsive attributes so we don't reuse stale 404 URLs
+        img.removeAttribute('srcset');
+        img.removeAttribute('sizes');
+
         console.log(`🔄 Updating image src to: ${freshData.url}`);
         img.src = freshData.url;
+        if (freshData.width) {
+            img.setAttribute('srcset', `${freshData.url} ${freshData.width}w`);
+        }
 
         // Update dimensions if provided
         if (freshData.width && freshData.height) {
@@ -220,7 +226,6 @@
 
             // If image is already in error state (complete but naturalWidth is 0)
             if (img.complete && img.naturalWidth === 0 && !attemptedRefresh.has(img)) {
-                console.warn('🔍 Found already-failed image on init:', img.src);
                 handleImageError({ target: img });
             }
         });

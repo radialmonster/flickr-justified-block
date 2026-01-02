@@ -596,7 +596,7 @@
     // Initialize when DOM is ready
     function init() {
         if (!isBuiltinLightboxEnabled()) {
-            console.log('Built-in PhotoSwipe lightbox not enabled');
+            // No galleries yet (e.g., async loader). Observer + update events will initialize when they appear.
             return;
         }
         if (initializedOnce) {
