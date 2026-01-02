@@ -312,7 +312,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             $img_extra_attrs = [];
             if ($rotation) {
                 $img_extra_attrs[] = 'data-rotation="' . esc_attr($rotation) . '"';
-                $img_extra_attrs[] = 'style="transform: rotate(' . esc_attr($rotation) . 'deg); transform-origin: center center;"';
+                // Don't apply CSS rotation - just swap dimensions like PhotoSwipe does
             }
 
             $anchor_attributes = [

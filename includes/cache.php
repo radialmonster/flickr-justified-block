@@ -807,6 +807,23 @@ class FlickrJustifiedCache {
                         $filtered_result['_rotation'] = $comprehensive_cached['_rotation'];
                     }
 
+                    if ($needs_metadata && (!isset($filtered_result['_rotation']) || (int) $filtered_result['_rotation'] === 0)) {
+                        // Album payloads do not contain rotation; fetch minimal photo_info to get it
+                        $photo_info = self::get_photo_info($photo_id, true);
+                        if (!empty($photo_info)) {
+                            $filtered_result['_photo_info'] = $photo_info;
+                            if (isset($photo_info['rotation'])) {
+                                $filtered_result['_rotation'] = self::normalize_rotation($photo_info['rotation']);
+                            }
+                        }
+                        if (isset($filtered_result['_rotation'])) {
+                            // Persist backfill for next request using the comprehensive key
+                            $comprehensive_cached['_photo_info'] = $filtered_result['_photo_info'] ?? ($comprehensive_cached['_photo_info'] ?? []);
+                            $comprehensive_cached['_rotation'] = $filtered_result['_rotation'];
+                            self::set($comprehensive_cache_key, $comprehensive_cached);
+                        }
+                    }
+
                     // Only return cached data if we have ALL requested sizes
                     // If we're missing any sizes, proceed to individual API call below
                     if (empty($missing_sizes) && !empty($filtered_result)) {
@@ -828,6 +845,18 @@ class FlickrJustifiedCache {
         if (!$force_refresh) {
             $cached_result = self::get($base_cache_key);
             if (is_array($cached_result)) {
+                // Backfill rotation if metadata is required but missing (older cache entries)
+                if ($needs_metadata && (!isset($cached_result['_rotation']) || (int) $cached_result['_rotation'] === 0)) {
+                    // Force-refresh photo info to capture rotation for older cache entries
+                    $photo_info = self::get_photo_info($photo_id, true);
+                    if (!empty($photo_info)) {
+                        $cached_result['_photo_info'] = $photo_info;
+                        if (isset($photo_info['rotation'])) {
+                            $cached_result['_rotation'] = self::normalize_rotation($photo_info['rotation']);
+                            self::set($base_cache_key, $cached_result);
+                        }
+                    }
+                }
                 // Check if this is a negative cache entry (photo not found/private)
                 if (isset($cached_result['not_found']) && $cached_result['not_found']) {
                     return []; // Return empty array, don't retry API call

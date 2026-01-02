@@ -1100,8 +1100,7 @@
 
             if (photoData.rotation) {
                 img.setAttribute('data-rotation', photoData.rotation);
-                img.style.transform = `rotate(${photoData.rotation}deg)`;
-                img.style.transformOrigin = 'center center';
+                // Don't apply CSS rotation - dimensions are already swapped
             }
 
             anchor.appendChild(img);

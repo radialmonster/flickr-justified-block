@@ -30,37 +30,8 @@
         return normalized === 90 || normalized === 270;
     }
 
-    function applyRotationToImageElement(img, rotation) {
-        if (!img || !rotation) return;
-
-        const normalized = normalizeRotation(rotation);
-        if (normalized === 0) return;
-
-        // Get natural (unrotated) dimensions
-        const natW = img.naturalWidth;
-        const natH = img.naturalHeight;
-
-        if (!natW || !natH) return;
-
-        const swap = shouldSwapDimensions(normalized);
-
-        // Calculate display dimensions after rotation
-        const displayW = swap ? natH : natW;
-        const displayH = swap ? natW : natH;
-
-        // Apply dimensions and rotation
-        img.style.width = displayW + 'px';
-        img.style.height = displayH + 'px';
-        img.style.transform = `rotate(${normalized}deg)`;
-        img.style.transformOrigin = 'center center';
-
-        // Update container to match rotated size
-        const card = img.closest('.flickr-justified-card');
-        if (card) {
-            card.style.width = displayW + 'px';
-            card.style.height = displayH + 'px';
-        }
-    }
+    // Rotation is handled by dimension swapping only (no CSS transforms needed)
+    // Images are displayed in their raw orientation with swapped container dimensions
 
     // ============================================================================
     // LAYOUT CALCULATIONS
@@ -198,6 +169,23 @@
                     card.style.width = Math.round(cardWidth) + 'px';
                     card.style.height = Math.round(cardHeight) + 'px';
 
+                    // For rotated images, ensure proper fit within the rotated card container
+                    const img = card.querySelector('img');
+                    if (img) {
+                        const rotation = normalizeRotation(card.dataset?.rotation || img.dataset?.rotation || 0);
+                        const shouldSwap = shouldSwapDimensions(rotation);
+                        if (shouldSwap) {
+                            // Card is already sized for rotated dimensions
+                            // Image should fill the card and object-fit will handle the rest
+                            img.style.width = '100%';
+                            img.style.height = '100%';
+                            img.style.objectFit = 'contain';
+                        } else {
+                            img.style.width = Math.round(cardWidth) + 'px';
+                            img.style.height = Math.round(cardHeight) + 'px';
+                        }
+                    }
+
                     row.appendChild(card);
                     staging.appendChild(row);
 
@@ -242,6 +230,23 @@
 
                             cardElement.style.width = cardWidth + 'px';
                             cardElement.style.height = cardHeight + 'px';
+
+                            // For rotated images, ensure proper fit within the rotated card container
+                            const img = cardElement.querySelector('img');
+                            if (img) {
+                                const rotation = normalizeRotation(cardElement.dataset?.rotation || img.dataset?.rotation || 0);
+                                const shouldSwap = shouldSwapDimensions(rotation);
+                                if (shouldSwap) {
+                                    // Card is already sized for rotated dimensions
+                                    // Image should fill the card and object-fit will handle the rest
+                                    img.style.width = '100%';
+                                    img.style.height = '100%';
+                                    img.style.objectFit = 'contain';
+                                } else {
+                                    img.style.width = cardWidth + 'px';
+                                    img.style.height = cardHeight + 'px';
+                                }
+                            }
 
                             row.appendChild(cardElement);
                         });
@@ -327,7 +332,6 @@
     Object.assign(window.flickrJustified.helpers, {
         normalizeRotation,
         shouldSwapDimensions,
-        applyRotationToImageElement,
         getAspectRatioForCard
     });
 

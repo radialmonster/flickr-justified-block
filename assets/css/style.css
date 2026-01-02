@@ -68,8 +68,6 @@
 .flickr-justified-card img {
     display: block;
     object-fit: cover; /* Cover the container for justified layout */
-    width: 100%;
-    height: 100%;
     max-width: none; /* neutralize global img resets */
     object-position: center; /* nicer crops */
 }
