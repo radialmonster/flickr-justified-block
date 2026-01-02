@@ -16,10 +16,15 @@ if (!defined('ABSPATH')) {
 class FlickrJustifiedCacheWarmer {
     private const OPTION_KNOWN_URLS = 'flickr_justified_known_flickr_urls';
     private const OPTION_QUEUE = 'flickr_justified_cache_warmer_queue';
+    private const OPTION_FAILURES = 'flickr_justified_cache_warmer_failures';
+    private const OPTION_LOCK = 'flickr_justified_cache_warmer_lock';
+    private const OPTION_PAUSE_UNTIL = 'flickr_justified_cache_warmer_pause_until';
     private const CRON_HOOK = 'flickr_justified_run_cache_warmer';
     private const CRON_SCHEDULE = 'flickr_justified_cache_warm_interval';
     private const FAST_DELAY = 60; // seconds.
     private const SLOW_DELAY = 300; // seconds.
+    private const LOCK_TTL = 600; // seconds.
+    private const MAX_FAILURES = 8;
 
     /**
      * Bootstrap hooks.
@@ -57,6 +62,38 @@ class FlickrJustifiedCacheWarmer {
             $size = 1;
         }
         return min($size, 25);
+    }
+
+    /**
+     * Acquire a short-lived lock to prevent overlapping runs.
+     */
+    private static function acquire_lock() {
+        $expires = time() + self::LOCK_TTL;
+
+        // Prefer object cache for atomic add when available.
+        if (function_exists('wp_cache_add')) {
+            if (wp_cache_add(self::OPTION_LOCK, 1, '', self::LOCK_TTL)) {
+                return true;
+            }
+        }
+
+        $existing = get_option(self::OPTION_LOCK);
+        if ($existing && (int) $existing > time()) {
+            return false;
+        }
+
+        update_option(self::OPTION_LOCK, $expires, false);
+        return true;
+    }
+
+    /**
+     * Release the lock.
+     */
+    private static function release_lock() {
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete(self::OPTION_LOCK, '');
+        }
+        delete_option(self::OPTION_LOCK);
     }
 
     /**
@@ -127,130 +164,201 @@ class FlickrJustifiedCacheWarmer {
      * Process the cache queue from cron or CLI.
      *
      * @param bool $process_all When true, warm the entire queue at once.
+     * @param bool $bypass_lock When true, skip the overlap lock (CLI only).
+     * @param int|null $max_seconds Optional max runtime before yielding.
      * @return int Number of URLs processed.
      */
-    public static function process_queue($process_all = false) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log(sprintf(
-                'Flickr cache warmer: process_queue() called (enabled=%s, process_all=%s)',
-                self::is_enabled() ? 'yes' : 'no',
-                $process_all ? 'yes' : 'no'
-            ));
-        }
+    public static function process_queue($process_all = false, $bypass_lock = false, $max_seconds = null) {
+        $start_time = microtime(true);
+        $should_honor_pause = !$process_all || !$bypass_lock;
 
-        if (!self::is_enabled() && !$process_all) {
-            return 0;
-        }
-
-        $queue = self::get_queue();
-
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log(sprintf(
-                'Flickr cache warmer: Queue has %d items',
-                count($queue)
-            ));
-        }
-
-        if (empty($queue)) {
-            $queue = self::prime_queue_from_known_urls();
-            if (empty($queue)) {
+        // Respect pause window after rate limits unless forced.
+        if ($should_honor_pause) {
+            $pause_until = self::get_pause_until();
+            if ($pause_until > time()) {
                 return 0;
             }
         }
 
-        $batch_size = $process_all ? count($queue) : self::get_batch_size();
-        $processed = 0;
-        $attempted = 0;
-        $remaining = [];
-        $rate_limited = false;
+        // Prevent overlapping runs (cron + CLI). If lock is held, skip quietly unless bypassed.
+        if (!$bypass_lock && !self::acquire_lock()) {
+            return 0;
+        }
 
-        foreach ($queue as $queue_item) {
-            if (!$process_all && $attempted >= $batch_size) {
-                $remaining[] = $queue_item;
-                continue;
+        try {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Flickr cache warmer: process_queue() called (enabled=%s, process_all=%s, bypass_lock=%s)',
+                    self::is_enabled() ? 'yes' : 'no',
+                    $process_all ? 'yes' : 'no',
+                    $bypass_lock ? 'yes' : 'no'
+                ));
             }
 
-            $attempted++;
-
-            // Support both old format (string) and new format (array with url and page)
-            if (is_array($queue_item)) {
-                $url = isset($queue_item['url']) ? $queue_item['url'] : '';
-                $page = isset($queue_item['page']) ? (int) $queue_item['page'] : 1;
-            } else {
-                $url = $queue_item;
-                $page = 1;
+            if (!self::is_enabled() && !$process_all) {
+                return 0;
             }
 
-            if (empty($url)) {
-                continue;
+            $queue = self::get_queue();
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Flickr cache warmer: Queue has %d items',
+                    count($queue)
+                ));
             }
 
-            $result = self::warm_url($url, $page);
-
-            if ($result === 'rate_limited') {
-                // Rate limited - stop processing and keep this URL for retry
-                $rate_limited = true;
-                $remaining[] = $queue_item;
-
-                // Add all remaining URLs back to queue
-                for ($i = $attempted; $i < count($queue); $i++) {
-                    $remaining[] = $queue[$i];
+            if (empty($queue)) {
+                $queue = self::prime_queue_from_known_urls();
+                if (empty($queue)) {
+                    return 0;
                 }
+            }
 
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr cache warmer: Rate limited at URL ' . $attempted . ', scheduling retry in 1 hour');
-                }
-                break;
-            } elseif (is_array($result) && isset($result['success'])) {
-                // Album result with pagination info
-                if ($result['success']) {
-                    $processed++;
+            $batch_size = $process_all ? count($queue) : self::get_batch_size();
+            $processed = 0;
+            $attempted = 0;
+            $remaining = [];
+            $rate_limited = false;
+            $last_error = '';
 
-                    // If there are more pages, add the next page to the FRONT of the queue
-                    // This ensures we complete one album before moving to the next
-                    if (!empty($result['has_more_pages']) && $result['current_page'] < $result['total_pages']) {
-                        $next_page = $result['current_page'] + 1;
-                        array_unshift($remaining, [
-                            'url' => $url,
-                            'page' => $next_page,
-                        ]);
-
-                        if (defined('WP_DEBUG') && WP_DEBUG) {
-                            error_log(sprintf(
-                                'Flickr cache warmer: Queuing page %d/%d for album (priority): %s',
-                                $next_page,
-                                $result['total_pages'],
-                                $url
-                            ));
-                        }
-                    }
-                } else {
-                    // Failed - keep in queue for retry
+            foreach ($queue as $queue_item) {
+                if (!$process_all && $attempted >= $batch_size) {
                     $remaining[] = $queue_item;
+                    continue;
                 }
-            } elseif ($result) {
-                // Simple success (photo URL)
-                $processed++;
-                continue;
-            } else {
-                // Failed for other reasons - keep in queue for retry
-                $remaining[] = $queue_item;
+
+                // Support both old format (string) and new format (array with url and page)
+                if (is_array($queue_item)) {
+                    $url = isset($queue_item['url']) ? $queue_item['url'] : '';
+                    $page = isset($queue_item['page']) ? (int) $queue_item['page'] : 1;
+                } else {
+                    $url = $queue_item;
+                    $page = 1;
+                }
+
+                if (empty($url)) {
+                    continue;
+                }
+
+                $queue_key = self::normalize_queue_key($queue_item);
+                $backoff_until = self::get_backoff_until($queue_key);
+                if ($backoff_until > time()) {
+                    // Skip this item for now but try to fill the batch with later items.
+                    $remaining[] = $queue_item;
+                    continue;
+                }
+
+                $attempted++;
+
+                $result = self::warm_url($url, $page);
+
+                if ($result === 'rate_limited') {
+                    // Rate limited - stop processing and keep this URL for retry
+                    $rate_limited = true;
+                    $remaining[] = $queue_item;
+                    self::clear_failure($queue_key);
+                    self::set_pause_until(time() + HOUR_IN_SECONDS);
+
+                    // Add all remaining URLs back to queue
+                    for ($i = $attempted; $i < count($queue); $i++) {
+                        $remaining[] = $queue[$i];
+                    }
+
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('Flickr cache warmer: Rate limited at URL ' . $attempted . ', scheduling retry in 1 hour');
+                    }
+                    break;
+                } elseif (is_array($result) && isset($result['success'])) {
+                    // Album result with pagination info
+                    if ($result['success']) {
+                        $processed++;
+                        self::clear_failure($queue_key);
+
+                        // If we timed out on this page, retry it before moving forward.
+                        if (!empty($result['needs_retry_page'])) {
+                            array_unshift($remaining, [
+                                'url' => $url,
+                                'page' => $result['current_page'],
+                            ]);
+
+                            if (defined('WP_DEBUG') && WP_DEBUG) {
+                                error_log(sprintf(
+                                    'Flickr cache warmer: Re-queuing current page %d for album due to timeout: %s',
+                                    $result['current_page'],
+                                    $url
+                                ));
+                            }
+                        } elseif (!empty($result['has_more_pages']) && $result['current_page'] < $result['total_pages']) {
+                            // If there are more pages, add the next page to the FRONT of the queue
+                            // This ensures we complete one album before moving to the next
+                            $next_page = $result['current_page'] + 1;
+                            array_unshift($remaining, [
+                                'url' => $url,
+                                'page' => $next_page,
+                            ]);
+
+                            if (defined('WP_DEBUG') && WP_DEBUG) {
+                                error_log(sprintf(
+                                    'Flickr cache warmer: Queuing page %d/%d for album (priority): %s',
+                                    $next_page,
+                                    $result['total_pages'],
+                                    $url
+                                ));
+                            }
+                        }
+                    } else {
+                        // Failed - keep in queue for retry unless max failures exceeded
+                        $drop = self::mark_failure($queue_key);
+                        if (!$drop) {
+                            $remaining[] = $queue_item;
+                        }
+                        $last_error = 'album_fail';
+                    }
+                } elseif ($result) {
+                    // Simple success (photo URL)
+                    $processed++;
+                    self::clear_failure($queue_key);
+                    continue;
+                } else {
+                    // Failed for other reasons - keep in queue for retry
+                    $drop = self::mark_failure($queue_key);
+                    if (!$drop) {
+                        $remaining[] = $queue_item;
+                    }
+                    $last_error = 'photo_fail';
+                }
+
+                if (null !== $max_seconds && (microtime(true) - $start_time) >= $max_seconds) {
+                    // Put unprocessed items back to the queue
+                    for ($i = $attempted; $i < count($queue); $i++) {
+                        $remaining[] = $queue[$i];
+                    }
+                    break;
+                }
             }
-        }
 
-        self::save_queue($remaining);
+            self::save_queue($remaining);
 
-        if (!$process_all && !empty($remaining)) {
-            if ($rate_limited) {
-                // Schedule retry in 1 hour when rate limited
-                self::schedule_next_batch(HOUR_IN_SECONDS);
-            } else {
-                // Normal delay between batches
-                self::schedule_next_batch(self::get_delay_interval());
+            if (!$process_all && !empty($remaining)) {
+                if ($rate_limited) {
+                    // Schedule retry in 1 hour when rate limited
+                    self::schedule_next_batch(HOUR_IN_SECONDS);
+                } else {
+                    // Normal delay between batches
+                    self::schedule_next_batch(self::get_delay_interval());
+                }
             }
-        }
+            // On success after a pause window, clear the pause.
+            if (!$rate_limited && $processed > 0) {
+                self::clear_pause_until();
+            }
 
-        return $processed;
+            self::set_last_run($processed, $rate_limited, $last_error);
+            return $processed;
+        } finally {
+            self::release_lock();
+        }
     }
 
     /**
@@ -260,7 +368,7 @@ class FlickrJustifiedCacheWarmer {
      * @param string $url The Flickr URL to warm.
      * @param int $page The page number for album URLs (default 1).
      * @return bool|string|array True on success, 'rate_limited' on rate limit, false on failure,
-     *                           or array with 'success' and 'has_more_pages' for albums.
+     *                           or album array with 'success', 'has_more_pages', 'needs_retry_page'.
      */
     public static function warm_url($url, $page = 1) {
         if (!is_string($url) || '' === trim($url)) {
@@ -269,6 +377,16 @@ class FlickrJustifiedCacheWarmer {
 
         $url = trim($url);
         $page = max(1, (int) $page);
+        $start_time = microtime(true);
+        $max_duration = (int) apply_filters('flickr_justified_cache_warmer_max_seconds', 20);
+        $max_duration = max(5, $max_duration);
+        $sleep_seconds = (float) apply_filters('flickr_justified_cache_warmer_sleep_seconds', 1.0);
+        // Clamp to sane bounds: 0-2s
+        if ($sleep_seconds < 0) {
+            $sleep_seconds = 0.0;
+        } elseif ($sleep_seconds > 2) {
+            $sleep_seconds = 2.0;
+        }
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
             $log_message = 'Flickr warm_url processing: ' . $url;
@@ -302,6 +420,14 @@ class FlickrJustifiedCacheWarmer {
                     $success = true;
                 }
 
+                // If rotation is missing, warm photo info to capture it.
+                if (!isset($data['_rotation'])) {
+                    $info = FlickrJustifiedCache::get_photo_info($photo_id, false);
+                    if (is_array($info) && isset($info['rotation'])) {
+                        $success = true;
+                    }
+                }
+
                 // Warm photo stats using cache.php directly
                 $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
 
@@ -315,8 +441,10 @@ class FlickrJustifiedCacheWarmer {
                 }
 
                 // Add delay to respect Flickr's rate limit (3,600 calls/hour = 1 per second)
-                // Each photo can make 2 API calls (sizes + stats), so 2 seconds is safe
-                sleep(2);
+                // Each photo can make 2 API calls (sizes + stats); filterable for tuning.
+                if ($sleep_seconds > 0) {
+                    usleep((int) ($sleep_seconds * 1000000));
+                }
             } catch (Exception $e) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log('Flickr warm_url photo error: ' . $e->getMessage());
@@ -361,6 +489,7 @@ class FlickrJustifiedCacheWarmer {
             $current_page = isset($result['page']) ? (int) $result['page'] : $page;
             $total_pages = isset($result['pages']) ? (int) $result['pages'] : 1;
             $total_photos = isset($result['total']) ? (int) $result['total'] : count($photos);
+            $timed_out = false;
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf(
@@ -374,6 +503,15 @@ class FlickrJustifiedCacheWarmer {
 
             // Warm each photo from the current page.
             foreach ($photos as $photo_url) {
+                // Bail out if this run has consumed its time budget.
+                if ((microtime(true) - $start_time) >= $max_duration) {
+                    $timed_out = true;
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('Flickr warm_url album: max duration reached, deferring remaining photos');
+                    }
+                    break;
+                }
+
                 $photo_url = trim((string) $photo_url);
                 if ('' === $photo_url) {
                     continue;
@@ -390,6 +528,14 @@ class FlickrJustifiedCacheWarmer {
                     return 'rate_limited';
                 }
 
+                // If rotation is missing, warm photo info to capture it.
+                if (!isset($data['_rotation'])) {
+                    $info = FlickrJustifiedCache::get_photo_info($photo_id, false);
+                    if (is_array($info) && isset($info['rotation'])) {
+                        $success = true;
+                    }
+                }
+
                 // Warm photo stats
                 $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
                 if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
@@ -402,14 +548,26 @@ class FlickrJustifiedCacheWarmer {
                 }
 
                 // Add delay between photos to respect Flickr's rate limit (3,600 calls/hour = 1 per second)
-                // Each photo can make 2 API calls (sizes + stats), so 2 seconds per photo is safe
-                sleep(2);
+                // Each photo can make 2 API calls (sizes + stats); filterable for tuning.
+                if ($sleep_seconds > 0) {
+                    usleep((int) ($sleep_seconds * 1000000));
+                }
+
+                if ((microtime(true) - $start_time) >= $max_duration) {
+                    $timed_out = true;
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('Flickr warm_url album: max duration reached mid-page, deferring remaining photos');
+                    }
+                    break;
+                }
             }
 
             // Return pagination info so caller can queue next page if needed
             return [
                 'success' => $success,
-                'has_more_pages' => $has_more_pages,
+                // If we timed out mid-page, force has_more_pages so the remainder gets retried
+                'has_more_pages' => ($has_more_pages || $timed_out),
+                'needs_retry_page' => $timed_out,
                 'current_page' => $current_page,
                 'total_pages' => $total_pages,
             ];
@@ -430,7 +588,22 @@ class FlickrJustifiedCacheWarmer {
             $delay = self::get_delay_interval();
         }
 
-        $timestamp = time() + max(0, (int) $delay);
+        $delay = max(0, (int) $delay);
+
+        // Apply small jitter to avoid stampeding cron starts.
+        $jitter_fraction = (float) apply_filters('flickr_justified_cache_warmer_schedule_jitter_fraction', 0.1);
+        if ($jitter_fraction < 0) {
+            $jitter_fraction = 0.0;
+        } elseif ($jitter_fraction > 0.5) {
+            $jitter_fraction = 0.5;
+        }
+        if ($jitter_fraction > 0) {
+            $rand = mt_rand() / max(mt_getrandmax(), 1);
+            $factor = 1 + (($rand * 2 * $jitter_fraction) - $jitter_fraction);
+            $delay = (int) round($delay * $factor);
+        }
+
+        $timestamp = time() + $delay;
 
         $existing = wp_next_scheduled(self::CRON_HOOK);
         if (false !== $existing && $existing <= $timestamp) {
@@ -632,6 +805,7 @@ class FlickrJustifiedCacheWarmer {
         $current_queue = self::get_queue();
 
         if (!$force && !empty($current_queue)) {
+            self::cleanup_failure_map($current_queue);
             return $current_queue;
         }
 
@@ -640,6 +814,7 @@ class FlickrJustifiedCacheWarmer {
         if (!$force) {
             // Simple case: queue is empty, just use the new URLs
             self::save_queue($urls);
+            self::cleanup_failure_map($urls);
             return $urls;
         }
 
@@ -684,6 +859,7 @@ class FlickrJustifiedCacheWarmer {
         }
 
         self::save_queue($merged_queue);
+        self::cleanup_failure_map($merged_queue);
         return $merged_queue;
     }
 
@@ -722,11 +898,178 @@ class FlickrJustifiedCacheWarmer {
     }
 
     /**
+     * Normalize queue item to a unique key for tracking failures/backoff.
+     */
+    private static function normalize_queue_key($item) {
+        if (is_array($item)) {
+            $url = isset($item['url']) ? trim((string) $item['url']) : '';
+            $page = isset($item['page']) ? (int) $item['page'] : 1;
+            return $url . '|page:' . $page;
+        }
+
+        return trim((string) $item) . '|page:1';
+    }
+
+    /**
+     * Retrieve failure/backoff map.
+     */
+    private static function get_failure_map() {
+        $map = get_option(self::OPTION_FAILURES, []);
+        return is_array($map) ? $map : [];
+    }
+
+    /**
+     * Persist failure/backoff map.
+     */
+    private static function save_failure_map($map) {
+        if (empty($map)) {
+            delete_option(self::OPTION_FAILURES);
+            return;
+        }
+        update_option(self::OPTION_FAILURES, $map, false);
+    }
+
+    /**
+     * Remove failure entries that no longer exist in the queue.
+     *
+     * @param array $queue
+     */
+    private static function cleanup_failure_map($queue) {
+        $map = self::get_failure_map();
+        if (empty($map)) {
+            return;
+        }
+
+        $valid_keys = [];
+        foreach ($queue as $item) {
+            $valid_keys[] = self::normalize_queue_key($item);
+        }
+        $valid_keys = array_unique($valid_keys);
+
+        $changed = false;
+        foreach (array_keys($map) as $key) {
+            if (!in_array($key, $valid_keys, true)) {
+                unset($map[$key]);
+                $changed = true;
+            }
+        }
+
+        if ($changed) {
+            self::save_failure_map($map);
+        }
+    }
+
+    /**
+     * Determine if a queue key is in backoff; clears stale entries.
+     */
+    private static function get_backoff_until($queue_key) {
+        if ('' === $queue_key) {
+            return 0;
+        }
+
+        $map = self::get_failure_map();
+        if (!isset($map[$queue_key])) {
+            return 0;
+        }
+
+        $backoff_until = isset($map[$queue_key]['backoff_until']) ? (int) $map[$queue_key]['backoff_until'] : 0;
+        if ($backoff_until <= time()) {
+            unset($map[$queue_key]);
+            self::save_failure_map($map);
+            return 0;
+        }
+
+        return $backoff_until;
+    }
+
+    /**
+     * Record a failure and apply exponential-ish backoff (15m steps capped at 6h).
+     * @return bool True if item should be dropped due to too many failures.
+     */
+    private static function mark_failure($queue_key) {
+        if ('' === $queue_key) {
+            return false;
+        }
+
+        $map = self::get_failure_map();
+        $count = isset($map[$queue_key]['count']) ? (int) $map[$queue_key]['count'] : 0;
+        $count++;
+
+        $delay = max(15 * MINUTE_IN_SECONDS, $count * 15 * MINUTE_IN_SECONDS);
+        $delay = min(6 * HOUR_IN_SECONDS, $delay);
+
+        $map[$queue_key] = [
+            'count' => $count,
+            'backoff_until' => time() + $delay,
+            'last_failed' => time(),
+        ];
+
+        self::save_failure_map($map);
+        return ($count >= self::MAX_FAILURES);
+    }
+
+    /**
+     * Clear recorded failure/backoff.
+     */
+    private static function clear_failure($queue_key) {
+        if ('' === $queue_key) {
+            return;
+        }
+
+        $map = self::get_failure_map();
+        if (isset($map[$queue_key])) {
+            unset($map[$queue_key]);
+            self::save_failure_map($map);
+        }
+    }
+
+    /**
+     * Record last run metadata for diagnostics.
+     */
+    private static function set_last_run($processed, $rate_limited, $last_error) {
+        $payload = [
+            'ts' => time(),
+            'processed' => (int) $processed,
+            'rate_limited' => (bool) $rate_limited,
+            'last_error' => (string) $last_error,
+        ];
+        update_option('flickr_justified_cache_warmer_last_run', $payload, false);
+    }
+
+    /**
+     * Get current pause window (timestamp).
+     */
+    private static function get_pause_until() {
+        $value = get_option(self::OPTION_PAUSE_UNTIL, 0);
+        return (int) $value;
+    }
+
+    /**
+     * Set a pause window until timestamp.
+     */
+    private static function set_pause_until($timestamp) {
+        $timestamp = (int) $timestamp;
+        if ($timestamp <= time()) {
+            delete_option(self::OPTION_PAUSE_UNTIL);
+            return;
+        }
+        update_option(self::OPTION_PAUSE_UNTIL, $timestamp, false);
+    }
+
+    /**
+     * Clear pause window.
+     */
+    private static function clear_pause_until() {
+        delete_option(self::OPTION_PAUSE_UNTIL);
+    }
+
+    /**
      * Save the queue.
      */
     private static function save_queue($queue) {
         if (empty($queue)) {
             delete_option(self::OPTION_QUEUE);
+            delete_option(self::OPTION_FAILURES);
             return;
         }
 
@@ -771,6 +1114,11 @@ class FlickrJustifiedCacheWarmer {
     private static function register_cli_command() {
         \WP_CLI::add_command('flickr-justified warm-cache', function($args, $assoc_args) {
             $rebuild = isset($assoc_args['rebuild']);
+            $force = isset($assoc_args['force']);
+            $max_seconds = isset($assoc_args['max-seconds']) ? (int) $assoc_args['max-seconds'] : null;
+            if (null !== $max_seconds && $max_seconds < 1) {
+                $max_seconds = null;
+            }
 
             if ($rebuild) {
                 $map = self::rebuild_known_urls();
@@ -783,12 +1131,12 @@ class FlickrJustifiedCacheWarmer {
                 \WP_CLI::log(sprintf(__('Rebuilt URL list with %d Flickr link(s).', 'flickr-justified-block'), $count));
             }
 
-            $processed = self::process_queue(true);
-            if ($processed > 0) {
-                \WP_CLI::success(sprintf(__('Warmed cache for %d Flickr request(s).', 'flickr-justified-block'), $processed));
-            } else {
-                \WP_CLI::success(__('No Flickr URLs required warming.', 'flickr-justified-block'));
+            $processed = self::process_queue(true, $force, $max_seconds);
+            $message = sprintf(__('Warmed cache for %d Flickr request(s).', 'flickr-justified-block'), $processed);
+            if (null !== $max_seconds) {
+                $message .= ' ' . sprintf(__('Stopped after %d seconds limit.', 'flickr-justified-block'), $max_seconds);
             }
+            \WP_CLI::success($message);
         });
     }
 }

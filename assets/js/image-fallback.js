@@ -13,25 +13,33 @@
      * Extract Flickr photo ID from various sources
      */
     function extractPhotoId(img) {
+        // Try explicit data attributes first
+        const card = img.closest('.flickr-justified-card');
+        if (card && card.dataset.photoId) {
+            return card.dataset.photoId;
+        }
+
+        const link = img.closest('a');
+        if (link && link.dataset.photoId) {
+            return link.dataset.photoId;
+        }
+
         // Try to extract from current src URL
-        const srcMatch = img.src.match(/\/(\d{10,})_[a-f0-9]+_[a-z]\.jpg/i);
+        const srcMatch = img.src.match(/\/(\d{8,})_[a-f0-9]+_[a-z]\.(?:jpe?g|png|webp)/i);
         if (srcMatch && srcMatch[1]) {
             return srcMatch[1];
         }
 
-        // Try to extract from parent link href
-        const link = img.closest('a');
+        // Try to extract from parent link href (photo page URL)
         if (link) {
-            const hrefMatch = link.href.match(/\/(\d{10,})_[a-f0-9]+_[a-z]\.jpg/i);
+            const pageMatch = link.href.match(/flickr\.com\/photos\/[^/]+\/(\d{8,})/i);
+            if (pageMatch && pageMatch[1]) {
+                return pageMatch[1];
+            }
+            const hrefMatch = link.href.match(/\/(\d{8,})_[a-f0-9]+_[a-z]\.(?:jpe?g|png|webp)/i);
             if (hrefMatch && hrefMatch[1]) {
                 return hrefMatch[1];
             }
-        }
-
-        // Try to extract from data attributes
-        const card = img.closest('.flickr-justified-card');
-        if (card && card.dataset.photoId) {
-            return card.dataset.photoId;
         }
 
         return null;
@@ -41,7 +49,7 @@
      * Get the size suffix from the image URL
      */
     function getSizeSuffix(url) {
-        const match = url.match(/_([a-z])\.jpg$/i);
+        const match = url.match(/_([a-z])\.(?:jpe?g|png|webp)$/i);
         return match ? match[1] : 'b'; // default to 'b' (large)
     }
 
@@ -76,6 +84,10 @@
             });
 
             if (!response.ok) {
+                if (response.status === 429) {
+                    console.warn(`⚠️ Rate limited while refreshing photo ${photoId}`);
+                    return null;
+                }
                 throw new Error(`HTTP ${response.status}`);
             }
 

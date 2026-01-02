@@ -17,6 +17,87 @@ if (!defined('ABSPATH')) {
 // ============================================================================
 
 /**
+ * Derive human-friendly text for alt/caption/title attributes.
+ *
+ * @param array $photo Raw photo array from the renderer.
+ * @param array $image_data Cached Flickr size/info payload.
+ * @param bool  $is_flickr Whether the photo is from Flickr.
+ * @return array{title:string,caption:string,alt:string}
+ */
+function flickr_justified_get_photo_text($photo, $image_data, $is_flickr = true) {
+    $title = '';
+
+    if (isset($photo['title']) && is_string($photo['title']) && '' !== trim($photo['title'])) {
+        $title = sanitize_text_field($photo['title']);
+    } elseif (isset($image_data['_photo_info']['title'])) {
+        $raw_title = $image_data['_photo_info']['title'];
+        if (is_array($raw_title) && isset($raw_title['_content'])) {
+            $raw_title = $raw_title['_content'];
+        }
+        if (is_string($raw_title) && '' !== trim($raw_title)) {
+            $title = sanitize_text_field($raw_title);
+        }
+    }
+
+    $fallback = $is_flickr ? 'Flickr photo' : 'Image';
+    $caption = '' !== $title ? $title : $fallback;
+    $alt = $caption;
+
+    return [
+        'title' => $title,
+        'caption' => $caption,
+        'alt' => $alt,
+    ];
+}
+
+/**
+ * Build srcset/sizes attributes from cached Flickr size data.
+ *
+ * @param array $image_data Cached sizes/metadata.
+ * @param array $available_sizes Size keys in preferred order.
+ * @return array{0:string,1:string} [srcset, sizes]
+ */
+function flickr_justified_build_srcset_attributes($image_data, $available_sizes) {
+    if (empty($image_data) || !is_array($image_data)) {
+        return ['', ''];
+    }
+
+    $srcset_entries = [];
+
+    foreach ($available_sizes as $size_key) {
+        if (!isset($image_data[$size_key]['url'])) {
+            continue;
+        }
+
+        $width = isset($image_data[$size_key]['width']) ? (int) $image_data[$size_key]['width'] : 0;
+        $url = esc_url($image_data[$size_key]['url']);
+
+        if ($width <= 0 || '' === $url) {
+            continue;
+        }
+
+        // Use width as key to dedupe any duplicate entries
+        $srcset_entries[$width] = $url;
+    }
+
+    if (empty($srcset_entries)) {
+        return ['', ''];
+    }
+
+    ksort($srcset_entries);
+
+    $srcset_parts = [];
+    foreach ($srcset_entries as $width => $src) {
+        $srcset_parts[] = $src . ' ' . (int) $width . 'w';
+    }
+
+    $srcset = implode(', ', $srcset_parts);
+    $sizes = '(max-width: 768px) 100vw, (max-width: 1400px) 90vw, 1400px';
+
+    return [$srcset, $sizes];
+}
+
+/**
  * Render photos with justified gallery layout
  *
  * @param array $photos Array of photo data
@@ -82,13 +163,20 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
 
         $is_flickr = $photo['is_flickr'] ?? flickr_justified_is_flickr_photo_url($url);
         $position = isset($photo['position']) ? (int) $photo['position'] : null;
-        $stats = [];
-        $attribution_page_url = isset($photo['attribution_url']) ? esc_url($photo['attribution_url']) : $url;
-        if ('' === $attribution_page_url) {
-            $attribution_page_url = $url;
+        $photo_id = null;
+        if ($is_flickr) {
+            if (preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $url, $m)) {
+                $photo_id = $m[1];
+            }
         }
+        $stats = [];
 
         if ($is_flickr) {
+            $attribution_page_url = isset($photo['attribution_url']) ? esc_url($photo['attribution_url']) : $url;
+            if ('' === $attribution_page_url) {
+                $attribution_page_url = $url;
+            }
+
             $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
             // Cache always includes metadata (rotation + stats), so this always returns complete data
@@ -102,6 +190,8 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             } elseif (!empty($image_data['_stats']) && is_array($image_data['_stats'])) {
                 $stats = $image_data['_stats'];
             }
+
+            $photo_text = flickr_justified_get_photo_text($photo, $image_data, true);
 
             $rotation = 0;
             if (isset($photo['rotation'])) {
@@ -170,7 +260,6 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
                 continue;
             }
 
-            $data_attrs = '';
             $rotated_display_dimensions = flickr_justified_apply_rotation_to_dimensions($dimensions ?? [], $rotation);
             $rotated_lightbox_dimensions = flickr_justified_apply_rotation_to_dimensions($lightbox_dimensions ?? [], $rotation);
 
@@ -186,28 +275,16 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
                 $height_attr = (int) $rotated_display_dimensions['height'];
             }
 
-            if (null !== $width_attr && null !== $height_attr) {
-                $data_attrs = sprintf(' data-width="%d" data-height="%d"', $width_attr, $height_attr);
-            }
-
-            if ($rotation) {
-                $data_attrs .= sprintf(' data-rotation="%d"', (int) $rotation);
-            }
-
             $lightbox_class = 'flickr-builtin-lightbox';
             $gallery_group_attribute = 'data-gallery';
             $gallery_group = esc_attr($block_id);
 
-            $attribution_attrs = sprintf(' data-flickr-page="%s" data-flickr-attribution-text="%s"',
-                esc_attr($attribution_page_url),
-                esc_attr($attribution_text)
-            );
+            list($srcset_attr, $sizes_attr) = flickr_justified_build_srcset_attributes($image_data, $available_sizes);
 
-            $attribution_attrs .= sprintf(' data-caption="%s" data-title="%s" title="%s"',
-                esc_attr($attribution_text),
-                esc_attr($attribution_text),
-                esc_attr($attribution_text)
-            );
+            $attribution_caption = $photo_text['caption'];
+            if ('' === $attribution_caption) {
+                $attribution_caption = $attribution_text;
+            }
 
             $views = isset($stats['views']) ? (int) $stats['views'] : 0;
             $comments = isset($stats['comments']) ? (int) $stats['comments'] : 0;
@@ -220,6 +297,9 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             if (null !== $position) {
                 $card_attributes[] = 'data-position="' . esc_attr($position) . '"';
             }
+            if (!empty($photo_id)) {
+                $card_attributes[] = 'data-photo-id="' . esc_attr($photo_id) . '"';
+            }
             $card_attributes[] = 'data-views="' . esc_attr($views) . '"';
             $card_attributes[] = 'data-comments="' . esc_attr($comments) . '"';
             $card_attributes[] = 'data-favorites="' . esc_attr($favorites) . '"';
@@ -230,35 +310,70 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             }
 
             $img_extra_attrs = [];
-            if (null !== $width_attr && null !== $height_attr) {
-                $img_extra_attrs[] = 'data-width="' . esc_attr($width_attr) . '"';
-                $img_extra_attrs[] = 'data-height="' . esc_attr($height_attr) . '"';
-            }
-
             if ($rotation) {
                 $img_extra_attrs[] = 'data-rotation="' . esc_attr($rotation) . '"';
                 $img_extra_attrs[] = 'style="transform: rotate(' . esc_attr($rotation) . 'deg); transform-origin: center center;"';
             }
 
-            $img_attr_string = '';
-            if (!empty($img_extra_attrs)) {
-                $img_attr_string = ' ' . implode(' ', $img_extra_attrs);
+            $anchor_attributes = [
+                'href="' . esc_url($lightbox_src) . '"',
+                'class="' . esc_attr($lightbox_class) . '"',
+                $gallery_group_attribute . '="' . esc_attr($gallery_group) . '"',
+                'data-flickr-page="' . esc_attr($attribution_page_url) . '"',
+                'data-flickr-attribution-text="' . esc_attr($attribution_text) . '"',
+                'data-caption="' . esc_attr($attribution_caption) . '"',
+                'data-title="' . esc_attr($attribution_caption) . '"',
+                'title="' . esc_attr($attribution_caption) . '"',
+            ];
+
+            if (null !== $width_attr && null !== $height_attr) {
+                $anchor_attributes[] = 'data-width="' . esc_attr($width_attr) . '"';
+                $anchor_attributes[] = 'data-height="' . esc_attr($height_attr) . '"';
             }
+
+            if ($rotation) {
+                $anchor_attributes[] = 'data-rotation="' . esc_attr($rotation) . '"';
+            }
+
+            if (!empty($photo_id)) {
+                $anchor_attributes[] = 'data-photo-id="' . esc_attr($photo_id) . '"';
+            }
+
+            $img_attributes = [
+                'src="' . esc_url($display_src) . '"',
+                'loading="lazy"',
+                'decoding="async"',
+                'alt="' . esc_attr($photo_text['alt']) . '"',
+            ];
+
+            if (!empty($srcset_attr)) {
+                $img_attributes[] = 'srcset="' . esc_attr($srcset_attr) . '"';
+                if (!empty($sizes_attr)) {
+                    $img_attributes[] = 'sizes="' . esc_attr($sizes_attr) . '"';
+                }
+            }
+
+            if (null !== $width_attr && null !== $height_attr) {
+                $img_attributes[] = 'width="' . esc_attr($width_attr) . '"';
+                $img_attributes[] = 'height="' . esc_attr($height_attr) . '"';
+                $img_attributes[] = 'data-width="' . esc_attr($width_attr) . '"';
+                $img_attributes[] = 'data-height="' . esc_attr($height_attr) . '"';
+            }
+
+            if (!empty($img_extra_attrs)) {
+                $img_attributes = array_merge($img_attributes, $img_extra_attrs);
+            }
+
+            $img_attr_string = ' ' . implode(' ', $img_attributes);
 
             $output .= sprintf(
                 '<article %s>
-                    <a href="%s" class="%s" %s="%s" %s%s>
-                        <img src="%s" loading="lazy" decoding="async" alt=""%s>
+                    <a %s>
+                        <img%s>
                     </a>
                 </article>',
                 implode(' ', $card_attributes),
-                esc_url($lightbox_src),
-                esc_attr($lightbox_class),
-                esc_attr($gallery_group_attribute),
-                esc_attr($gallery_group),
-                $data_attrs,
-                $attribution_attrs,
-                esc_url($display_src),
+                implode(' ', $anchor_attributes),
                 $img_attr_string
             );
         } else {
@@ -266,6 +381,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             $views = isset($photo['views']) ? (int) $photo['views'] : 0;
             $comments = isset($photo['comments']) ? (int) $photo['comments'] : 0;
             $favorites = isset($photo['favorites']) ? (int) $photo['favorites'] : 0;
+            $photo_text = flickr_justified_get_photo_text($photo, [], false);
 
             $card_attributes = ['class="flickr-justified-card"', 'style="position: relative;"'];
             if (null !== $position) {
@@ -287,28 +403,41 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
             $gallery_group_attribute = 'data-gallery';
             $gallery_group = esc_attr($block_id);
 
-            // Build img and anchor attributes with dimensions
-            $data_attrs = '';
-            $img_attrs = '';
+            $anchor_attributes = [
+                'href="' . esc_url($url) . '"',
+                'class="' . esc_attr($lightbox_class) . '"',
+                $gallery_group_attribute . '="' . esc_attr($gallery_group) . '"',
+                'title="' . esc_attr($photo_text['caption']) . '"'
+            ];
+
             if ($width > 0 && $height > 0) {
-                $data_attrs = sprintf(' data-width="%d" data-height="%d"', $width, $height);
-                $img_attrs = sprintf(' data-width="%d" data-height="%d"', $width, $height);
+                $anchor_attributes[] = sprintf('data-width="%d"', $width);
+                $anchor_attributes[] = sprintf('data-height="%d"', $height);
+            }
+
+            $img_attributes = [
+                'src="' . esc_url($url) . '"',
+                'loading="lazy"',
+                'decoding="async"',
+                'alt="' . esc_attr($photo_text['alt']) . '"'
+            ];
+
+            if ($width > 0 && $height > 0) {
+                $img_attributes[] = sprintf('width="%d"', $width);
+                $img_attributes[] = sprintf('height="%d"', $height);
+                $img_attributes[] = sprintf('data-width="%d"', $width);
+                $img_attributes[] = sprintf('data-height="%d"', $height);
             }
 
             $output .= sprintf(
                 '<article %s>
-                    <a href="%s" class="%s" %s="%s"%s>
-                        <img src="%s" loading="lazy" decoding="async" alt=""%s>
+                    <a %s>
+                        <img %s>
                     </a>
                 </article>',
                 implode(' ', $card_attributes),
-                esc_url($url),
-                esc_attr($lightbox_class),
-                esc_attr($gallery_group_attribute),
-                esc_attr($gallery_group),
-                $data_attrs,
-                esc_url($url),
-                $img_attrs
+                implode(' ', $anchor_attributes),
+                implode(' ', $img_attributes)
             );
         }
     }

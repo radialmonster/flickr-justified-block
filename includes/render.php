@@ -33,6 +33,7 @@ function flickr_justified_render_block($attributes) {
 
     // Check if we should use async loading (for large uncached albums to prevent timeouts)
     $use_async_loading = flickr_justified_should_use_async_loading($urls);
+    $use_async_loading = apply_filters('flickr_justified_enable_async_loader', $use_async_loading, $attributes, $urls);
 
     if (defined('WP_DEBUG') && WP_DEBUG) {
         $debug_max_photos = isset($attributes['maxPhotos']) ? (int) $attributes['maxPhotos'] : 0;
@@ -46,127 +47,33 @@ function flickr_justified_render_block($attributes) {
     }
 
     if ($use_async_loading) {
-        // Return loading placeholder that will load via AJAX
+        // Return loading placeholder that will load via AJAX (handled by external script)
         $placeholder_id = 'flickr-justified-async-' . uniqid();
         $target_gallery_id = 'flickr-justified-' . uniqid();
 
         // Store target gallery ID in attributes so rendered gallery uses same ID
         $attributes['_target_gallery_id'] = $target_gallery_id;
         $attributes_json = wp_json_encode($attributes);
-
-        return sprintf(
-            '<div id="%s" class="flickr-justified-loading" data-attributes="%s" data-target-id="%s">
-                <p class="flickr-loading-icon"><span class="dashicons dashicons-update-alt"></span></p>
-                <p>%s</p>
-            </div>
-            <script>
-            (function() {
-                var container = document.getElementById("%s");
-                if (!container) return;
-
-                var targetGalleryId = container.getAttribute("data-target-id");
-                var retryCount = 0;
-                var maxRetries = 1;
-
-                function loadGallery() {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open("POST", "%s", true);
-                    xhr.timeout = 60000; // 60 second timeout (increased for sort by views with large albums)
-                    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-                    xhr.onload = function() {
-                        if (xhr.status === 200) {
-                            try {
-                                var response = JSON.parse(xhr.responseText);
-                                if (response.success && response.data && response.data.html) {
-                                    container.outerHTML = response.data.html;
-                                    // Find the specific gallery that was just loaded using its unique ID
-                                    var newBlock = targetGalleryId ? document.getElementById(targetGalleryId) : document.querySelector(".flickr-justified-grid");
-                                    if (newBlock) {
-                                        try {
-                                            // Initialize justified layout
-                                            if (window.flickrJustified && window.flickrJustified.initGallery) {
-                                                console.log("Flickr Gallery: Initializing justified layout");
-                                                window.flickrJustified.initGallery();
-                                            } else {
-                                                console.warn("Flickr Gallery: initGallery not found in window.flickrJustified");
-                                            }
-
-                                            // CRITICAL: Wait for layout to stabilize before initializing event handlers
-                                            // Use setTimeout to ensure DOM is ready after justified layout
-                                            setTimeout(function() {
-                                                // Initialize lazy loading for async-loaded galleries
-                                                if (window.flickrJustified && window.flickrJustified.initAlbumLazyLoading) {
-                                                    console.log("Flickr Gallery: Initializing lazy loading");
-                                                    window.flickrJustified.initAlbumLazyLoading();
-                                                } else {
-                                                    console.warn("Flickr Gallery: initAlbumLazyLoading not found in window.flickrJustified");
-                                                }
-                                                // Trigger PhotoSwipe initialization
-                                                console.log("Flickr Gallery: Triggering PhotoSwipe initialization event");
-                                                var event = new CustomEvent("flickr-gallery-updated", { detail: { gallery: newBlock } });
-                                                document.dispatchEvent(event);
-                                                console.log("Flickr Gallery: Initialization complete");
-                                            }, 200);
-                                        } catch(initError) {
-                                            console.error("Flickr Gallery: Initialization failed but gallery HTML is visible:", initError);
-                                            console.error("Error stack:", initError.stack);
-                                        }
-                                    } else {
-                                        console.error("Flickr Gallery: Could not find gallery element after loading. Target ID:", targetGalleryId);
-                                    }
-                                } else {
-                                    console.error("Flickr Gallery: Invalid response data:", response);
-                                    container.innerHTML = "<p>Error loading gallery</p>";
-                                }
-                            } catch(e) {
-                                container.innerHTML = "<p>Error parsing gallery data: " + e.message + "</p>";
-                            }
-                        } else {
-                            handleError("Server error (HTTP " + xhr.status + ")");
-                        }
-                    };
-
-                    xhr.onerror = function() {
-                        handleError("Network error");
-                    };
-
-                    xhr.ontimeout = function() {
-                        handleError("Request timed out");
-                    };
-
-                    function handleError(errorType) {
-                        if (retryCount < maxRetries) {
-                            retryCount++;
-                            container.innerHTML = "<p class=\"flickr-loading-retry\">Loading failed, retrying...</p>";
-                            setTimeout(loadGallery, 2000); // Retry after 2 seconds
-                        } else {
-                            container.innerHTML = "<p>Failed to load gallery: " + errorType + "</p>";
-                        }
-                    }
-
-                    var postId = "";
-                    // Try to get post ID from body class or other indicators
-                    var bodyClasses = document.body.className.match(/postid-(\d+)/);
-                    if (bodyClasses && bodyClasses[1]) {
-                        postId = bodyClasses[1];
-                    }
-
-                    xhr.send("action=flickr_justified_load_async&attributes=" + encodeURIComponent(%s) + "&post_id=" + postId + "&nonce=%s");
-                }
-
-                loadGallery();
-            })();
-            </script>',
+        $attributes_b64 = base64_encode($attributes_json);
+        $placeholder_html = sprintf(
+            '<div id="%s" class="flickr-justified-loading" data-attributes-b64="%s" data-target-id="%s" role="status" aria-live="polite" aria-busy="true" aria-label="%s">
+                <div class="flickr-loading-skeleton">
+                    <span class="flickr-skel-row"></span>
+                    <span class="flickr-skel-row"></span>
+                    <span class="flickr-skel-row"></span>
+                </div>
+                <p class="flickr-loading-text">%s</p>
+                <button type="button" class="flickr-loading-retry-btn" style="display:none;">%s</button>
+            </div>',
             esc_attr($placeholder_id),
-            esc_attr($attributes_json),
+            esc_attr($attributes_b64),
             esc_attr($target_gallery_id),
+            esc_attr__('Loading Flickr gallery', 'flickr-justified-block'),
             esc_html__('Loading gallery...', 'flickr-justified-block'),
-            esc_js($placeholder_id),
-            esc_url(admin_url('admin-ajax.php')),
-            'container.getAttribute("data-attributes")',
-            wp_create_nonce('flickr_justified_async_load')
+            esc_html__('Retry', 'flickr-justified-block')
         );
+
+        return $placeholder_html;
     }
 
     // Get configured default responsive settings from admin, with fallback
@@ -193,21 +100,22 @@ function flickr_justified_render_block($attributes) {
         return '';
     }
 
-    // Split URLs by lines and clean them, then handle multiple URLs on same line
+    // Split URLs by lines and clean them, then handle multiple URLs on same line.
     $url_lines = array_filter(array_map('trim', preg_split('/\R/u', $urls)));
 
-    // Further split any lines that contain multiple URLs (common when copy-pasting)
+    // Further split any lines that contain multiple URLs (common when copy-pasting).
     $final_urls = [];
     foreach ($url_lines as $line) {
         if (preg_match_all('/https?:\/\/[^\s]+/i', $line, $matches)) {
             foreach ($matches[0] as $url) {
                 $final_urls[] = trim($url);
             }
-        } else if (!empty($line)) {
+        } elseif (!empty($line)) {
             $final_urls[] = $line;
         }
     }
-    $url_lines = array_filter($final_urls);
+    // Normalize/dedupe URLs
+    $url_lines = array_values(array_unique(array_filter($final_urls)));
 
     if (empty($url_lines)) {
         return '';
@@ -221,16 +129,8 @@ function flickr_justified_render_block($attributes) {
 
     $needs_stats = ('views_desc' === $sort_order);
 
-    // For views_desc with maxPhotos, we'll fetch ALL cached photos from the album,
-    // sort by cached view counts, and return top X. This prevents timeouts while
-    // giving accurate results as cache warmer progresses.
-    if ('views_desc' === $sort_order) {
-        // Fetch all available photos (they should be cached by the warmer)
-        // We'll sort and limit after fetching from cache
-        $remaining_limit = null;
-    } else {
-        $remaining_limit = ($max_photos > 0) ? $max_photos : null;
-    }
+    // For views_desc we rely on cached stats only; do not pull live stats during render.
+    $remaining_limit = ($max_photos > 0) ? $max_photos : null;
     $photo_items = [];
     $set_metadata = [];
     $position_counter = 0;
@@ -261,83 +161,53 @@ function flickr_justified_render_block($attributes) {
                 $set_result = flickr_justified_get_full_photoset_photos($set_info['user_id'], $set_info['photoset_id']);
             }
 
-            // Check if album fetch was rate limited
-            if (isset($set_result['rate_limited']) && $set_result['rate_limited']) {
+            // Check if album fetch was rate limited; keep partial photos if present
+            $set_rate_limited = !empty($set_result['rate_limited']);
+            if ($set_rate_limited && (empty($set_result['photos']) || !is_array($set_result['photos']))) {
                 $rate_limited = true;
                 break;
+            }
+            if ($set_rate_limited) {
+                $rate_limited = true;
             }
 
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
 
-            // For views_desc: handle Flickr API objects (which already have views) or check cached stats for URLs
+            // For views_desc: prefer cached stats; do not fetch live stats here
             if ('views_desc' === $sort_order) {
-                $original_photos = $set_photos; // Save original list
+                $original_photos = $set_photos;
                 $total_photos = count($set_photos);
 
-                // Check if we have Flickr API objects (which include views data)
-                $has_api_objects = !empty($set_photos) && is_array($set_photos[0]) && isset($set_photos[0]['id']);
-
-                if ($has_api_objects) {
-                    // Modern format: Flickr API objects with views data included - no filtering needed!
-                    // Just use all photos as-is, views data is already present
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log(sprintf(
-                            'Flickr views_desc: Using %d photos with API data (views included)',
-                            $total_photos
-                        ));
+                // Filter to photos with cached stats; skip live API calls
+                $cached_photos = [];
+                foreach ($set_photos as $photo_url) {
+                    $photo_id = flickr_justified_extract_photo_id($photo_url);
+                    if ($photo_id) {
+                        $stats_cache_key = ['stats', $photo_id];
+                        $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
+                        if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
+                            $cached_photos[] = $photo_url;
+                        }
                     }
-                    // Sort by views (descending)
-                    usort($set_photos, function($a, $b) {
-                        $views_a = isset($a['views']) ? (int) $a['views'] : 0;
-                        $views_b = isset($b['views']) ? (int) $b['views'] : 0;
-                        return $views_b - $views_a; // Descending
-                    });
+                }
 
-                    // Apply maxPhotos limit after sorting to get top N by views
-                    if ($max_photos > 0 && count($set_photos) > $max_photos) {
-                        $set_photos = array_slice($set_photos, 0, $max_photos);
-                    }
+                $cached_count = count($cached_photos);
+                $skipped_count = $total_photos - $cached_count;
+
+                if (defined('WP_DEBUG') && WP_DEBUG && $skipped_count > 0) {
+                    error_log(sprintf(
+                        'Flickr views_desc: Using %d cached photos, skipped %d uncached (%.1f%% cached)',
+                        $cached_count,
+                        $skipped_count,
+                        ($total_photos > 0 ? ($cached_count / $total_photos) * 100 : 0)
+                    ));
+                }
+
+                // If no cached stats yet, fall back to input order to show something
+                if ($cached_count === 0 && $total_photos > 0) {
+                    $set_photos = $original_photos;
                 } else {
-                    // Legacy format: URL strings - filter to only cached stats
-                    $cached_photos = [];
-                    foreach ($set_photos as $photo_url) {
-                        $photo_id = flickr_justified_extract_photo_id($photo_url);
-                        if ($photo_id) {
-                            // Check if stats are cached (without making API call)
-                            $stats_cache_key = ['stats', $photo_id];
-                            $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
-                            if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
-                                // Stats are cached, include this photo
-                                $cached_photos[] = $photo_url;
-                            }
-                            // Skip photos without cached stats - they'll be included once warmer caches them
-                        }
-                    }
-
-                    $cached_count = count($cached_photos);
-                    $skipped_count = $total_photos - $cached_count;
-
-                    if (defined('WP_DEBUG') && WP_DEBUG && $skipped_count > 0) {
-                        error_log(sprintf(
-                            'Flickr views_desc: Using %d cached photos, skipped %d uncached (%.1f%% cached)',
-                            $cached_count,
-                            $skipped_count,
-                            ($cached_count / $total_photos) * 100
-                        ));
-                    }
-
-                    // If NO photos have cached stats yet, fall back to input order to show something
-                    // Otherwise user sees empty gallery while cache warmer progresses
-                    if ($cached_count === 0 && $total_photos > 0) {
-                        if (defined('WP_DEBUG') && WP_DEBUG) {
-                            error_log('Flickr views_desc: No cached stats yet, falling back to input order');
-                        }
-                        // Use original photos in input order - won't be sorted by views but at least shows something
-                        $set_photos = $original_photos;
-                    } else {
-                        // Use filtered cached photos
-                        $set_photos = $cached_photos;
-                    }
+                    $set_photos = $cached_photos;
                 }
             } elseif (null !== $remaining_limit) {
                 // For input order: limit normally
@@ -355,101 +225,55 @@ function flickr_justified_render_block($attributes) {
                     break;
                 }
 
-                // Handle both formats: Flickr API photo objects (array) or URL strings
-                $is_flickr_api_object = is_array($photo_data) && isset($photo_data['id']);
+                // URL string format (legacy/default)
+                $photo_url = is_string($photo_data) ? trim($photo_data) : '';
+                if ('' === $photo_url) {
+                    continue;
+                }
 
-                if ($is_flickr_api_object) {
-                    // Modern format: Flickr API photo object with all data included
-                    $photo_id = $photo_data['id'];
-                    $photo_url = sprintf(
-                        'https://www.flickr.com/photos/%s/%s/',
-                        isset($photo_data['owner']) ? $photo_data['owner'] : $set_info['user_id'],
-                        $photo_id
-                    );
-                    $is_flickr = true;
-
-                    // Build attribution URL for album context
-                    $attribution_url = flickr_justified_build_album_photo_attribution_url(
+                $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
+                $attribution_url = $photo_url;
+                if ($is_flickr) {
+                    $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
                         $photo_url,
                         $set_info['photoset_id'],
                         $set_info['user_id']
                     );
-                    if (empty($attribution_url)) {
-                        $attribution_url = $photo_url;
+                    if (!empty($album_attribution_url)) {
+                        $attribution_url = $album_attribution_url;
                     }
+                }
+                $item = [
+                    'url' => $photo_url,
+                    'is_flickr' => $is_flickr,
+                    'position' => $position_counter,
+                    'views' => 0,
+                    'comments' => 0,
+                    'favorites' => 0,
+                    'attribution_url' => $attribution_url,
+                ];
 
-                    // Extract stats directly from API object (more efficient!)
-                    $views = isset($photo_data['views']) ? (int) $photo_data['views'] : 0;
-                    $comments = isset($photo_data['count_comments']) ? (int) $photo_data['count_comments'] : 0;
-                    $favorites = isset($photo_data['count_faves']) ? (int) $photo_data['count_faves'] : 0;
-
-                    $item = [
-                        'url' => $photo_url,
-                        'is_flickr' => true,
-                        'position' => $position_counter,
-                        'views' => $views,
-                        'comments' => $comments,
-                        'favorites' => $favorites,
-                        'attribution_url' => $attribution_url,
-                        'flickr_data' => $photo_data, // Pass through for rendering
-                    ];
-                } else {
-                    // Legacy format: URL string
-                    $photo_url = is_string($photo_data) ? trim($photo_data) : '';
-                    if ('' === $photo_url) {
-                        continue;
-                    }
-
-                    $is_flickr = flickr_justified_is_flickr_photo_url($photo_url);
-                    $attribution_url = $photo_url;
-                    if ($is_flickr) {
-                        $album_attribution_url = flickr_justified_build_album_photo_attribution_url(
-                            $photo_url,
-                            $set_info['photoset_id'],
-                            $set_info['user_id']
-                        );
-                        if (!empty($album_attribution_url)) {
-                            $attribution_url = $album_attribution_url;
+                if ($needs_stats && $is_flickr) {
+                    // Only use cached stats; do not fetch live to avoid blocking render.
+                    $photo_id = flickr_justified_extract_photo_id($photo_url);
+                    if ($photo_id) {
+                        $stats_cache_key = ['stats', $photo_id];
+                        $stats = FlickrJustifiedCache::get($stats_cache_key);
+                        if (!empty($stats) && !isset($stats['not_found'])) {
+                            $item['stats'] = $stats;
+                            $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
+                            $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
+                            $item['favorites'] = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
                         }
                     }
-                    $item = [
-                        'url' => $photo_url,
-                        'is_flickr' => $is_flickr,
-                        'position' => $position_counter,
-                        'views' => 0,
-                        'comments' => 0,
-                        'favorites' => 0,
-                        'attribution_url' => $attribution_url,
-                    ];
+                }
 
-                    if ($needs_stats && $is_flickr) {
-                        $photo_id = flickr_justified_extract_photo_id($photo_url);
-                        if ($photo_id) {
-                            $stats = flickr_justified_get_photo_stats($photo_id);
-
-                            // Check for rate limiting
-                            if (isset($stats['rate_limited']) && $stats['rate_limited']) {
-                                $rate_limited = true;
-                                // Don't add this photo since we don't have its stats
-                                break;
-                            }
-
-                            if (!empty($stats) && is_array($stats)) {
-                                $item['stats'] = $stats;
-                                $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
-                                $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
-                                $item['favorites'] = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
-                            }
-                        }
-                    }
-
-                    // Fetch dimensions for non-Flickr images (Flickr dimensions come from API in rendering phase)
-                    if (!$is_flickr) {
-                        $dims = flickr_justified_get_external_image_dimensions($photo_url);
-                        if ($dims && isset($dims['width'], $dims['height'])) {
-                            $item['width'] = $dims['width'];
-                            $item['height'] = $dims['height'];
-                        }
+                // Fetch dimensions for non-Flickr images (Flickr dimensions come from API in rendering phase)
+                if (!$is_flickr) {
+                    $dims = flickr_justified_get_external_image_dimensions($photo_url);
+                    if ($dims && isset($dims['width'], $dims['height'])) {
+                        $item['width'] = $dims['width'];
+                        $item['height'] = $dims['height'];
                     }
                 }
 
@@ -536,18 +360,12 @@ function flickr_justified_render_block($attributes) {
         ];
 
         if ($needs_stats && $is_flickr) {
+            // Only use cached stats; do not fetch live to avoid blocking render.
             $photo_id = flickr_justified_extract_photo_id($url);
             if ($photo_id) {
-                $stats = flickr_justified_get_photo_stats($photo_id);
-
-                // Check for rate limiting
-                if (isset($stats['rate_limited']) && $stats['rate_limited']) {
-                    $rate_limited = true;
-                    // Stop processing, don't add this photo
-                    break;
-                }
-
-                if (!empty($stats) && is_array($stats)) {
+                $stats_cache_key = ['stats', $photo_id];
+                $stats = FlickrJustifiedCache::get($stats_cache_key);
+                if (!empty($stats) && !isset($stats['not_found'])) {
                     $item['stats'] = $stats;
                     $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
                     $item['comments'] = isset($stats['comments']) ? (int) $stats['comments'] : 0;
@@ -576,10 +394,12 @@ function flickr_justified_render_block($attributes) {
     // Show user-friendly message when rate limited and no photos available
     if ($rate_limited && empty($photo_items)) {
         return sprintf(
-            '<div class="flickr-justified-notice" style="padding: 30px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; color: #856404; font-size: 16px; line-height: 1.6; margin: 20px 0;">
-                <p style="margin: 0;"><strong>This gallery is temporarily unavailable.</strong></p>
-                <p style="margin: 10px 0 0;">There are pictures but they are not loading right now due to too many recently loaded pictures to prevent overload. Please check back in a few hours.</p>
-            </div>'
+            '<div class="flickr-justified-notice" role="status" aria-live="polite" style="padding: 30px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; color: #856404; font-size: 16px; line-height: 1.6; margin: 20px 0;">
+                <p style="margin: 0;"><strong>%s</strong></p>
+                <p style="margin: 10px 0 0;">%s</p>
+            </div>',
+            esc_html__('This gallery is temporarily unavailable.', 'flickr-justified-block'),
+            esc_html__('We are waiting for Flickr to allow more requests. Please check back shortly.', 'flickr-justified-block')
         );
     }
 
@@ -639,14 +459,15 @@ function flickr_justified_render_block($attributes) {
 
     // Prepend message if rate limited with partial results
     if ($rate_limited && !empty($photo_items)) {
+        $partial_count = count($photo_items);
         $partial_message = sprintf(
-            '<div class="flickr-justified-notice" style="padding: 20px; text-align: center; background: #d1ecf1; border: 1px solid #17a2b8; border-radius: 8px; color: #0c5460; font-size: 15px; line-height: 1.5; margin: 20px 0 15px;">
-                <p style="margin: 0;">Some photos could not be loaded right now due to too many recently loaded pictures to prevent overload. The gallery is showing what is currently available. Please check back in a few hours to see more.</p>
-            </div>'
+            '<div class="flickr-justified-notice" role="status" aria-live="polite" style="padding: 20px; text-align: center; background: #d1ecf1; border: 1px solid #17a2b8; border-radius: 8px; color: #0c5460; font-size: 15px; line-height: 1.5; margin: 20px 0 15px;">
+                <p style="margin: 0;">%s</p>
+            </div>',
+            esc_html(sprintf(__('Showing %d photos while we wait for more from Flickr. Check back soon for the full gallery.', 'flickr-justified-block'), $partial_count))
         );
         $gallery_html = $partial_message . $gallery_html;
     }
 
     return $gallery_html;
 }
-

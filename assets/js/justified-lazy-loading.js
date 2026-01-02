@@ -875,6 +875,15 @@
                 const data = await response.json();
 
                 // Validate payload shape
+                if (data && data.rate_limited) {
+                    return {
+                        status: 'recoverable-error',
+                        error: 'Rate limited',
+                        retryDelay: 5000,
+                        message: '⏸️ Rate limited - retrying in a moment...'
+                    };
+                }
+
                 if (!data || !Array.isArray(data.photos)) {
                     return {
                         status: 'recoverable-error',
@@ -990,14 +999,18 @@
             card.className = 'flickr-justified-card';
 
             const position = photoData.position || 0;
-            const views = photoData.views || 0;
-            const comments = photoData.comments || 0;
-            const favorites = photoData.favorites || 0;
+            const views = photoData.views ?? photoData.view_count ?? 0;
+            const comments = photoData.comments ?? photoData.comment_count ?? 0;
+            const favorites = photoData.favorites ?? photoData.favorite_count ?? 0;
+            const photoId = photoData.id || null;
 
             card.setAttribute('data-position', position);
             card.setAttribute('data-views', views);
             card.setAttribute('data-comments', comments);
             card.setAttribute('data-favorites', favorites);
+            if (photoId) {
+                card.setAttribute('data-photo-id', photoId);
+            }
 
             if (photoData.width && photoData.height) {
                 card.setAttribute('data-width', photoData.width);
@@ -1011,34 +1024,51 @@
             const blockId = gallery.id;
             const lightboxClass = 'flickr-builtin-lightbox';
             const attributionText = gallery.getAttribute('data-attribution-text') || 'Flickr';
+            const captionText = photoData.caption || photoData.title || attributionText;
+            const altText = captionText || attributionText;
 
             const anchor = document.createElement('a');
-            anchor.href = photoData.lightbox_url || photoData.url;
+            anchor.href = photoData.lightbox_url || photoData.image_url || photoData.url;
             anchor.className = lightboxClass;
             anchor.setAttribute('data-gallery', blockId);
+            if (photoId) {
+                anchor.setAttribute('data-photo-id', photoId);
+            }
 
-            if (photoData.lightbox_width && photoData.lightbox_height) {
-                anchor.setAttribute('data-width', photoData.lightbox_width);
-                anchor.setAttribute('data-height', photoData.lightbox_height);
+            const lightboxWidth = photoData.lightbox_width || photoData.width;
+            const lightboxHeight = photoData.lightbox_height || photoData.height;
+
+            if (lightboxWidth && lightboxHeight) {
+                anchor.setAttribute('data-width', lightboxWidth);
+                anchor.setAttribute('data-height', lightboxHeight);
             }
 
             if (photoData.rotation) {
                 anchor.setAttribute('data-rotation', photoData.rotation);
             }
 
-            anchor.setAttribute('data-flickr-page', photoData.attribution_url || photoData.url);
+            anchor.setAttribute('data-flickr-page', photoData.flickr_page || photoData.attribution_url || photoData.url);
             anchor.setAttribute('data-flickr-attribution-text', attributionText);
-            anchor.setAttribute('data-caption', attributionText);
-            anchor.setAttribute('data-title', attributionText);
-            anchor.title = attributionText;
+            anchor.setAttribute('data-caption', captionText);
+            anchor.setAttribute('data-title', captionText);
+            anchor.title = captionText;
 
             const img = document.createElement('img');
-            img.src = photoData.url;
+            img.src = photoData.image_url || photoData.url;
             img.loading = 'lazy';
             img.decoding = 'async';
-            img.alt = '';
+            img.alt = altText;
+
+            if (photoData.srcset) {
+                img.srcset = photoData.srcset;
+                if (photoData.sizes) {
+                    img.sizes = photoData.sizes;
+                }
+            }
 
             if (photoData.width && photoData.height) {
+                img.width = photoData.width;
+                img.height = photoData.height;
                 img.setAttribute('data-width', photoData.width);
                 img.setAttribute('data-height', photoData.height);
             }

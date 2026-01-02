@@ -41,6 +41,17 @@ class FlickrJustifiedCache {
     private static $api_calls_this_request = 0;
 
     /**
+     * Cache key for API call counter (per site on multisite)
+     */
+    private static function get_api_counter_key() {
+        $suffix = '';
+        if (is_multisite()) {
+            $suffix = '_' . get_current_blog_id();
+        }
+        return 'flickr_justified_api_call_count' . $suffix;
+    }
+
+    /**
      * SINGLE SOURCE OF TRUTH: Centralized Flickr size definitions
      * All size mappings throughout the plugin derive from this ONE definition
      *
@@ -143,6 +154,9 @@ class FlickrJustifiedCache {
             if (class_exists('FlickrJustifiedAdminSettings')) {
                 $configured = FlickrJustifiedAdminSettings::get_cache_duration();
                 if ($configured > 0) {
+                    // Cap duration to prevent effectively infinite caches
+                    $configured = max(HOUR_IN_SECONDS, (int) $configured);
+                    $configured = min(90 * DAY_IN_SECONDS, $configured); // 90 days max
                     self::$cache_duration = $configured;
                     return $configured;
                 }
@@ -247,6 +261,8 @@ class FlickrJustifiedCache {
         // Increment cache version to invalidate object cache entries without flushing entire site
         $current_version = (int) get_option('flickr_justified_cache_version', 1);
         update_option('flickr_justified_cache_version', $current_version + 1);
+        // Reset API call counter
+        delete_transient(self::get_api_counter_key());
 
         // Clear all transients with our prefix
         $patterns = [
@@ -330,15 +346,44 @@ class FlickrJustifiedCache {
     public static function increment_api_calls() {
         self::$api_calls_this_request++;
 
-        $count = (int) get_transient('flickr_justified_api_call_count') ?: 0;
-        set_transient('flickr_justified_api_call_count', $count + 1, HOUR_IN_SECONDS);
+        $counter_key = self::get_api_counter_key();
+
+        // Try to use object cache increment when available
+        $new_count = null;
+        if (function_exists('wp_cache_incr')) {
+            $new_count = wp_cache_incr($counter_key, 1, '', 0);
+            if (false === $new_count) {
+                wp_cache_add($counter_key, 0, '', HOUR_IN_SECONDS);
+                $new_count = wp_cache_incr($counter_key, 1, '', 0);
+            }
+        }
+
+        // Fallback to transient counter
+        if (null === $new_count || false === $new_count) {
+            $count = (int) get_transient($counter_key) ?: 0;
+            set_transient($counter_key, $count + 1, HOUR_IN_SECONDS);
+        }
     }
 
     /**
      * Get total API calls made (persistent counter)
      */
     public static function get_api_call_count() {
-        return (int) get_transient('flickr_justified_api_call_count') ?: 0;
+        $counter_key = self::get_api_counter_key();
+        $count = 0;
+
+        if (function_exists('wp_cache_get')) {
+            $cached = wp_cache_get($counter_key);
+            if (false !== $cached && is_numeric($cached)) {
+                $count = (int) $cached;
+            }
+        }
+
+        if (0 === $count) {
+            $count = (int) get_transient($counter_key) ?: 0;
+        }
+
+        return $count;
     }
 
     /**
@@ -350,19 +395,24 @@ class FlickrJustifiedCache {
      */
     public static function can_make_api_call() {
         $current_count = self::get_api_call_count();
-        $max_calls = 3550; // Conservative limit (50 call buffer)
+        $max_calls = (int) apply_filters('flickr_justified_api_hourly_cap', 3550); // Conservative limit (50 call buffer)
+        if ($max_calls < 100) {
+            $max_calls = 100;
+        } elseif ($max_calls > 3600) {
+            $max_calls = 3600;
+        }
 
-        $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
-        $caller = isset($backtrace[1]) ? $backtrace[1]['function'] : 'unknown';
-
-        file_put_contents('/tmp/flickr_debug.log', sprintf(
-            "[%s] can_make_api_call called from %s: count=%d/%d, will_return=%s\n",
-            date('Y-m-d H:i:s'),
-            $caller,
-            $current_count,
-            $max_calls,
-            $current_count >= $max_calls ? 'FALSE' : 'TRUE'
-        ), FILE_APPEND);
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+            $caller = isset($backtrace[1]) ? $backtrace[1]['function'] : 'unknown';
+            error_log(sprintf(
+                'Flickr API quota check: caller=%s count=%d/%d will_return=%s',
+                $caller,
+                $current_count,
+                $max_calls,
+                $current_count >= $max_calls ? 'FALSE' : 'TRUE'
+            ));
+        }
 
         if ($current_count >= $max_calls) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -798,6 +848,13 @@ class FlickrJustifiedCache {
             return [];
         }
 
+        // Backoff for recent failures on this photo
+        $backoff_key = ['backoff', 'photo_sizes', $photo_id];
+        $backoff_until = get_transient(self::key($backoff_key));
+        if ($backoff_until && time() < (int) $backoff_until) {
+            return ['rate_limited' => true];
+        }
+
         // Check API quota before making call
         if (!self::can_make_api_call()) {
             return ['rate_limited' => true];
@@ -840,6 +897,8 @@ class FlickrJustifiedCache {
         if (is_wp_error($response)) {
             // Cache negative result to prevent repeated failed API calls
             self::set($base_cache_key, ['not_found' => true]);
+            // Short backoff on transport failures
+            set_transient(self::key($backoff_key), time() + 300, 300);
             return [];
         }
 
@@ -864,6 +923,7 @@ class FlickrJustifiedCache {
 
         // Check for rate limiting
         if (self::is_rate_limited_response($response, $data, $context)) {
+            set_transient(self::key($backoff_key), time() + 600, 600);
             return ['rate_limited' => true];
         }
 
@@ -871,6 +931,10 @@ class FlickrJustifiedCache {
 
         // Photo not found, deleted, or private
         if ($response_code < 200 || $response_code >= 300) {
+            if ($response_code >= 500) {
+                set_transient(self::key($backoff_key), time() + 300, 300);
+                return ['rate_limited' => true];
+            }
             // Cache negative result
             self::set($base_cache_key, ['not_found' => true]);
             return [];
@@ -878,6 +942,10 @@ class FlickrJustifiedCache {
 
         // Check for Flickr API error
         if (isset($data['stat']) && $data['stat'] === 'fail') {
+            if (isset($data['code']) && (int) $data['code'] >= 500) {
+                set_transient(self::key($backoff_key), time() + 300, 300);
+                return ['rate_limited' => true];
+            }
             // Cache negative result
             self::set($base_cache_key, ['not_found' => true]);
             return [];
@@ -1123,9 +1191,7 @@ class FlickrJustifiedCache {
 
         // Extract stats if available
         $stats = [];
-        if (isset($photo['views'])) {
-            $stats['views'] = max(0, (int) $photo['views']);
-        }
+        $stats['views'] = max(0, (int) ($photo['views'] ?? 0));
         if (isset($photo['count_comments'])) {
             $stats['comments'] = max(0, (int) $photo['count_comments']);
         }
@@ -1144,6 +1210,57 @@ class FlickrJustifiedCache {
 
         if (!empty($stats)) {
             $cache_data['_stats'] = $stats;
+        }
+
+        // Add lightweight photo_info payload so render can use titles/descriptions without extra calls.
+        $photo_info = [];
+        if (isset($photo['title'])) {
+            $photo_info['title'] = [
+                '_content' => sanitize_text_field((string) $photo['title']),
+            ];
+        }
+        if (isset($photo['description'])) {
+            if (is_array($photo['description']) && isset($photo['description']['_content'])) {
+                $photo_info['description'] = [
+                    '_content' => sanitize_textarea_field((string) $photo['description']['_content']),
+                ];
+            } else {
+                $photo_info['description'] = [
+                    '_content' => sanitize_textarea_field((string) $photo['description']),
+                ];
+            }
+        }
+
+        // Owner/user meta if present
+        if (isset($photo['owner']) || isset($photo['ownername'])) {
+            $photo_info['owner'] = [
+                'nsid' => isset($photo['owner']) ? sanitize_text_field((string) $photo['owner']) : '',
+                'username' => isset($photo['ownername']) ? sanitize_text_field((string) $photo['ownername']) : '',
+            ];
+        }
+
+        // Dates from album payload
+        $dates = [];
+        if (isset($photo['lastupdate'])) {
+            $dates['lastupdate'] = (int) $photo['lastupdate'];
+        }
+        if (isset($photo['dateupload'])) {
+            $dates['posted'] = (int) $photo['dateupload'];
+        }
+        if (isset($photo['datetaken'])) {
+            $dates['taken'] = sanitize_text_field((string) $photo['datetaken']);
+        }
+        if (!empty($dates)) {
+            $photo_info['dates'] = $dates;
+        }
+
+        // Media type if available
+        if (isset($photo['media'])) {
+            $photo_info['media'] = sanitize_text_field((string) $photo['media']);
+        }
+
+        if (!empty($photo_info)) {
+            $cache_data['_photo_info'] = $photo_info;
         }
 
         // Note: Rotation is NOT available in album response, will need separate call if needed
@@ -1259,6 +1376,9 @@ class FlickrJustifiedCache {
             'title' => isset($data['photoset']['title']['_content']) ? sanitize_text_field($data['photoset']['title']['_content']) : '',
             'description' => isset($data['photoset']['description']['_content']) ? sanitize_textarea_field($data['photoset']['description']['_content']) : '',
             'photo_count' => isset($data['photoset']['count_photos']) ? intval($data['photoset']['count_photos']) : 0,
+            'video_count' => isset($data['photoset']['count_videos']) ? intval($data['photoset']['count_videos']) : 0,
+            'views' => isset($data['photoset']['count_views']) ? intval($data['photoset']['count_views']) : 0,
+            'comments' => isset($data['photoset']['count_comments']) ? intval($data['photoset']['count_comments']) : 0,
         ];
 
         self::set($cache_key, $photoset_info); // Use configured cache duration
@@ -1303,25 +1423,32 @@ class FlickrJustifiedCache {
             return self::empty_photoset_result($page);
         }
 
-        // Request comprehensive photo data in the album call to avoid per-photo API calls
-        // This dramatically reduces API usage: 1 call per 500 photos instead of 1000+ calls
-        // IMPORTANT: Only use documented extras that photosets.getPhotos actually supports
-        // Unsupported extras may cause Flickr to ignore the entire extras parameter
+        // Request comprehensive photo data in the album call to avoid per-photo API calls.
+        // This dramatically reduces API usage: 1 call per 500 photos instead of 1000+ calls.
+        // Stick to the documented extras for flickr.photosets.getPhotos.
         $extras = [
+            'license',
+            'date_upload',
+            'date_taken',
+            'owner_name',
+            'icon_server',
+            'original_format',
+            'last_update',
+            'geo',
+            'tags',
+            'machine_tags',
             // Dimensions for all available sizes
             'o_dims',           // Original dimensions (width_o, height_o)
+            'views',
+            'media',
+            'path_alias',
 
-            // URLs for multiple sizes - ONLY the documented ones supported by photosets.getPhotos
-            // See: https://www.flickr.com/services/api/flickr.photosets.getPhotos.html
+            // URLs for multiple sizes - only the documented ones supported by photosets.getPhotos.
             'url_sq',  // Square 75x75
             'url_t',   // Thumbnail 100 on longest side
             'url_s',   // Small 240 on longest side
             'url_m',   // Medium 500 on longest side
             'url_o',   // Original (requires permission)
-
-            // NOTE: These undocumented extras (url_q, url_n, url_z, url_c, url_l, url_h, url_k)
-            // are NOT supported by photosets.getPhotos and may cause Flickr to reject the request
-            // For larger sizes, individual photos will fall back to flickr.photos.getSizes API
 
             // Statistics (views, comments available; favorites requires separate call)
             'views',
@@ -1376,14 +1503,11 @@ class FlickrJustifiedCache {
         self::increment_api_calls();
 
         if (is_wp_error($response)) {
-            // Cache negative result to prevent repeated failed API calls
-            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
         $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
-            self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
         }
 
@@ -1416,6 +1540,9 @@ class FlickrJustifiedCache {
 
         // Album not found, deleted, or private
         if ($response_code < 200 || $response_code >= 300) {
+            if ($response_code >= 500) {
+                return ['rate_limited' => true];
+            }
             // Cache negative result
             self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
@@ -1423,6 +1550,9 @@ class FlickrJustifiedCache {
 
         // Check for Flickr API error (album deleted, private, permission denied)
         if (isset($data['stat']) && 'fail' === $data['stat']) {
+            if (isset($data['code']) && (int) $data['code'] >= 500) {
+                return ['rate_limited' => true];
+            }
             // Cache negative result
             self::set($cache_key, ['not_found' => true]);
             return self::empty_photoset_result($page);
@@ -1457,6 +1587,9 @@ class FlickrJustifiedCache {
                     'title' => $album_title,
                     'description' => '',
                     'photo_count' => $total_photos,
+                    'video_count' => 0,
+                    'views' => 0,
+                    'comments' => 0,
                 ]); // Use configured cache duration
             }
         }

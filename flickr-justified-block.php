@@ -323,6 +323,23 @@ class FlickrJustifiedBlock {
                     'nonce' => wp_create_nonce('flickr_justified_refresh')
                 ]);
             }
+
+            // Async loader to replace inline script (uses data-attributes-b64 on placeholder)
+            $async_loader_script = self::get_script_registration_data('assets/js/flickr-async-loader.js');
+            if ($async_loader_script) {
+                wp_enqueue_script(
+                    'flickr-justified-async-loader',
+                    $async_loader_script['url'],
+                    array_merge($async_loader_script['deps'], ['flickr-justified-helpers']),
+                    $async_loader_script['version'],
+                    true
+                );
+
+                wp_localize_script('flickr-justified-async-loader', 'flickrJustifiedAsync', [
+                    'ajaxurl' => admin_url('admin-ajax.php'),
+                    'nonce' => wp_create_nonce('flickr_justified_async_load'),
+                ]);
+            }
         }
     }
 
@@ -628,9 +645,52 @@ class FlickrJustifiedBlock {
         // Get the photos for this page
         $result = flickr_justified_get_photoset_photos_paginated($user_id, $photoset_id, $page, $per_page);
 
+        if (isset($result['rate_limited']) && $result['rate_limited']) {
+            return new WP_Error('rate_limited', 'Flickr rate limited this request', ['status' => 429]);
+        }
+
         if (!is_array($result) || empty($result['photos'])) {
             return new WP_Error('no_photos', 'No photos found for this page', ['status' => 404]);
         }
+
+        $attribution_text = function_exists('flickr_justified_get_admin_setting')
+            ? flickr_justified_get_admin_setting('get_attribution_text', 'Flickr')
+            : 'Flickr';
+
+        $build_srcset = static function($image_data, $available_sizes) {
+            if (empty($image_data) || !is_array($image_data)) {
+                return ['', ''];
+            }
+
+            $entries = [];
+            foreach ($available_sizes as $size_key) {
+                if (!isset($image_data[$size_key]['url'])) {
+                    continue;
+                }
+                $width = isset($image_data[$size_key]['width']) ? (int) $image_data[$size_key]['width'] : 0;
+                $url = esc_url_raw($image_data[$size_key]['url']);
+                if ($width <= 0 || '' === $url) {
+                    continue;
+                }
+                $entries[$width] = $url;
+            }
+
+            if (empty($entries)) {
+                return ['', ''];
+            }
+
+            ksort($entries);
+
+            $parts = [];
+            foreach ($entries as $width => $src) {
+                $parts[] = $src . ' ' . (int) $width . 'w';
+            }
+
+            return [
+                implode(', ', $parts),
+                '(max-width: 768px) 100vw, (max-width: 1400px) 90vw, 1400px'
+            ];
+        };
 
         // Return the photos as gallery HTML items
         $gallery_items = [];
@@ -664,7 +724,7 @@ class FlickrJustifiedBlock {
                     continue;
                 }
 
-                $available_sizes = flickr_justified_get_available_flickr_sizes();
+                $available_sizes = flickr_justified_get_available_flickr_sizes(true);
                 $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($photo_url, $available_sizes, true);
 
                 $photo_id = flickr_justified_extract_photo_id($photo_url);
@@ -680,48 +740,47 @@ class FlickrJustifiedBlock {
                     $rotation = flickr_justified_extract_rotation_from_info($image_data['_photo_info']);
                 }
 
+                $photo_title = '';
+                if (isset($image_data['_photo_info']['title'])) {
+                    $raw_title = $image_data['_photo_info']['title'];
+                    if (is_array($raw_title) && isset($raw_title['_content'])) {
+                        $raw_title = $raw_title['_content'];
+                    }
+                    if (is_string($raw_title)) {
+                        $photo_title = sanitize_text_field($raw_title);
+                    }
+                }
+                if (empty($photo_title) && isset($image_data['_photo_info']['_content']) && is_string($image_data['_photo_info']['_content'])) {
+                    $photo_title = sanitize_text_field($image_data['_photo_info']['_content']);
+                }
+                if (empty($photo_title) && isset($image_data['_photo_info']['title']['_content']) && is_string($image_data['_photo_info']['title']['_content'])) {
+                    $photo_title = sanitize_text_field($image_data['_photo_info']['title']['_content']);
+                }
+
+                list($srcset_attr, $sizes_attr) = $build_srcset($image_data, $available_sizes);
+
                 if (!empty($image_data)) {
                     $preferred_size = 'large';
-                    if (isset($image_data[$preferred_size]) && isset($image_data[$preferred_size]['url'])) {
-                        $size_dimensions = flickr_justified_apply_rotation_to_dimensions($image_data[$preferred_size], $rotation);
-                        $gallery_items[] = [
-                            'url' => $photo_url,
-                            'image_url' => esc_url_raw($image_data[$preferred_size]['url']),
-                            'width' => isset($size_dimensions['width']) ? absint($size_dimensions['width']) : 0,
-                            'height' => isset($size_dimensions['height']) ? absint($size_dimensions['height']) : 0,
-                            'flickr_page' => $attribution_url,
-                            'is_flickr' => true,
-                            'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
-                            'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
-                            'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
-                            'position' => $position_counter++,
-                            'rotation' => $rotation,
-                        ];
-                    } else {
-                        // Fallback: use first available size
-                        $first_size = array_keys($image_data)[0] ?? null;
-                        if ($first_size && isset($image_data[$first_size]['url'])) {
-                            $size_dimensions = flickr_justified_apply_rotation_to_dimensions($image_data[$first_size], $rotation);
-                            $gallery_items[] = [
-                                'url' => $photo_url,
-                                'image_url' => esc_url_raw($image_data[$first_size]['url']),
-                                'width' => isset($size_dimensions['width']) ? absint($size_dimensions['width']) : 0,
-                                'height' => isset($size_dimensions['height']) ? absint($size_dimensions['height']) : 0,
-                                'flickr_page' => $attribution_url,
-                                'is_flickr' => true,
-                                'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
-                                'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
-                                'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
-                                'position' => $position_counter++,
-                                'rotation' => $rotation,
-                            ];
-                        }
+                    if (!isset($image_data[$preferred_size])) {
+                        $preferred_size = flickr_justified_select_best_size($image_data, 2048, 2048) ?: array_key_first($image_data);
                     }
-                } else {
-                    // Fallback: use original photo URL (might not work but better than skipping)
+
+                    $lightbox_size = flickr_justified_select_best_size($image_data, PHP_INT_MAX, PHP_INT_MAX) ?: $preferred_size;
+
+                    $display = isset($image_data[$preferred_size]) ? $image_data[$preferred_size] : [];
+                    $lightbox = isset($image_data[$lightbox_size]) ? $image_data[$lightbox_size] : $display;
+
+                    $display_dimensions = flickr_justified_apply_rotation_to_dimensions($display, $rotation);
+                    $lightbox_dimensions = flickr_justified_apply_rotation_to_dimensions($lightbox, $rotation);
+
                     $gallery_items[] = [
                         'url' => $photo_url,
-                        'image_url' => $photo_url,
+                        'image_url' => isset($display['url']) ? esc_url_raw($display['url']) : esc_url_raw($photo_url),
+                        'lightbox_url' => isset($lightbox['url']) ? esc_url_raw($lightbox['url']) : esc_url_raw($photo_url),
+                        'width' => isset($display_dimensions['width']) ? absint($display_dimensions['width']) : 0,
+                        'height' => isset($display_dimensions['height']) ? absint($display_dimensions['height']) : 0,
+                        'lightbox_width' => isset($lightbox_dimensions['width']) ? absint($lightbox_dimensions['width']) : 0,
+                        'lightbox_height' => isset($lightbox_dimensions['height']) ? absint($lightbox_dimensions['height']) : 0,
                         'flickr_page' => $attribution_url,
                         'is_flickr' => true,
                         'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
@@ -729,6 +788,30 @@ class FlickrJustifiedBlock {
                         'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
                         'position' => $position_counter++,
                         'rotation' => $rotation,
+                        'title' => $photo_title,
+                        'caption' => $photo_title ?: $attribution_text,
+                        'srcset' => $srcset_attr,
+                        'sizes' => $sizes_attr,
+                        'id' => $photo_id,
+                    ];
+                } else {
+                    // Fallback: use original photo URL (might not work but better than skipping)
+                    $gallery_items[] = [
+                        'url' => $photo_url,
+                        'image_url' => $photo_url,
+                        'lightbox_url' => $photo_url,
+                        'flickr_page' => $attribution_url,
+                        'is_flickr' => true,
+                        'view_count' => isset($stats['views']) ? (int) $stats['views'] : 0,
+                        'comment_count' => isset($stats['comments']) ? (int) $stats['comments'] : 0,
+                        'favorite_count' => isset($stats['favorites']) ? (int) $stats['favorites'] : 0,
+                        'position' => $position_counter++,
+                        'rotation' => $rotation,
+                        'title' => $photo_title,
+                        'caption' => $photo_title ?: $attribution_text,
+                        'srcset' => '',
+                        'sizes' => '',
+                        'id' => $photo_id,
                     ];
                 }
             } else {
@@ -736,11 +819,16 @@ class FlickrJustifiedBlock {
                 $gallery_items[] = [
                     'url' => $photo_url,
                     'image_url' => $photo_url,
+                    'lightbox_url' => $photo_url,
                     'is_flickr' => false,
                     'view_count' => 0,
                     'comment_count' => 0,
                     'favorite_count' => 0,
                     'position' => $position_counter++,
+                    'title' => '',
+                    'caption' => '',
+                    'srcset' => '',
+                    'sizes' => '',
                 ];
             }
         }

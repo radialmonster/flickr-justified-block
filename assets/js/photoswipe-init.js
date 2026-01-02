@@ -320,8 +320,15 @@
             const rotationAttr = item.getAttribute('data-rotation') || item.closest('.flickr-justified-card')?.dataset?.rotation || img?.getAttribute('data-rotation');
             const rotation = normalizeRotation(rotationAttr);
 
-            let width = parseInt(item.getAttribute('data-width'), 10) || (img?.naturalWidth || 1200);
-            let height = parseInt(item.getAttribute('data-height'), 10) || (img?.naturalHeight || 800);
+            const fallbackDisplayWidth = img?.naturalWidth || 1200;
+            const fallbackDisplayHeight = img?.naturalHeight || 800;
+            const displayWidth = parseInt(img?.getAttribute('data-width') || item.getAttribute('data-width'), 10) || fallbackDisplayWidth;
+            const displayHeight = parseInt(img?.getAttribute('data-height') || item.getAttribute('data-height'), 10) || fallbackDisplayHeight;
+            const lightboxWidth = parseInt(item.getAttribute('data-width'), 10) || displayWidth;
+            const lightboxHeight = parseInt(item.getAttribute('data-height'), 10) || displayHeight;
+
+            let width = lightboxWidth;
+            let height = lightboxHeight;
 
             if (width > 0 && height > 0 && shouldSwapDimensions(rotation)) {
                 const temp = width;
@@ -335,7 +342,9 @@
                 height,
                 flickrPage,
                 element: item,
-                rotation
+                rotation,
+                // Use photo title/caption when available for accessibility and potential UI display
+                caption: item.getAttribute('data-caption') || item.getAttribute('data-title') || ''
             };
         });
 

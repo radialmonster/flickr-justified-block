@@ -37,6 +37,10 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         return $cached_result;
     }
 
+    // Resume from a recent partial aggregate if it exists
+    $partial_cache_key = ['set_full_partial', md5($resolved_user_id . '_' . $photoset_id)];
+    $partial_cached = FlickrJustifiedCache::get($partial_cache_key);
+
     $per_page = 500; // Flickr maximum per page
     $page = 1;
     $all_photos = [];
@@ -45,9 +49,43 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $album_title = '';
     $last_has_more = false;
     $pages_fetched = 0;
+    $rate_limited = false;
+    $incomplete = false;
+    $last_successful_page = 0;
+
+    if (is_array($partial_cached)) {
+        $all_photos = isset($partial_cached['photos']) && is_array($partial_cached['photos']) ? $partial_cached['photos'] : [];
+        $album_title = isset($partial_cached['album_title']) ? $partial_cached['album_title'] : '';
+        $total_pages = isset($partial_cached['pages']) ? max(1, (int) $partial_cached['pages']) : 1;
+        $total_photos = isset($partial_cached['total']) ? max(0, (int) $partial_cached['total']) : 0;
+        $pages_fetched = isset($partial_cached['pages_fetched']) ? max(0, (int) $partial_cached['pages_fetched']) : (count($all_photos) > 0 ? 1 : 0);
+        $last_successful_page = isset($partial_cached['last_page']) ? max(0, (int) $partial_cached['last_page']) : $pages_fetched;
+        $page = isset($partial_cached['resume_page']) ? max(1, (int) $partial_cached['resume_page']) : ($last_successful_page + 1);
+        $incomplete = true; // Any partial cache implies prior incompletion
+    }
+
+    $start_time = microtime(true);
+    $max_duration = (int) apply_filters('flickr_justified_full_photoset_max_seconds', 20);
+    $max_duration = max(5, $max_duration); // Ensure we always allow a reasonable fetch window
+    $soft_photo_cap = (int) apply_filters('flickr_justified_full_photoset_max_photos', 0); // 0 = disabled
 
     while (true) {
+        // If a soft cap is configured and already reached, stop before fetching more
+        if ($soft_photo_cap > 0 && count($all_photos) >= $soft_photo_cap) {
+            $incomplete = true;
+            $last_has_more = true;
+            break;
+        }
+
         $page_result = FlickrJustifiedCache::get_photoset_photos($user_id, $photoset_id, $page, $per_page);
+
+        // Stop early on rate limiting but keep whatever we already fetched
+        if (isset($page_result['rate_limited']) && $page_result['rate_limited']) {
+            $rate_limited = true;
+            $incomplete = true;
+            $last_has_more = true;
+            break;
+        }
 
         if (isset($page_result['album_title']) && '' === $album_title && is_string($page_result['album_title'])) {
             $album_title = $page_result['album_title'];
@@ -70,6 +108,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
             $all_photos[] = $photo;
         }
         $pages_fetched++;
+        $last_successful_page = $page;
 
         $last_has_more = !empty($page_result['has_more']);
         if (!$last_has_more) {
@@ -78,6 +117,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
 
         $next_page = isset($page_result['page']) ? ((int) $page_result['page']) + 1 : $page + 1;
         if ($next_page <= $page) {
+            $incomplete = true;
             break;
         }
 
@@ -86,17 +126,34 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         if ($page > $total_pages) {
             break;
         }
+
+        // Safety: bail out if this single request is taking too long (prevent timeouts)
+        if ((microtime(true) - $start_time) >= $max_duration) {
+            $incomplete = true;
+            $last_has_more = true;
+            break;
+        }
+
+        // Optional safety: prevent unbounded memory growth; still mark partial so loader can continue
+        if ($soft_photo_cap > 0 && count($all_photos) >= $soft_photo_cap) {
+            $incomplete = true;
+            $last_has_more = true;
+            break;
+        }
     }
 
     $loaded_photos_count = count($all_photos);
 
     $full_result = [
         'photos' => $all_photos,
-        'has_more' => (bool) $last_has_more,
+        'has_more' => (bool) ($last_has_more || $incomplete || $rate_limited),
         'total' => $total_photos > 0 ? $total_photos : $loaded_photos_count,
         'page' => 1,
         'pages' => max(1, $total_pages),
         'album_title' => $album_title,
+        'rate_limited' => $rate_limited,
+        'partial' => ($incomplete || $rate_limited),
+        'pages_fetched' => $pages_fetched,
     ];
 
     $expected_pages = max(1, (int) $total_pages);
@@ -110,7 +167,9 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         }
     }
 
-    if (!$full_result['has_more'] && $fetched_all_pages && !empty($all_photos)) {
+    $should_snapshot_partial = $incomplete || $rate_limited;
+
+    if (!$full_result['has_more'] && $fetched_all_pages && !empty($all_photos) && !$rate_limited) {
         $cache_duration = 6 * HOUR_IN_SECONDS;
         $configured_duration = flickr_justified_get_admin_setting('get_cache_duration', 0);
         if ($configured_duration > 0) {
@@ -118,6 +177,27 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         }
 
         FlickrJustifiedCache::set($cache_key, $full_result, $cache_duration);
+        // Clear any partial snapshot now that we have a full set
+        FlickrJustifiedCache::delete($partial_cache_key);
+    } elseif ($should_snapshot_partial) {
+        // Store a lightweight partial snapshot with a short TTL to avoid re-fetching same pages
+        $partial_ttl = (int) apply_filters('flickr_justified_full_photoset_partial_ttl', 10 * MINUTE_IN_SECONDS);
+        $partial_ttl = max(60, $partial_ttl);
+        $resume_page = $last_successful_page > 0 ? ($last_successful_page + 1) : $page;
+
+        $partial_snapshot = [
+            // Keep photos but allow developers to disable via filter if size is a concern
+            'photos' => apply_filters('flickr_justified_full_photoset_partial_include_photos', true) ? $all_photos : [],
+            'album_title' => $album_title,
+            'total' => $total_photos,
+            'pages' => $total_pages,
+            'pages_fetched' => $pages_fetched,
+            'last_page' => $last_successful_page,
+            'resume_page' => max(1, $resume_page),
+            'rate_limited' => $rate_limited,
+        ];
+
+        FlickrJustifiedCache::set($partial_cache_key, $partial_snapshot, $partial_ttl);
     }
 
     return $full_result;
