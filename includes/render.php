@@ -183,7 +183,7 @@ function flickr_justified_render_block($attributes) {
                 foreach ($set_photos as $photo_url) {
                     $photo_id = flickr_justified_extract_photo_id($photo_url);
                     if ($photo_id) {
-                        $stats_cache_key = ['stats', $photo_id];
+                        $stats_cache_key = ['photo_stats', $photo_id];
                         $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
                         if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
                             $cached_photos[] = $photo_url;
@@ -257,7 +257,7 @@ function flickr_justified_render_block($attributes) {
                     // Only use cached stats; do not fetch live to avoid blocking render.
                     $photo_id = flickr_justified_extract_photo_id($photo_url);
                     if ($photo_id) {
-                        $stats_cache_key = ['stats', $photo_id];
+                        $stats_cache_key = ['photo_stats', $photo_id];
                         $stats = FlickrJustifiedCache::get($stats_cache_key);
                         if (!empty($stats) && !isset($stats['not_found'])) {
                             $item['stats'] = $stats;
@@ -363,7 +363,7 @@ function flickr_justified_render_block($attributes) {
             // Only use cached stats; do not fetch live to avoid blocking render.
             $photo_id = flickr_justified_extract_photo_id($url);
             if ($photo_id) {
-                $stats_cache_key = ['stats', $photo_id];
+                $stats_cache_key = ['photo_stats', $photo_id];
                 $stats = FlickrJustifiedCache::get($stats_cache_key);
                 if (!empty($stats) && !isset($stats['not_found'])) {
                     $item['stats'] = $stats;
