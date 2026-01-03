@@ -102,7 +102,14 @@
             }
         }
 
-        return responsiveSettings['default'] || 3;
+        // Fallback: use smallest breakpoint value from responsiveSettings, or mobile-friendly default of 1
+        const fallbackKeys = ['mobile', 'mobile_landscape', 'tablet_portrait', 'default'];
+        for (const key of fallbackKeys) {
+            if (responsiveSettings[key]) {
+                return responsiveSettings[key];
+            }
+        }
+        return 1; // Safe mobile-friendly default
     }
 
     // ============================================================================
@@ -169,20 +176,22 @@
                     card.style.width = Math.round(cardWidth) + 'px';
                     card.style.height = Math.round(cardHeight) + 'px';
 
-                    // For rotated images, ensure proper fit within the rotated card container
+                    // Ensure image fills the card container
                     const img = card.querySelector('img');
                     if (img) {
                         const rotation = normalizeRotation(card.dataset?.rotation || img.dataset?.rotation || 0);
                         const shouldSwap = shouldSwapDimensions(rotation);
+
+                        // Always use percentage sizing to prevent gaps
+                        img.style.width = '100%';
+                        img.style.height = '100%';
+
                         if (shouldSwap) {
-                            // Card is already sized for rotated dimensions
-                            // Image should fill the card and object-fit will handle the rest
-                            img.style.width = '100%';
-                            img.style.height = '100%';
+                            // Rotated images use contain to show full image
                             img.style.objectFit = 'contain';
                         } else {
-                            img.style.width = Math.round(cardWidth) + 'px';
-                            img.style.height = Math.round(cardHeight) + 'px';
+                            // Normal images use cover (set in CSS, but ensure it's applied)
+                            img.style.objectFit = 'cover';
                         }
                     }
 
@@ -231,20 +240,22 @@
                             cardElement.style.width = cardWidth + 'px';
                             cardElement.style.height = cardHeight + 'px';
 
-                            // For rotated images, ensure proper fit within the rotated card container
+                            // Ensure image fills the card container
                             const img = cardElement.querySelector('img');
                             if (img) {
                                 const rotation = normalizeRotation(cardElement.dataset?.rotation || img.dataset?.rotation || 0);
                                 const shouldSwap = shouldSwapDimensions(rotation);
+
+                                // Always use percentage sizing to prevent gaps
+                                img.style.width = '100%';
+                                img.style.height = '100%';
+
                                 if (shouldSwap) {
-                                    // Card is already sized for rotated dimensions
-                                    // Image should fill the card and object-fit will handle the rest
-                                    img.style.width = '100%';
-                                    img.style.height = '100%';
+                                    // Rotated images use contain to show full image
                                     img.style.objectFit = 'contain';
                                 } else {
-                                    img.style.width = cardWidth + 'px';
-                                    img.style.height = cardHeight + 'px';
+                                    // Normal images use cover (set in CSS, but ensure it's applied)
+                                    img.style.objectFit = 'cover';
                                 }
                             }
 
