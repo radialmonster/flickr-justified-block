@@ -48,7 +48,9 @@ class FlickrJustifiedCache {
         if (is_multisite()) {
             $suffix = '_' . get_current_blog_id();
         }
-        return 'flickr_justified_api_call_count' . $suffix;
+        // Include hour in key to auto-reset every hour
+        $hour_suffix = '_' . gmdate('YmdH');
+        return 'flickr_justified_api_call_count' . $suffix . $hour_suffix;
     }
 
     /**

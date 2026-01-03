@@ -781,6 +781,15 @@ class FlickrJustifiedCacheWarmer {
      */
     private static function get_all_known_urls() {
         $map = self::get_known_url_map();
+
+        // Auto-rebuild if empty - prevents cache warmer from getting stuck
+        if (empty($map)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr cache warmer: known_urls empty, auto-rebuilding...');
+            }
+            $map = self::rebuild_known_urls();
+        }
+
         $urls = [];
 
         foreach ($map as $post_urls) {
