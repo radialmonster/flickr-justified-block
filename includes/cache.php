@@ -148,6 +148,74 @@ class FlickrJustifiedCache {
     }
 
     /**
+     * Build static Flickr URLs for common sizes (b, q, t, m) from server/secret.
+     *
+     * @param string $photo_id
+     * @param string $server
+     * @param string $secret
+     * @return array
+     */
+    private static function build_static_sizes($photo_id, $server, $secret) {
+        if ('' === $photo_id || '' === $server || '' === $secret) {
+            return [];
+        }
+
+        $base = 'https://live.staticflickr.com/' . rawurlencode($server) . '/' . rawurlencode($photo_id) . '_' . rawurlencode($secret);
+
+        return [
+            'large1024' => [
+                'url' => $base . '_b.jpg',
+                'width' => 1024,
+                'height' => 0,
+            ],
+            'thumbnail150s' => [
+                'url' => $base . '_q.jpg',
+                'width' => 150,
+                'height' => 150,
+            ],
+            'thumbnail100' => [
+                'url' => $base . '_t.jpg',
+                'width' => 100,
+                'height' => 0,
+            ],
+            'small240' => [
+                'url' => $base . '_m.jpg',
+                'width' => 240,
+                'height' => 0,
+            ],
+        ];
+    }
+
+    /**
+     * Build a single static URL for a given size name if possible.
+     *
+     * @param string $size
+     * @param string $server
+     * @param string $secret
+     * @param string|null $photo_id
+     * @return string|null
+     */
+    public static function build_static_url($size, $server, $secret, $photo_id = null) {
+        if (empty($photo_id) || '' === $server || '' === $secret) {
+            return null;
+        }
+        $map = [
+            'large1024' => 'b',
+            'thumbnail150s' => 'q',
+            'thumbnail100' => 't',
+            'small240' => 'm',
+            'medium500' => '',
+            'medium' => '',
+        ];
+        if (!isset($map[$size])) {
+            return null;
+        }
+        $suffix = $map[$size];
+        $base = 'https://live.staticflickr.com/' . rawurlencode($server) . '/' . rawurlencode($photo_id) . '_' . rawurlencode($secret);
+        return $base . ($suffix === '' ? '' : '_' . $suffix) . '.jpg';
+    }
+
+    /**
      * Get configured cache duration in seconds
      */
     private static function get_duration() {
@@ -581,7 +649,37 @@ class FlickrJustifiedCache {
                 if (isset($cached['not_found']) && $cached['not_found']) {
                     return []; // Return empty array, don't retry API call
                 }
+                if (isset($cached['rate_limited']) && $cached['rate_limited']) {
+                    return ['rate_limited' => true];
+                }
                 return $cached;
+            }
+
+            // OPTIMIZATION: Check if photo info is available in dims cache (from album response)
+            // This avoids duplicate data storage while still enabling views_desc sorting
+            $comprehensive_sizes = self::get_comprehensive_size_list();
+            $requested_sizes_key = md5(implode(',', $comprehensive_sizes));
+            $dims_cache_key = ['dims', $photo_id, $requested_sizes_key];
+            $dims_cached = self::get($dims_cache_key);
+
+            if (is_array($dims_cached) && isset($dims_cached['_photo_info'])) {
+                // Found photo_info in dims cache - return it without fetching from API
+                return $dims_cached['_photo_info'];
+            }
+
+            // LOCAL FALLBACK: look up photo in local meta table to avoid API calls when cache is empty.
+            global $wpdb;
+            $table = $wpdb->prefix . 'fjb_photo_meta';
+            $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table));
+            if ($table_exists === $table) {
+                $row = $wpdb->get_row($wpdb->prepare("SELECT meta_json FROM {$table} WHERE photo_id = %s LIMIT 1", $photo_id));
+                if ($row && !empty($row->meta_json)) {
+                    $local_meta = json_decode($row->meta_json, true);
+                    if (is_array($local_meta)) {
+                        self::set($cache_key, $local_meta);
+                        return $local_meta;
+                    }
+                }
             }
         }
 
@@ -604,6 +702,8 @@ class FlickrJustifiedCache {
 
         // Check API quota before making call
         if (!self::can_make_api_call()) {
+            // Cache a short-lived rate_limited marker for this photo_id to avoid thrash
+            self::set(['rate_limit', 'photo_sizes', $photo_id], ['rate_limited' => true], 300);
             return ['rate_limited' => true];
         }
 
@@ -653,6 +753,7 @@ class FlickrJustifiedCache {
 
         // Check for rate limiting
         if (self::is_rate_limited_response($response, $data, $context)) {
+            self::set(['rate_limit', 'photo_sizes', $photo_id], ['rate_limited' => true], 300);
             return ['rate_limited' => true];
         }
 
@@ -703,6 +804,9 @@ class FlickrJustifiedCache {
             // Check for negative cache (deleted/private photo)
             if (isset($cached_stats['not_found']) && $cached_stats['not_found']) {
                 return []; // Skip deleted photos immediately
+            }
+            if (isset($cached_stats['rate_limited']) && $cached_stats['rate_limited']) {
+                return ['rate_limited' => true];
             }
             return $cached_stats;
         }
@@ -762,6 +866,9 @@ class FlickrJustifiedCache {
         // Cache stats separately for faster lookups
         self::set($stats_cache_key, $stats);
 
+        // Refresh any set-level indexes that include this photo
+        self::refresh_set_indexes_for_photo($photo_id, $views);
+
         return $stats;
     }
 
@@ -809,9 +916,20 @@ class FlickrJustifiedCache {
                         $filtered_result['_rotation'] = $comprehensive_cached['_rotation'];
                     }
 
+                    // Fill missing requested sizes using static URL builder when server/secret available.
+                    if (!empty($missing_sizes) && isset($filtered_result['_photo_info']['server'], $filtered_result['_photo_info']['secret'])) {
+                        $static_sizes = self::build_static_sizes($photo_id, $filtered_result['_photo_info']['server'], $filtered_result['_photo_info']['secret']);
+                        foreach ($missing_sizes as $size) {
+                            if (isset($static_sizes[$size])) {
+                                $filtered_result[$size] = $static_sizes[$size];
+                            }
+                        }
+                        $missing_sizes = array_values(array_diff($missing_sizes, array_keys($static_sizes)));
+                    }
+
                     if ($needs_metadata && (!isset($filtered_result['_rotation']) || (int) $filtered_result['_rotation'] === 0)) {
                         // Album payloads do not contain rotation; fetch minimal photo_info to get it
-                        $photo_info = self::get_photo_info($photo_id, true);
+                        $photo_info = self::get_photo_info($photo_id, false);
                         if (!empty($photo_info)) {
                             $filtered_result['_photo_info'] = $photo_info;
                             if (isset($photo_info['rotation'])) {
@@ -832,8 +950,11 @@ class FlickrJustifiedCache {
                         return $filtered_result;
                     }
 
-                    // If we have SOME sizes but not all, fall through to individual API call
-                    // This ensures cache warmer fetches ALL sizes including larger ones
+                    // If we have SOME sizes but not all, prefer returning cached data instead of making API calls
+                    // to avoid exhausting rate limits. Better to return partial than to block rendering.
+                    if (!empty($filtered_result)) {
+                        return $filtered_result;
+                    }
                 }
             }
         }
@@ -847,10 +968,43 @@ class FlickrJustifiedCache {
         if (!$force_refresh) {
             $cached_result = self::get($base_cache_key);
             if (is_array($cached_result)) {
+                // Respect rate_limited flag to avoid accidental fallthrough
+                if (isset($cached_result['rate_limited']) && $cached_result['rate_limited']) {
+                    return $cached_result;
+                }
+                // Fill missing requested sizes using static URL builder if possible.
+                $missing = [];
+                foreach ($requested_sizes as $size) {
+                    if (!isset($cached_result[$size])) {
+                        $missing[] = $size;
+                    }
+                }
+                if (!empty($missing)) {
+                    $photo_info = $cached_result['_photo_info'] ?? [];
+                    if (isset($photo_info['server'], $photo_info['secret'])) {
+                        $static_sizes = self::build_static_sizes($photo_id, $photo_info['server'], $photo_info['secret']);
+                        foreach ($missing as $m) {
+                            if (isset($static_sizes[$m])) {
+                                $cached_result[$m] = $static_sizes[$m];
+                            }
+                        }
+                    }
+                }
+                // If we satisfied all sizes, return the enriched cache.
+                $all_present = true;
+                foreach ($requested_sizes as $size) {
+                    if (!isset($cached_result[$size])) {
+                        $all_present = false;
+                        break;
+                    }
+                }
+                if ($all_present) {
+                    return $cached_result;
+                }
                 // Backfill rotation if metadata is required but missing (older cache entries)
                 if ($needs_metadata && (!isset($cached_result['_rotation']) || (int) $cached_result['_rotation'] === 0)) {
-                    // Force-refresh photo info to capture rotation for older cache entries
-                    $photo_info = self::get_photo_info($photo_id, true);
+                    // Check photo info cache to capture rotation for older cache entries
+                    $photo_info = self::get_photo_info($photo_id, false);
                     if (!empty($photo_info)) {
                         $cached_result['_photo_info'] = $photo_info;
                         if (isset($photo_info['rotation'])) {
@@ -867,11 +1021,27 @@ class FlickrJustifiedCache {
                     return $cached_result;
                 }
             }
+
+            // Try local DB cache before hitting API
+            $local_cache = self::get_photo_cache_locally($photo_id, $requested_sizes_key);
+            if (is_array($local_cache) && !empty($local_cache)) {
+                // Populate transient cache for next time
+                self::set($base_cache_key, $local_cache);
+                return $local_cache;
+            }
         }
 
         // SIMPLIFIED: Cache versioning removed - causes issues when cache is cleared
         // After cache clearing, we should ALWAYS fetch fresh data from Flickr API
         // The base cache key is sufficient for our needs
+
+        // If we reached here and have a cached rate_limited flag, bail out early without API calls
+        if (!$force_refresh) {
+            $cached_rate_limit = self::get(['rate_limit', 'photo_sizes', $photo_id]);
+            if (is_array($cached_rate_limit) && isset($cached_rate_limit['rate_limited']) && $cached_rate_limit['rate_limited']) {
+                return ['rate_limited' => true];
+            }
+        }
 
         // Fetch from API
         $api_key = self::get_api_key();
@@ -1026,6 +1196,7 @@ class FlickrJustifiedCache {
 
             // Cache the result with the base key only (no versioning)
             self::set($base_cache_key, $result);
+            self::persist_photo_cache_locally($photo_id, $requested_sizes_key, $result);
         }
 
         return $result;
@@ -1175,7 +1346,7 @@ class FlickrJustifiedCache {
      * @param array $photo Photo data from photosets.getPhotos response
      * @param string $photo_id Numeric photo ID
      */
-    private static function cache_photo_data_from_album_response($photo, $photo_id) {
+    private static function cache_photo_data_from_album_response($photo, $photo_id, $photoset_id = '', $position = null) {
         if (empty($photo) || !is_array($photo)) {
             return;
         }
@@ -1210,10 +1381,23 @@ class FlickrJustifiedCache {
 
         // If we don't have any size data, nothing to cache
         if (empty($sizes_data)) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('Flickr cache: No size data to cache for photo ' . $photo_id);
+            // Fallback: build static URLs if server/secret are present
+            $static_sizes = self::build_static_sizes(
+                $photo_id,
+                isset($photo['server']) ? (string) $photo['server'] : '',
+                isset($photo['secret']) ? (string) $photo['secret'] : ''
+            );
+            if (!empty($static_sizes)) {
+                $sizes_data = $static_sizes;
             }
-            return;
+        }
+
+        // Still nothing? Persist meta only so warmer knows it saw this photo.
+        if (empty($sizes_data)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Flickr cache: No size data to cache for photo ' . $photo_id . ' (even after static fallback)');
+            }
+            $sizes_data = [];
         }
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -1290,8 +1474,34 @@ class FlickrJustifiedCache {
             $photo_info['media'] = sanitize_text_field((string) $photo['media']);
         }
 
+        // Original dimensions if present (o_dims or width_o/height_o).
+        if (isset($photo['o_width']) || isset($photo['o_height']) || isset($photo['width_o']) || isset($photo['height_o'])) {
+            $photo_info['o_width'] = isset($photo['o_width']) ? (int) $photo['o_width'] : (isset($photo['width_o']) ? (int) $photo['width_o'] : 0);
+            $photo_info['o_height'] = isset($photo['o_height']) ? (int) $photo['o_height'] : (isset($photo['height_o']) ? (int) $photo['height_o'] : 0);
+        }
+
         if (!empty($photo_info)) {
             $cache_data['_photo_info'] = $photo_info;
+        }
+
+        // Persist server/secret alongside meta so static URLs can be rebuilt without extra calls.
+        if (isset($photo['server'])) {
+            $cache_data['_photo_info']['server'] = sanitize_text_field((string) $photo['server']);
+        }
+        if (isset($photo['secret'])) {
+            $cache_data['_photo_info']['secret'] = sanitize_text_field((string) $photo['secret']);
+        }
+
+        // CRITICAL: Merge stats into photo_info so it matches the structure from flickr.photos.getInfo
+        // This enables get_photo_info() to extract views from the dims cache
+        if (!empty($stats) && isset($cache_data['_photo_info'])) {
+            $cache_data['_photo_info']['views'] = $stats['views'];
+            if (isset($stats['comments'])) {
+                $cache_data['_photo_info']['comments'] = ['_content' => (string) $stats['comments']];
+            }
+            if (isset($stats['favorites'])) {
+                $cache_data['_photo_info']['count_faves'] = $stats['favorites'];
+            }
         }
 
         // Note: Rotation is NOT available in album response, will need separate call if needed
@@ -1304,6 +1514,668 @@ class FlickrJustifiedCache {
 
         // Cache for the configured duration
         self::set($cache_key, $cache_data);
+
+        // Persist to local DB for durability across cache clears (best-effort)
+        self::persist_photo_meta_locally($photo_id, $cache_data['_photo_info'] ?? []);
+        // Persist full cache payload for durability
+        self::persist_photo_cache_locally($photo_id, $requested_sizes_key, $cache_data);
+
+        // Record membership for ordering without extra API calls.
+        if ('' !== $photoset_id && null !== $position) {
+            self::persist_photo_membership($photoset_id, $photo_id, (int) $position);
+        }
+    }
+
+    /**
+     * Persist photo metadata to a local table for durability.
+     *
+     * @param string $photo_id
+     * @param array $meta
+     */
+    private static function persist_photo_meta_locally($photo_id, $meta) {
+        if ('' === $photo_id || empty($meta) || !is_array($meta)) {
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_photo_meta';
+
+        // Create table if missing (lightweight)
+        self::ensure_local_tables();
+
+        $meta_json = wp_json_encode($meta);
+        if (false === $meta_json) {
+            return;
+        }
+
+        $server = isset($meta['server']) ? (string) $meta['server'] : '';
+        $secret = isset($meta['secret']) ? (string) $meta['secret'] : '';
+        $views = isset($meta['views']) ? (int) $meta['views'] : 0;
+        $views_checked_at = current_time('mysql');
+
+        $wpdb->replace(
+            $table,
+            [
+                'photo_id' => $photo_id,
+                'server' => $server,
+                'secret' => $secret,
+                'meta_json' => $meta_json,
+                'views' => $views,
+                'views_checked_at' => $views_checked_at,
+                'updated_at' => current_time('mysql'),
+            ],
+            // Use string formats to avoid bigint overflow on photo_id and include all columns.
+            ['%s', '%s', '%s', '%s', '%d', '%s', '%s']
+        );
+    }
+
+    /**
+     * Persist photo cache payload (sizes + metadata) to local table for durability.
+     *
+     * @param string $photo_id
+     * @param string $sizes_key
+     * @param array $cache_data
+     */
+    private static function persist_photo_cache_locally($photo_id, $sizes_key, $cache_data) {
+        if ('' === $photo_id || '' === $sizes_key || empty($cache_data) || !is_array($cache_data)) {
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_photo_cache';
+
+        self::ensure_local_tables();
+
+        $cache_json = wp_json_encode($cache_data);
+        if (false === $cache_json) {
+            return;
+        }
+
+        $wpdb->replace(
+            $table,
+            [
+                'photo_id' => $photo_id,
+                'sizes_key' => $sizes_key,
+                'cache_json' => $cache_json,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['%d', '%s', '%s', '%s']
+        );
+    }
+
+    /**
+     * Retrieve photo cache payload from local table if available.
+     *
+     * @param string $photo_id
+     * @param string $sizes_key
+     * @return array|null
+     */
+    private static function get_photo_cache_locally($photo_id, $sizes_key) {
+        if ('' === $photo_id || '' === $sizes_key) {
+            return null;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_photo_cache';
+        self::ensure_local_tables();
+
+        $row = $wpdb->get_row($wpdb->prepare("SELECT cache_json FROM {$table} WHERE photo_id = %s AND sizes_key = %s LIMIT 1", $photo_id, $sizes_key));
+        if ($row && !empty($row->cache_json)) {
+            $data = json_decode($row->cache_json, true);
+            return is_array($data) ? $data : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Ensure local tables for durable caches and job queue exist.
+     */
+    private static function ensure_local_tables() {
+        global $wpdb;
+
+        static $created = false;
+        if ($created) {
+            return;
+        }
+
+        $meta_table = $wpdb->prefix . 'fjb_photo_meta';
+        $cache_table = $wpdb->prefix . 'fjb_photo_cache';
+        $jobs_table = $wpdb->prefix . 'fjb_jobs';
+        $membership_table = $wpdb->prefix . 'fjb_photo_membership';
+
+        $charset_collate = $wpdb->get_charset_collate();
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $meta_sql = "CREATE TABLE {$meta_table} (
+            photo_id BIGINT UNSIGNED NOT NULL,
+            server VARCHAR(50) DEFAULT '',
+            secret VARCHAR(50) DEFAULT '',
+            meta_json LONGTEXT NOT NULL,
+            views INT UNSIGNED NOT NULL DEFAULT 0,
+            views_checked_at DATETIME DEFAULT NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (photo_id),
+            KEY idx_views_checked_at (views_checked_at)
+        ) {$charset_collate};";
+        dbDelta($meta_sql);
+
+        $cache_sql = "CREATE TABLE {$cache_table} (
+            photo_id BIGINT UNSIGNED NOT NULL,
+            sizes_key VARCHAR(64) NOT NULL,
+            cache_json LONGTEXT NOT NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (photo_id, sizes_key)
+        ) {$charset_collate};";
+        dbDelta($cache_sql);
+
+        $jobs_sql = "CREATE TABLE {$jobs_table} (
+            job_key VARCHAR(191) NOT NULL,
+            job_type VARCHAR(32) NOT NULL,
+            payload_json LONGTEXT NOT NULL,
+            priority INT NOT NULL DEFAULT 0,
+            not_before DATETIME DEFAULT NULL,
+            attempts INT NOT NULL DEFAULT 0,
+            last_error TEXT DEFAULT NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (job_key),
+            KEY idx_status_priority (status, priority, created_at),
+            KEY idx_not_before (not_before)
+        ) {$charset_collate};";
+        dbDelta($jobs_sql);
+
+        $membership_sql = "CREATE TABLE {$membership_table} (
+            photoset_id BIGINT UNSIGNED NOT NULL,
+            photo_id BIGINT UNSIGNED NOT NULL,
+            position INT NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (photoset_id, photo_id),
+            KEY idx_photo (photo_id)
+        ) {$charset_collate};";
+        dbDelta($membership_sql);
+
+        $created = true;
+    }
+
+    /**
+     * Cleanup hook for very old partial snapshots.
+     *
+     * @param int $partial_cutoff Timestamp; any partial older than this should be removed.
+     */
+    public static function cleanup_partials($partial_cutoff) {
+        $partial_cutoff = (int) $partial_cutoff;
+        // Partial snapshots are stored as transients with key prefix flickr_justified_set_full_partial
+        global $wpdb;
+        $like = $wpdb->esc_like('_transient_timeout_' . self::PREFIX . 'set_full_partial') . '%';
+        $rows = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT option_name FROM {$wpdb->options}
+                 WHERE option_name LIKE %s
+                 AND option_value < %d",
+                $like,
+                $partial_cutoff
+            )
+        );
+
+        if (empty($rows)) {
+            return;
+        }
+
+        foreach ($rows as $option_name) {
+            $transient_key = str_replace('_transient_timeout_', '', $option_name);
+            delete_transient(str_replace(self::PREFIX, '', $transient_key)); // defensive
+            delete_option($option_name);
+            $value_option = str_replace('_transient_timeout_', '_transient_', $option_name);
+            delete_option($value_option);
+        }
+    }
+
+    /**
+     * Determine if views are stale for a photoset based on membership and meta timestamps.
+     *
+     * @param string $photoset_id
+     * @param int $threshold_hours
+     * @return bool
+     */
+    public static function views_are_stale_for_set($photoset_id, $threshold_hours) {
+        global $wpdb;
+        $photoset_id = trim((string) $photoset_id);
+        if ('' === $photoset_id || $threshold_hours <= 0) {
+            return false;
+        }
+
+        self::ensure_local_tables();
+        $membership_table = $wpdb->prefix . 'fjb_photo_membership';
+        $meta_table = $wpdb->prefix . 'fjb_photo_meta';
+
+        $cutoff = gmdate('Y-m-d H:i:s', time() - ($threshold_hours * HOUR_IN_SECONDS));
+
+        $min_view_checked = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT MIN(m.views_checked_at)
+                 FROM {$membership_table} s
+                 INNER JOIN {$meta_table} m ON m.photo_id = s.photo_id
+                 WHERE s.photoset_id = %s",
+                $photoset_id
+            )
+        );
+
+        // If we have no data, consider stale to force warming.
+        if (empty($min_view_checked)) {
+            return true;
+        }
+
+        return ($min_view_checked < $cutoff);
+    }
+
+    /**
+     * Get ordered photo IDs for a photoset from membership table.
+     *
+     * @param string $photoset_id
+     * @return array
+     */
+    public static function get_membership_order($photoset_id) {
+        global $wpdb;
+        $photoset_id = trim((string) $photoset_id);
+        if ('' === $photoset_id) {
+            return [];
+        }
+
+        self::ensure_local_tables();
+        $table = $wpdb->prefix . 'fjb_photo_membership';
+        $rows = $wpdb->get_col($wpdb->prepare("SELECT photo_id FROM {$table} WHERE photoset_id = %s ORDER BY position ASC", $photoset_id));
+        if (empty($rows)) {
+            return [];
+        }
+        return array_values(array_map('strval', $rows));
+    }
+
+    /**
+     * Persist album membership/order for a photo.
+     *
+     * @param string $photoset_id
+     * @param string $photo_id
+     * @param int $position
+     */
+    private static function persist_photo_membership($photoset_id, $photo_id, $position) {
+        if ('' === $photoset_id || '' === $photo_id) {
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_photo_membership';
+        self::ensure_local_tables();
+
+        $wpdb->replace(
+            $table,
+            [
+                'photoset_id' => $photoset_id,
+                'photo_id' => $photo_id,
+                'position' => $position,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['%d', '%d', '%d', '%s']
+        );
+    }
+
+    /**
+     * Extract a view count from any cached photo payload.
+     *
+     * @param mixed $cached_entry Cached dims or stats array.
+     * @return int|null Integer view count or null when unavailable.
+     */
+    private static function extract_views_from_cache_entry($cached_entry) {
+        if (!is_array($cached_entry)) {
+            return null;
+        }
+
+        if (isset($cached_entry['not_found']) && $cached_entry['not_found']) {
+            return 0;
+        }
+
+        if (isset($cached_entry['_stats']['views'])) {
+            return max(0, (int) $cached_entry['_stats']['views']);
+        }
+
+        if (isset($cached_entry['_photo_info']['views'])) {
+            return max(0, (int) $cached_entry['_photo_info']['views']);
+        }
+
+        if (isset($cached_entry['views'])) {
+            return max(0, (int) $cached_entry['views']);
+        }
+
+        return null;
+    }
+
+    /**
+     * Fetch cached view counts for many photos with minimal cache round trips.
+     *
+     * @param array $photo_ids Numeric photo IDs.
+     * @return array Map of photo_id => views.
+     */
+    private static function get_cached_views_for_photo_ids($photo_ids) {
+        if (empty($photo_ids) || !is_array($photo_ids)) {
+            return [];
+        }
+
+        $photo_ids = array_values(array_unique(array_filter(array_map('trim', $photo_ids), function($id) {
+            return '' !== $id;
+        })));
+
+        if (empty($photo_ids)) {
+            return [];
+        }
+
+        $views_by_photo = [];
+
+        $comprehensive_sizes = self::get_comprehensive_size_list();
+        $requested_sizes_key = md5(implode(',', $comprehensive_sizes));
+
+        // Build full cache keys for dims entries so we can use wp_cache_get_multiple (single Redis MGET).
+        $full_keys = [];
+        foreach ($photo_ids as $photo_id) {
+            $cache_key = ['dims', $photo_id, $requested_sizes_key];
+            $full_keys[$photo_id] = self::key($cache_key);
+        }
+
+        $can_multi_get = function_exists('wp_cache_get_multiple')
+            && function_exists('wp_using_ext_object_cache')
+            && wp_using_ext_object_cache();
+
+        if ($can_multi_get) {
+            foreach (array_chunk($full_keys, 200, true) as $chunk) {
+                $chunk_values = wp_cache_get_multiple(array_values($chunk), 'transient');
+
+                foreach ($chunk as $photo_id => $full_key) {
+                    if (!is_array($chunk_values) || !array_key_exists($full_key, $chunk_values)) {
+                        continue;
+                    }
+
+                    $cached_entry = $chunk_values[$full_key];
+                    // Populate request cache so later lookups hit memory.
+                    self::$request_cache[$full_key] = $cached_entry;
+
+                    $views = self::extract_views_from_cache_entry($cached_entry);
+                    if (null !== $views) {
+                        $views_by_photo[$photo_id] = $views;
+                    }
+                }
+            }
+        }
+
+        // Fallback for any missing photos: direct transient lookup (may hit DB/object cache individually).
+        foreach ($photo_ids as $photo_id) {
+            if (array_key_exists($photo_id, $views_by_photo)) {
+                continue;
+            }
+
+            $cache_key = ['dims', $photo_id, $requested_sizes_key];
+            $cached_entry = self::get($cache_key);
+            $views = self::extract_views_from_cache_entry($cached_entry);
+
+            if (null !== $views) {
+                $views_by_photo[$photo_id] = $views;
+            }
+        }
+
+        // Last chance: pull from cached photo_stats (does NOT trigger API calls like get_photo_stats()).
+        foreach ($photo_ids as $photo_id) {
+            if (array_key_exists($photo_id, $views_by_photo)) {
+                continue;
+            }
+
+            $cached_entry = self::get(['photo_stats', $photo_id]);
+            $views = self::extract_views_from_cache_entry($cached_entry);
+
+            if (null !== $views) {
+                $views_by_photo[$photo_id] = $views;
+            }
+        }
+
+        return $views_by_photo;
+    }
+
+    /**
+     * Track which sets a photo belongs to so we can refresh indexes when stats change.
+     *
+     * @param string $photo_id
+     * @param string $resolved_user_id
+     * @param string $photoset_id
+     */
+    private static function update_photo_set_membership($photo_id, $resolved_user_id, $photoset_id) {
+        if ('' === $photo_id || '' === $resolved_user_id || '' === $photoset_id) {
+            return;
+        }
+
+        $membership_key = ['photo_sets', $photo_id];
+        $existing = self::get($membership_key);
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+
+        $signature = $resolved_user_id . ':' . $photoset_id;
+        if (!in_array($signature, $existing, true)) {
+            $existing[] = $signature;
+            self::set($membership_key, $existing);
+        }
+    }
+
+    /**
+     * Refresh any cached set_views_index entries that contain this photo's view count.
+     *
+     * @param string $photo_id
+     * @param int $views
+     */
+    private static function refresh_set_indexes_for_photo($photo_id, $views) {
+        $membership_key = ['photo_sets', $photo_id];
+        $membership = self::get($membership_key);
+        if (!is_array($membership) || empty($membership)) {
+            return;
+        }
+
+        foreach ($membership as $signature) {
+            if (!is_string($signature) || false === strpos($signature, ':')) {
+                continue;
+            }
+
+            list($resolved_user_id, $photoset_id) = explode(':', $signature, 2);
+            if ('' === $resolved_user_id || '' === $photoset_id) {
+                continue;
+            }
+
+            $index_key = ['set_views_index', md5($resolved_user_id . '_' . $photoset_id)];
+            $views_index = self::get($index_key);
+            if (!is_array($views_index) || empty($views_index['photo_urls'])) {
+                continue;
+            }
+
+            // Update view count
+            if (!isset($views_index['photo_views']) || !is_array($views_index['photo_views'])) {
+                $views_index['photo_views'] = [];
+            }
+            $views_index['photo_views'][$photo_id] = max(0, (int) $views);
+
+            // Re-sort ordered_ids
+            $ids = array_keys($views_index['photo_urls']);
+            usort($ids, function($a, $b) use ($views_index) {
+                $va = isset($views_index['photo_views'][$a]) ? (int) $views_index['photo_views'][$a] : 0;
+                $vb = isset($views_index['photo_views'][$b]) ? (int) $views_index['photo_views'][$b] : 0;
+                return $vb <=> $va;
+            });
+            $views_index['ordered_ids'] = $ids;
+            $views_index['generated_at'] = time();
+
+            self::set($index_key, $views_index);
+        }
+    }
+
+    /**
+     * Store a precomputed views index for a photoset to enable O(1) top-N retrieval.
+     *
+     * @param string $resolved_user_id Numeric user ID (resolved already).
+     * @param string $photoset_id Album/photoset ID.
+     * @param array $photo_views_map Map of photo_id => views.
+     * @param array $photo_urls_map Map of photo_id => URL.
+     * @param bool $is_partial Whether the dataset is incomplete/partial.
+     * @param int|null $total Optional total photo count for diagnostics.
+     */
+    public static function persist_set_views_index($resolved_user_id, $photoset_id, $photo_views_map, $photo_urls_map, $is_partial = false, $total = null) {
+        if (empty($resolved_user_id) || empty($photoset_id) || empty($photo_views_map) || empty($photo_urls_map)) {
+            return;
+        }
+
+        $ordered_ids = array_keys($photo_views_map);
+        usort($ordered_ids, function($a, $b) use ($photo_views_map) {
+            return ($photo_views_map[$b] ?? 0) <=> ($photo_views_map[$a] ?? 0);
+        });
+
+        $index_data = [
+            'ordered_ids' => $ordered_ids,
+            'photo_views' => $photo_views_map,
+            'photo_urls' => $photo_urls_map,
+            'partial' => (bool) $is_partial,
+            'total' => null === $total ? count($photo_views_map) : (int) $total,
+            'generated_at' => time(),
+        ];
+
+        $cache_key = ['set_views_index', md5($resolved_user_id . '_' . $photoset_id)];
+
+        // Align TTL with paged set cache (~1/4 of configured duration, min 1h)
+        $cache_duration = 6 * HOUR_IN_SECONDS;
+        $configured_duration = self::get_duration();
+        if ($configured_duration > 0) {
+            $cache_duration = max(HOUR_IN_SECONDS, (int) floor($configured_duration / 4));
+        }
+
+        self::set($cache_key, $index_data, $cache_duration);
+
+        // Track membership for reverse lookups on stat updates
+        foreach (array_keys($photo_views_map) as $pid) {
+            self::update_photo_set_membership($pid, $resolved_user_id, $photoset_id);
+        }
+    }
+
+    /**
+     * Determine whether a stored set_views_index can be used as-is.
+     *
+     * @param array $views_index Cached index data.
+     * @return bool True if usable, false if stale/partial/invalid.
+     */
+    private static function is_set_views_index_fresh($views_index) {
+        if (!is_array($views_index)) {
+            return false;
+        }
+
+        if (!empty($views_index['partial'])) {
+            return false;
+        }
+
+        if (empty($views_index['ordered_ids']) || empty($views_index['photo_urls'])) {
+            return false;
+        }
+
+        $max_age = (int) apply_filters('flickr_justified_set_views_index_max_age', 3 * DAY_IN_SECONDS);
+        if ($max_age < 300) {
+            $max_age = 300; // safety lower bound
+        }
+
+        if (empty($views_index['generated_at']) || (time() - (int) $views_index['generated_at']) > $max_age) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Get top N photos from a photoset sorted by view count
+     * Uses cached photo stats - no API calls
+     *
+     * @param string $user_id User ID or username
+     * @param string $photoset_id Album/photoset ID
+     * @param int $limit Number of top photos to return
+     * @return array Array of photo URLs sorted by views (highest first)
+     */
+    public static function get_top_viewed_photos_from_set($user_id, $photoset_id, $limit = 9) {
+        // Get all photos from the cached album
+        $resolved_user_id = self::resolve_user_id($user_id);
+        if (!$resolved_user_id) {
+            return [];
+        }
+
+        // Fast-path: use precomputed views index if available and not partial
+        $index_key = ['set_views_index', md5($resolved_user_id . '_' . $photoset_id)];
+        $views_index = self::get($index_key);
+        if (self::is_set_views_index_fresh($views_index)) {
+            $ordered_ids = $views_index['ordered_ids'];
+            $photo_urls_map = isset($views_index['photo_urls']) && is_array($views_index['photo_urls']) ? $views_index['photo_urls'] : [];
+            $slice_ids = array_slice($ordered_ids, 0, max(1, (int) $limit));
+            $top_urls = [];
+            foreach ($slice_ids as $pid) {
+                if (isset($photo_urls_map[$pid])) {
+                    $top_urls[] = $photo_urls_map[$pid];
+                }
+            }
+            if (!empty($top_urls)) {
+                return $top_urls;
+            }
+        }
+
+        $cache_key = ['set_full', md5($resolved_user_id . '_' . $photoset_id)];
+        $album_data = self::get($cache_key);
+
+        if (empty($album_data['photos']) || !is_array($album_data['photos'])) {
+            return [];
+        }
+
+        // Build map of photo_id => url to dedupe and align with cached stats lookups
+        $photo_map = [];
+        foreach ($album_data['photos'] as $photo_url) {
+            $photo_id = flickr_justified_extract_photo_id($photo_url);
+            if ($photo_id) {
+                $photo_map[$photo_id] = $photo_url;
+            }
+        }
+
+        if (empty($photo_map)) {
+            return [];
+        }
+
+        // Fetch cached views in bulk (Redis MGET when available) to avoid hundreds of sequential lookups
+        $view_counts = self::get_cached_views_for_photo_ids(array_keys($photo_map));
+
+        // Build array of [url, views] for all photos
+        $photos_with_views = [];
+        $photo_views_map = [];
+        foreach ($photo_map as $photo_id => $photo_url) {
+            $views = isset($view_counts[$photo_id]) ? (int) $view_counts[$photo_id] : 0;
+            $photo_views_map[$photo_id] = $views;
+            $photos_with_views[] = ['url' => $photo_url, 'views' => $views];
+        }
+
+        // Persist index so future requests can fast-path without rescanning
+        if (!empty($photo_map)) {
+            $album_partial = !empty($album_data['partial']) || !empty($album_data['has_more']);
+            self::persist_set_views_index(
+                $resolved_user_id,
+                $photoset_id,
+                $photo_views_map,
+                $photo_map,
+                $album_partial,
+                isset($album_data['total']) ? (int) $album_data['total'] : null
+            );
+        }
+
+        // Sort by views descending
+        usort($photos_with_views, function($a, $b) {
+            return $b['views'] <=> $a['views'];
+        });
+
+        // Return top N URLs
+        $top_photos = array_slice($photos_with_views, 0, $limit);
+        return array_column($top_photos, 'url');
     }
 
     /**
@@ -1425,6 +2297,9 @@ class FlickrJustifiedCache {
         $page = max(1, (int) $page);
         $per_page = max(1, min(500, (int) $per_page));
 
+        // Handle encoded NSIDs such as 13122632%40N00 before resolving.
+        $user_id = rawurldecode($user_id);
+
         if (empty($user_id) || empty($photoset_id) || !is_string($user_id) || !is_string($photoset_id)) {
             return self::empty_photoset_result($page);
         }
@@ -1442,6 +2317,9 @@ class FlickrJustifiedCache {
             // Check if this is a negative cache entry (album not found/private)
             if (isset($cached['not_found']) && $cached['not_found']) {
                 return self::empty_photoset_result($page);
+            }
+            if (isset($cached['rate_limited']) && $cached['rate_limited']) {
+                return ['rate_limited' => true];
             }
             if (!empty($cached) && isset($cached['photos'])) {
                 return $cached;
@@ -1627,10 +2505,14 @@ class FlickrJustifiedCache {
 
         // Convert to photo URLs AND cache comprehensive photo data to avoid per-photo API calls
         $photo_urls = [];
+        $photo_urls_map = [];
+        $photo_views_map = [];
         if (defined('WP_DEBUG') && WP_DEBUG) {
             error_log("get_photoset_photos: Processing " . count($data['photoset']['photo']) . " photos from API response");
         }
+        $position = (($current_page - 1) * $per_page);
         foreach ($data['photoset']['photo'] as $photo) {
+            $position++;
             if (empty($photo['id']) || !is_string($photo['id'])) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log("get_photoset_photos: Skipping photo with invalid ID");
@@ -1648,23 +2530,34 @@ class FlickrJustifiedCache {
 
             $photo_url = 'https://flickr.com/photos/' . rawurlencode($user_id) . '/' . $photo_id . '/';
             $photo_urls[] = $photo_url;
+            $photo_urls_map[$photo_id] = $photo_url;
+
+            // Store view count from album payload (0 if missing)
+            $photo_views_map[$photo_id] = max(0, (int) ($photo['views'] ?? 0));
 
             // OPTIMIZATION: Cache photo data from album response to eliminate per-photo API calls
             // This is a HUGE performance win for large albums
-            self::cache_photo_data_from_album_response($photo, $photo_id);
+            self::cache_photo_data_from_album_response($photo, $photo_id, $photoset_id, $position);
         }
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
             error_log("get_photoset_photos: Built " . count($photo_urls) . " photo URLs");
         }
 
+        // When Flickr omits the pages field, fall back to "got a full page" as a hint to keep paging.
+        $has_more = ($current_page < $total_pages) || ($total_pages <= 1 && count($photo_urls) >= $per_page);
+
         $result = [
             'photos' => $photo_urls,
-            'has_more' => $current_page < $total_pages,
+            'has_more' => $has_more,
             'total' => $total_photos,
             'page' => $current_page,
             'pages' => $total_pages,
             'album_title' => $album_title,
+            // For downstream aggregation/building set-wide view indexes
+            'photo_views' => $photo_views_map,
+            'photo_urls_map' => $photo_urls_map,
+            'resolved_user_id' => $resolved_user_id,
         ];
 
         if (!empty($photo_urls)) {
@@ -1690,7 +2583,142 @@ class FlickrJustifiedCache {
             'page' => max(1, (int) $page),
             'pages' => 1,
             'album_title' => '',
+            'photo_views' => [],
+            'photo_urls_map' => [],
         ];
+    }
+
+    /**
+     * Get paginated photos from the photostream (public).
+     *
+     * @param string $user_id Username or NSID.
+     * @param int $page
+     * @param int $per_page
+     * @return array
+     */
+    public static function get_photostream_photos($user_id, $page = 1, $per_page = 500) {
+        $page = max(1, (int) $page);
+        $per_page = max(1, min(500, (int) $per_page));
+
+        if (empty($user_id) || !is_string($user_id)) {
+            return self::empty_photoset_result($page);
+        }
+
+        $resolved_user_id = self::resolve_user_id($user_id);
+        if (!$resolved_user_id) {
+            return self::empty_photoset_result($page);
+        }
+
+        $cache_key = ['photostream_page', md5($resolved_user_id . '_' . $page . '_' . $per_page)];
+        $cached = self::get($cache_key);
+        if (is_array($cached)) {
+            if (isset($cached['rate_limited']) && $cached['rate_limited']) {
+                return ['rate_limited' => true];
+            }
+            return $cached;
+        }
+
+        $api_key = self::get_api_key();
+        if (empty($api_key)) {
+            return self::empty_photoset_result($page);
+        }
+
+        $extras = [
+            'views',
+            'date_upload',
+            'last_update',
+            'o_dims',
+            'media',
+            'description',
+            'owner_name',
+            'path_alias',
+            'url_q',
+            'url_t',
+            'url_m',
+            'url_o',
+        ];
+
+        $api_url = add_query_arg([
+            'method' => 'flickr.people.getPublicPhotos',
+            'api_key' => $api_key,
+            'user_id' => $resolved_user_id,
+            'per_page' => $per_page,
+            'page' => $page,
+            'extras' => implode(',', $extras),
+            'format' => 'json',
+            'nojsoncallback' => 1,
+        ], 'https://api.flickr.com/services/rest/');
+
+        if (!self::can_make_api_call()) {
+            return ['rate_limited' => true];
+        }
+
+        $response = wp_remote_get($api_url, [
+            'timeout' => 30,
+            'user-agent' => 'WordPress Flickr Justified Block'
+        ]);
+
+        self::increment_api_calls();
+
+        if (is_wp_error($response)) {
+            return self::empty_photoset_result($page);
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        $context = 'Photostream user: ' . $user_id . ' page ' . $page;
+        if (self::is_rate_limited_response($response, $data, $context)) {
+            self::set($cache_key, ['rate_limited' => true], 300);
+            return ['rate_limited' => true];
+        }
+
+        if (empty($data['photos']['photo']) || !is_array($data['photos']['photo'])) {
+            return self::empty_photoset_result($page);
+        }
+
+        $total_photos = isset($data['photos']['total']) ? (int) $data['photos']['total'] : 0;
+        $current_page = isset($data['photos']['page']) ? (int) $data['photos']['page'] : $page;
+        $total_pages = isset($data['photos']['pages']) ? (int) $data['photos']['pages'] : 1;
+
+        $photo_urls = [];
+        $photo_views_map = [];
+        $photo_urls_map = [];
+
+        $position = (($current_page - 1) * $per_page);
+        foreach ($data['photos']['photo'] as $photo) {
+            $position++;
+            if (empty($photo['id'])) {
+                continue;
+            }
+            $photo_id = preg_replace('/[^0-9]/', '', (string) $photo['id']);
+            if ('' === $photo_id) {
+                continue;
+            }
+
+            $photo_url = 'https://flickr.com/photos/' . rawurlencode($user_id) . '/' . $photo_id . '/';
+            $photo_urls[] = $photo_url;
+            $photo_urls_map[$photo_id] = $photo_url;
+            $photo_views_map[$photo_id] = max(0, (int) ($photo['views'] ?? 0));
+
+            self::cache_photo_data_from_album_response($photo, $photo_id, '', $position);
+        }
+
+        $result = [
+            'photos' => $photo_urls,
+            'has_more' => ($current_page < $total_pages) || ($total_pages <= 1 && count($photo_urls) >= $per_page),
+            'total' => $total_photos,
+            'page' => $current_page,
+            'pages' => $total_pages,
+            'album_title' => '',
+            'photo_views' => $photo_views_map,
+            'photo_urls_map' => $photo_urls_map,
+        ];
+
+        $cache_duration = max(HOUR_IN_SECONDS, (int) floor(self::get_duration() / 4));
+        self::set($cache_key, $result, $cache_duration);
+
+        return $result;
     }
 
     // ========================================================================

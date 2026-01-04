@@ -130,7 +130,9 @@ function flickr_justified_render_block($attributes) {
     $needs_stats = ('views_desc' === $sort_order);
 
     // For views_desc we rely on cached stats only; do not pull live stats during render.
-    $remaining_limit = ($max_photos > 0) ? $max_photos : null;
+    // CRITICAL: For views_desc sorting, we must process ALL photos first, then sort, then limit.
+    // Otherwise we'd only sort the first N photos instead of finding the true top N by views.
+    $remaining_limit = ('views_desc' === $sort_order) ? null : (($max_photos > 0) ? $max_photos : null);
     $photo_items = [];
     $set_metadata = [];
     $position_counter = 0;
@@ -149,9 +151,14 @@ function flickr_justified_render_block($attributes) {
         $set_info = flickr_justified_parse_set_url($url);
         if ($set_info) {
             if ('views_desc' === $sort_order) {
-                // For views sorting: fetch full album list from cache (warmer should have cached it)
-                // We'll only process photos that have cached stats to avoid timeouts
-                $set_result = flickr_justified_get_full_photoset_photos($set_info['user_id'], $set_info['photoset_id']);
+                // Use optimized query: get top N photos sorted by views from cache
+                $limit_for_query = $max_photos > 0 ? $max_photos : 50; // Default to 50 if no limit
+                $top_photos = FlickrJustifiedCache::get_top_viewed_photos_from_set(
+                    $set_info['user_id'],
+                    $set_info['photoset_id'],
+                    $limit_for_query
+                );
+                $set_result = ['photos' => $top_photos];
             } elseif (null !== $remaining_limit) {
                 // For input order with limit: use paginated fetching
                 $per_page = max(1, min(50, $remaining_limit));
@@ -173,43 +180,7 @@ function flickr_justified_render_block($attributes) {
 
             $set_photos = isset($set_result['photos']) && is_array($set_result['photos']) ? $set_result['photos'] : [];
 
-            // For views_desc: prefer cached stats; do not fetch live stats here
-            if ('views_desc' === $sort_order) {
-                $original_photos = $set_photos;
-                $total_photos = count($set_photos);
-
-                // Filter to photos with cached stats; skip live API calls
-                $cached_photos = [];
-                foreach ($set_photos as $photo_url) {
-                    $photo_id = flickr_justified_extract_photo_id($photo_url);
-                    if ($photo_id) {
-                        $stats_cache_key = ['photo_stats', $photo_id];
-                        $cached_stats = FlickrJustifiedCache::get($stats_cache_key);
-                        if (!empty($cached_stats) && !isset($cached_stats['not_found'])) {
-                            $cached_photos[] = $photo_url;
-                        }
-                    }
-                }
-
-                $cached_count = count($cached_photos);
-                $skipped_count = $total_photos - $cached_count;
-
-                if (defined('WP_DEBUG') && WP_DEBUG && $skipped_count > 0) {
-                    error_log(sprintf(
-                        'Flickr views_desc: Using %d cached photos, skipped %d uncached (%.1f%% cached)',
-                        $cached_count,
-                        $skipped_count,
-                        ($total_photos > 0 ? ($cached_count / $total_photos) * 100 : 0)
-                    ));
-                }
-
-                // If no cached stats yet, fall back to input order to show something
-                if ($cached_count === 0 && $total_photos > 0) {
-                    $set_photos = $original_photos;
-                } else {
-                    $set_photos = $cached_photos;
-                }
-            } elseif (null !== $remaining_limit) {
+            if (null !== $remaining_limit) {
                 // For input order: limit normally
                 $set_photos = array_slice($set_photos, 0, $remaining_limit);
             }
@@ -254,11 +225,18 @@ function flickr_justified_render_block($attributes) {
                 ];
 
                 if ($needs_stats && $is_flickr) {
-                    // Only use cached stats; do not fetch live to avoid blocking render.
+                    // Try to get stats from cache (either photo_stats or photo_info)
                     $photo_id = flickr_justified_extract_photo_id($photo_url);
                     if ($photo_id) {
+                        // First try photo_stats cache
                         $stats_cache_key = ['photo_stats', $photo_id];
                         $stats = FlickrJustifiedCache::get($stats_cache_key);
+
+                        // If not found, try extracting from cached photo_info (from photoset response)
+                        if (empty($stats) || isset($stats['not_found'])) {
+                            $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
+                        }
+
                         if (!empty($stats) && !isset($stats['not_found'])) {
                             $item['stats'] = $stats;
                             $item['views'] = isset($stats['views']) ? (int) $stats['views'] : 0;
@@ -416,25 +394,8 @@ function flickr_justified_render_block($attributes) {
         return '';
     }
 
-    if ('views_desc' === $sort_order) {
-        usort($photo_items, static function ($a, $b) {
-            $views_a = isset($a['views']) ? (int) $a['views'] : 0;
-            $views_b = isset($b['views']) ? (int) $b['views'] : 0;
-
-            if ($views_a === $views_b) {
-                $pos_a = isset($a['position']) ? (int) $a['position'] : 0;
-                $pos_b = isset($b['position']) ? (int) $b['position'] : 0;
-                return $pos_a <=> $pos_b;
-            }
-
-            return $views_b <=> $views_a;
-        });
-    }
-
-    // Apply max_photos limit if specified
-    if ($max_photos > 0 && count($photo_items) > $max_photos) {
-        $photo_items = array_slice($photo_items, 0, $max_photos);
-    }
+    // For views_desc, photos are already sorted and limited by get_top_viewed_photos_from_set()
+    // For input order, no sorting needed and limit already applied during fetch
 
     // Generate unique ID for this block instance
     // Use target gallery ID if provided (from async loading), otherwise generate new one

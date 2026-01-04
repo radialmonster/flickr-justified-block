@@ -41,6 +41,18 @@ class FlickrJustifiedAdminSettings {
             'flickr-justified-settings',
             [__CLASS__, 'settings_page']
         );
+
+        // Hidden cache browser page (linked from settings, not from the sidebar)
+        add_submenu_page(
+            'options-general.php',
+            __('Flickr Cache Browser', 'flickr-justified-block'),
+            __('Flickr Cache Browser', 'flickr-justified-block'),
+            'manage_options',
+            'flickr-justified-cache-browser',
+            [__CLASS__, 'cache_browser_page']
+        );
+
+        remove_submenu_page('options-general.php', 'flickr-justified-cache-browser');
     }
 
     /**
@@ -59,6 +71,8 @@ class FlickrJustifiedAdminSettings {
         register_setting('flickr_justified_settings', 'flickr_justified_options', [
             'sanitize_callback' => [__CLASS__, 'sanitize_options'],
         ]);
+
+        self::maybe_handle_warmer_actions();
 
         add_settings_section(
             'flickr_justified_api_section',
@@ -91,17 +105,9 @@ class FlickrJustifiedAdminSettings {
         );
 
         add_settings_field(
-            'cache_warmer_enabled',
-            __('Preload Flickr Data', 'flickr-justified-block'),
-            [__CLASS__, 'cache_warmer_enabled_callback'],
-            'flickr_justified_settings',
-            'flickr_justified_cache_section'
-        );
-
-        add_settings_field(
-            'cache_warmer_batch_size',
-            __('Cache Warmer Batch Size', 'flickr-justified-block'),
-            [__CLASS__, 'cache_warmer_batch_size_callback'],
+            'cache_warmer_panel',
+            __('Cache & Warmer', 'flickr-justified-block'),
+            [__CLASS__, 'cache_warmer_status_callback'],
             'flickr_justified_settings',
             'flickr_justified_cache_section'
         );
@@ -377,40 +383,9 @@ class FlickrJustifiedAdminSettings {
         echo '<p class="description">' . __('How long to cache Flickr image data (1-8760 hours). Default: 168 hours (7 days).', 'flickr-justified-block') . '</p>';
     }
 
-    /**
-     * Cache warmer toggle callback
-     */
-    public static function cache_warmer_enabled_callback() {
-        $options = get_option('flickr_justified_options', []);
-        $enabled = array_key_exists('cache_warmer_enabled', $options) ? (bool) $options['cache_warmer_enabled'] : true;
-        $slow_mode = array_key_exists('cache_warmer_slow_mode', $options) ? (bool) $options['cache_warmer_slow_mode'] : true;
+    // Warm settings moved into unified status panel.
 
-        echo '<label>';
-        echo '<input type="checkbox" name="flickr_justified_options[cache_warmer_enabled]" value="1" ' . checked($enabled, true, false) . ' /> ';
-        echo esc_html__('Warm Flickr responses automatically in the background (WP-Cron).', 'flickr-justified-block');
-        echo '</label>';
-
-        echo '<br />';
-        echo '<label style="margin-top:6px; display:inline-block;">';
-        echo '<input type="checkbox" name="flickr_justified_options[cache_warmer_slow_mode]" value="1" ' . checked($slow_mode, true, false) . ' /> ';
-        echo esc_html__('Slow mode: process a small batch every few minutes so editors and visitors are unaffected.', 'flickr-justified-block');
-        echo '</label>';
-
-        $cache_duration_hours = max(1, (int) round(self::get_cache_duration() / HOUR_IN_SECONDS));
-        echo '<p class="description">' . sprintf(esc_html__('Prefetched API responses honour the Cache Duration above (currently %d hour(s)).', 'flickr-justified-block'), $cache_duration_hours) . '</p>';
-        echo '<p class="description">' . __('Run immediately with <code>wp flickr-justified warm-cache</code> or schedule via WP-Cron.', 'flickr-justified-block') . '</p>';
-    }
-
-    /**
-     * Cache warmer batch size callback
-     */
-    public static function cache_warmer_batch_size_callback() {
-        $batch_size = self::get_cache_warmer_batch_size();
-
-        echo '<input type="number" name="flickr_justified_options[cache_warmer_batch_size]" value="' . esc_attr($batch_size) . '" min="1" max="25" class="small-text" />';
-        echo ' ' . esc_html__('URLs per batch', 'flickr-justified-block');
-        echo '<p class="description">' . esc_html__('Lower numbers keep the warmer lightweight; increase if you have many galleries and want faster priming.', 'flickr-justified-block') . '</p>';
-    }
+    // API call budget moved into unified status panel.
 
     /**
      * Breakpoints section callback
@@ -582,6 +557,156 @@ class FlickrJustifiedAdminSettings {
     }
 
     /**
+     * Render cache & warmer unified panel.
+     */
+    public static function cache_warmer_status_callback() {
+        $options = get_option('flickr_justified_options', []);
+        $enabled = array_key_exists('cache_warmer_enabled', $options) ? (bool) $options['cache_warmer_enabled'] : true;
+        $slow_mode = array_key_exists('cache_warmer_slow_mode', $options) ? (bool) $options['cache_warmer_slow_mode'] : true;
+        $photostream_enabled = array_key_exists('cache_warmer_photostream_enabled', $options) ? (bool) $options['cache_warmer_photostream_enabled'] : true;
+        $max_seconds = isset($options['cache_warmer_max_seconds']) ? absint($options['cache_warmer_max_seconds']) : 20;
+        $max_calls = self::get_cache_warmer_api_calls_per_run();
+
+        $last_run = get_option('flickr_justified_cache_warmer_last_run', []);
+        $pause_until = (int) get_option('flickr_justified_cache_warmer_pause_until', 0);
+        $next_run = wp_next_scheduled('flickr_justified_run_cache_warmer');
+
+        global $wpdb;
+        $jobs_table = $wpdb->prefix . 'fjb_jobs';
+        $pending_jobs = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$jobs_table} WHERE status = 'pending'");
+        $due_jobs = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$jobs_table} WHERE status = 'pending' AND (not_before IS NULL OR not_before <= NOW())");
+        $backoff_jobs = $pending_jobs - $due_jobs;
+
+        $fmt_time = function($ts) {
+            if (!$ts) { return '—'; }
+            return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $ts);
+        };
+
+        echo '<div style="padding:12px; border:1px solid #ccd0d4; border-radius:4px; background:#f6f7f7;">';
+        echo '<p><strong>' . __('Cache & Warmer', 'flickr-justified-block') . '</strong></p>';
+
+        echo '<div style="margin-bottom:8px;">';
+        echo '<label><input type="checkbox" name="flickr_justified_options[cache_warmer_enabled]" value="1" ' . checked($enabled, true, false) . ' /> ' . esc_html__('Enable background warming (WP-Cron)', 'flickr-justified-block') . '</label><br />';
+        echo '<label><input type="checkbox" name="flickr_justified_options[cache_warmer_slow_mode]" value="1" ' . checked($slow_mode, true, false) . ' /> ' . esc_html__('Slow mode (space out runs)', 'flickr-justified-block') . '</label><br />';
+        echo '<label><input type="checkbox" name="flickr_justified_options[cache_warmer_photostream_enabled]" value="1" ' . checked($photostream_enabled, true, false) . ' /> ' . esc_html__('Warm full photostream (500 per call)', 'flickr-justified-block') . '</label><br />';
+        echo '<label>' . esc_html__('API calls per run', 'flickr-justified-block') . ': <input type="number" name="flickr_justified_options[cache_warmer_batch_size]" value="' . esc_attr($max_calls) . '" min="1" max="200" class="small-text" /> </label><br />';
+        echo '<label>' . esc_html__('Seconds per run budget', 'flickr-justified-block') . ': <input type="number" name="flickr_justified_options[cache_warmer_max_seconds]" value="' . esc_attr($max_seconds) . '" min="5" max="60" class="small-text" /> </label>';
+        echo '</div>';
+
+        echo '<ul style="margin:0 0 10px 18px; list-style:disc;">';
+        echo '<li>' . __('Queue length (pending)', 'flickr-justified-block') . ': ' . $pending_jobs . '</li>';
+        echo '<li>' . __('Ready to run', 'flickr-justified-block') . ': ' . $due_jobs . '</li>';
+        echo '<li>' . __('Backed off', 'flickr-justified-block') . ': ' . max(0, $backoff_jobs) . '</li>';
+        $debug_jobs_url = admin_url('admin-ajax.php?action=flickr_justified_debug_jobs');
+        echo '<li>' . __('Debug jobs', 'flickr-justified-block') . ': <a href="' . esc_url($debug_jobs_url) . '" target="_blank" rel="noopener">' . esc_html($debug_jobs_url) . '</a></li>';
+        echo '<li>' . __('Next run', 'flickr-justified-block') . ': ' . ($next_run ? $fmt_time($next_run) : '—') . '</li>';
+        echo '<li>' . __('Pause until', 'flickr-justified-block') . ': ' . ($pause_until ? $fmt_time($pause_until) : '—') . '</li>';
+        if (!empty($last_run) && is_array($last_run)) {
+            $ts = isset($last_run['ts']) ? (int) $last_run['ts'] : 0;
+            $processed = isset($last_run['processed']) ? (int) $last_run['processed'] : 0;
+            $rl = !empty($last_run['rate_limited']);
+            $err = isset($last_run['last_error']) ? sanitize_text_field((string) $last_run['last_error']) : '';
+            echo '<li>' . __('Last run', 'flickr-justified-block') . ': ' . ($ts ? $fmt_time($ts) : '—') . ' ';
+            echo '(' . sprintf(__('processed %d, rate_limited: %s', 'flickr-justified-block'), $processed, $rl ? 'yes' : 'no') . ')';
+            if ($err) {
+                echo '<br><small>' . esc_html($err) . '</small>';
+            }
+            echo '</li>';
+        }
+        echo '</ul>';
+
+        echo '<p>';
+        submit_button(__('Run warmer now', 'flickr-justified-block'), 'secondary', 'fjb_run_warmer_now', false);
+        submit_button(__('Rebuild queue from content', 'flickr-justified-block'), 'secondary', 'fjb_rebuild_queue', false);
+        submit_button(__('Reset queue to bulk mode', 'flickr-justified-block'), 'secondary', 'fjb_reset_bulk_queue', false);
+        submit_button(__('Requeue missing metadata', 'flickr-justified-block'), 'secondary', 'fjb_requeue_missing_meta', false);
+        echo '</p>';
+
+        echo '<p class="description">' . __('Note: 1 API call warms up to 500 photos. Raise calls/run to go faster; lower to be gentler. Rate limit: ~3600 calls/hour.', 'flickr-justified-block') . '</p>';
+        echo '</div>';
+    }
+
+    /**
+     * Process warmer actions from the settings form.
+     */
+    private static function maybe_handle_warmer_actions() {
+        if (!is_admin() || !isset($_POST['option_page']) || 'flickr_justified_settings' !== $_POST['option_page']) {
+            return;
+        }
+
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        check_admin_referer('flickr_justified_settings-options');
+
+        if (isset($_POST['fjb_run_warmer_now'])) {
+            // Schedule an immediate warmer run to avoid request timeouts in admin
+            if (!wp_next_scheduled('flickr_justified_run_cache_warmer')) {
+                wp_schedule_single_event(time() + 5, 'flickr_justified_run_cache_warmer');
+            }
+            add_settings_error('flickr_justified_settings', 'fjb_warmer_run', __('Cache warmer queued to run now.', 'flickr-justified-block'), 'updated');
+        }
+
+        if (isset($_POST['fjb_clear_warmer_failures'])) {
+            delete_option('flickr_justified_cache_warmer_failures');
+            delete_option('flickr_justified_cache_warmer_pause_until');
+            global $wpdb;
+            $jobs_table = $wpdb->prefix . 'fjb_jobs';
+            $wpdb->query("UPDATE {$jobs_table} SET not_before = NULL, attempts = 0, last_error = NULL WHERE status = 'pending'");
+            add_settings_error('flickr_justified_settings', 'fjb_warmer_cleared', __('Cache warmer failures/backoff cleared.', 'flickr-justified-block'), 'updated');
+        }
+
+        if (isset($_POST['fjb_rebuild_queue'])) {
+            if (class_exists('FlickrJustifiedCacheWarmer')) {
+                try {
+                    FlickrJustifiedCacheWarmer::rebuild_queue_from_content(true);
+                    add_settings_error('flickr_justified_settings', 'fjb_queue_rebuilt', __('Queue rebuilt from content.', 'flickr-justified-block'), 'updated');
+                } catch (Throwable $e) {
+                    add_settings_error(
+                        'flickr_justified_settings',
+                        'fjb_queue_rebuilt_fail',
+                        sprintf(__('Queue rebuild failed: %s', 'flickr-justified-block'), esc_html($e->getMessage())),
+                        'error'
+                    );
+                }
+            }
+        }
+
+        if (isset($_POST['fjb_reset_bulk_queue'])) {
+            if (class_exists('FlickrJustifiedCacheWarmer')) {
+                try {
+                    FlickrJustifiedCacheWarmer::reset_to_bulk_queue();
+                    add_settings_error('flickr_justified_settings', 'fjb_queue_reset_bulk', __('Queue reset to bulk mode (photo jobs dropped, albums/photostream re-queued).', 'flickr-justified-block'), 'updated');
+                } catch (Throwable $e) {
+                    add_settings_error('flickr_justified_settings', 'fjb_queue_reset_bulk_fail', sprintf(__('Queue reset failed: %s', 'flickr-justified-block'), esc_html($e->getMessage())), 'error');
+                }
+            }
+        }
+
+        if (isset($_POST['fjb_requeue_missing_meta'])) {
+            if (class_exists('FlickrJustifiedCacheWarmer')) {
+                try {
+                    $count = FlickrJustifiedCacheWarmer::requeue_missing_metadata();
+                    add_settings_error(
+                        'flickr_justified_settings',
+                        'fjb_requeue_missing_meta',
+                        sprintf(__('Requeued %d album/photostream jobs to backfill missing photo metadata.', 'flickr-justified-block'), (int) $count),
+                        'updated'
+                    );
+                } catch (Throwable $e) {
+                    add_settings_error(
+                        'flickr_justified_settings',
+                        'fjb_requeue_missing_meta_fail',
+                        sprintf(__('Requeue failed: %s', 'flickr-justified-block'), esc_html($e->getMessage())),
+                        'error'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Use builtin lightbox callback
      */
     public static function use_builtin_lightbox_callback() {
@@ -668,333 +793,11 @@ class FlickrJustifiedAdminSettings {
                 ?>
             </form>
 
-            <div class="card" style="margin-top: 20px;">
-                <h2><?php _e('Cache Management', 'flickr-justified-block'); ?></h2>
-
-                <h3><?php _e('Warm Cache', 'flickr-justified-block'); ?></h3>
-                <p><?php _e('Pre-fetch Flickr data for all your posts to make pages load faster. Run this after adding new posts or if pages are loading slowly.', 'flickr-justified-block'); ?></p>
-                <p style="font-size: 12px; color: #666;"><strong><?php _e('Note:', 'flickr-justified-block'); ?></strong> <?php _e('Flickr API has a rate limit of 3600 calls per hour. If you see "Rate limit detected" immediately, you may have hit this limit from previous warming attempts. Wait an hour and try again.', 'flickr-justified-block'); ?></p>
-                <p>
-                    <button type="button" id="flickr-warm-cache-btn" class="button button-primary"><?php _e('Warm Cache Now', 'flickr-justified-block'); ?></button>
-                    <button type="button" id="flickr-process-queue-btn" class="button" style="margin-left: 10px;"><?php _e('Process Queue (with Pagination)', 'flickr-justified-block'); ?></button>
-                </p>
-                <p style="font-size: 12px; color: #666;">
-                    <em><?php _e('Use "Process Queue" to test the background pagination processor. This processes items from the queue and automatically queues additional pages for large albums.', 'flickr-justified-block'); ?></em>
-                </p>
-                <div id="flickr-warm-cache-progress" style="display: none; margin-top: 10px;">
-                    <div style="background: #f0f0f1; border: 1px solid #c3c4c7; border-radius: 4px; padding: 15px;">
-                        <p id="flickr-warm-cache-status"><?php _e('Initializing...', 'flickr-justified-block'); ?></p>
-                        <div style="background: #fff; height: 30px; border: 1px solid #c3c4c7; border-radius: 4px; overflow: hidden; margin: 10px 0;">
-                            <div id="flickr-warm-cache-bar" style="background: #2271b1; height: 100%; width: 0%; transition: width 0.3s;"></div>
-                        </div>
-                        <p id="flickr-warm-cache-details" style="font-size: 12px; color: #666;"></p>
-                    </div>
-                </div>
-                <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const warmCacheBtn = document.getElementById('flickr-warm-cache-btn');
-                    if (!warmCacheBtn) return;
-
-                    warmCacheBtn.addEventListener('click', function() {
-                        const btn = this;
-                        const progress = document.getElementById('flickr-warm-cache-progress');
-                        const status = document.getElementById('flickr-warm-cache-status');
-                        const details = document.getElementById('flickr-warm-cache-details');
-                        const bar = document.getElementById('flickr-warm-cache-bar');
-
-                        btn.disabled = true;
-                        btn.textContent = '<?php esc_attr_e('Processing...', 'flickr-justified-block'); ?>';
-                        progress.style.display = 'block';
-                        status.textContent = '<?php esc_js(_e('Scanning posts for Flickr URLs...', 'flickr-justified-block')); ?>';
-
-                        const initialFormData = new URLSearchParams();
-                        initialFormData.append('action', 'flickr_rebuild_urls');
-                        initialFormData.append('nonce', '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>');
-
-                        fetch(ajaxurl, {
-                            method: 'POST',
-                            body: initialFormData
-                        })
-                        .then(response => {
-                            if (!response.ok) throw new Error('Network response was not ok for rebuilding URLs.');
-                            return response.json();
-                        })
-                        .then(response => {
-                            if (response.success) {
-                                const queue = response.data.queue;
-                                const totalUrls = queue.length;
-                                let processed = 0;
-                                const batchSize = 1;
-                                let totalApiCalls = 0;
-
-                                if (totalUrls === 0) {
-                                    status.textContent = '<?php esc_js(_e('No Flickr URLs found to warm.', 'flickr-justified-block')); ?>';
-                                    btn.disabled = false;
-                                    btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
-                                    progress.style.display = 'none';
-                                    return;
-                                }
-
-                                status.textContent = '<?php esc_js(_e('Found', 'flickr-justified-block')); ?> ' + totalUrls + ' <?php esc_js(_e('URLs. Warming cache...', 'flickr-justified-block')); ?>';
-
-                                function processBatch(startIndex, retryCount = 0) {
-                                    if (startIndex >= totalUrls) {
-                                        bar.style.width = '100%';
-                                        status.innerHTML = '<strong style="color: #00a32a;">✓ <?php esc_js(_e('Complete!', 'flickr-justified-block')); ?></strong>';
-                                        details.textContent = '<?php esc_js(_e('Warmed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls). Pages should now load much faster!', 'flickr-justified-block')); ?>';
-                                        btn.disabled = false;
-                                        btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
-                                        return;
-                                    }
-
-                                    const batch = queue.slice(startIndex, startIndex + batchSize);
-                                    const batchFormData = new URLSearchParams();
-                                    batchFormData.append('action', 'flickr_warm_batch');
-                                    batch.forEach(url => batchFormData.append('urls[]', url));
-                                    batchFormData.append('nonce', '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>');
-
-                                    const controller = new AbortController();
-                                    const timeoutId = setTimeout(() => controller.abort(), 300000);
-
-                                    fetch(ajaxurl, {
-                                        method: 'POST',
-                                        body: batchFormData,
-                                        signal: controller.signal
-                                    })
-                                    .then(res => {
-                                        clearTimeout(timeoutId);
-                                        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
-                                        return res.json();
-                                    })
-                                    .then(batchResponse => {
-                                        if (batchResponse.success) {
-                                            const data = batchResponse.data;
-                                            processed += data.processed;
-                                            totalApiCalls += (data.api_calls || 0);
-
-                                            const percent = Math.round((startIndex + batch.length) / totalUrls * 100);
-                                            bar.style.width = percent + '%';
-
-                                            if (data.rate_limited) {
-                                                const diagnosticMsg = data.diagnostic ? ' ' + data.diagnostic : '';
-                                                const pauseSeconds = 60;
-                                                const pauseMinutes = Math.round(pauseSeconds / 60);
-                                                status.innerHTML = '⏸ <?php esc_js(_e('Rate limit detected. Will retry in', 'flickr-justified-block')); ?> ' + pauseMinutes + ' <?php esc_js(_e('minute(s)...', 'flickr-justified-block')); ?>' + diagnosticMsg;
-                                                details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
-                                                    '<em style="color: #666;"><?php esc_js(_e('Manual warming will retry automatically. You can close this page - the automatic background warmer will continue.', 'flickr-justified-block')); ?></em>';
-
-                                                setTimeout(() => {
-                                                    status.textContent = '<?php esc_js(_e('Resuming...', 'flickr-justified-block')); ?>';
-                                                    processBatch(startIndex, retryCount + 1);
-                                                }, pauseSeconds * 1000);
-                                            } else {
-                                                details.textContent = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>';
-                                                processBatch(startIndex + batchSize, 0);
-                                            }
-                                        } else {
-                                            throw new Error(batchResponse.data || '<?php esc_js(_e('Unknown error during batch processing.', 'flickr-justified-block')); ?>');
-                                        }
-                                    })
-                                    .catch(err => {
-                                        clearTimeout(timeoutId);
-                                        let errorMsg = '<?php esc_js(_e('Network error', 'flickr-justified-block')); ?>';
-                                        if (err.name === 'AbortError') {
-                                            errorMsg = '<?php esc_js(_e('Request timed out. Large albums may take several minutes.', 'flickr-justified-block')); ?>';
-                                        } else if(err.message) {
-                                            errorMsg = err.message;
-                                        }
-                                        status.innerHTML = `<strong style="color: #d63638;">✗ ${errorMsg}</strong>`;
-
-                                        if (processed > 0) {
-                                            details.innerHTML = '<?php esc_js(_e('Processed', 'flickr-justified-block')); ?> ' + processed + ' / ' + totalUrls + ' <?php esc_js(_e('URLs', 'flickr-justified-block')); ?> (' + totalApiCalls + ' <?php esc_js(_e('API calls)', 'flickr-justified-block')); ?>).<br>' +
-                                                '<em style="color: #666;"><?php esc_js(_e('The automatic background warmer will continue processing remaining URLs.', 'flickr-justified-block')); ?></em>';
-                                        }
-                                        btn.disabled = false;
-                                        btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
-                                    });
-                                }
-                                processBatch(0);
-                            } else {
-                                throw new Error(response.data || '<?php esc_js(_e('Could not scan posts.', 'flickr-justified-block')); ?>');
-                            }
-                        })
-                        .catch(error => {
-                            status.innerHTML = `<strong style="color: #d63638;">✗ ${error.message}</strong>`;
-                            btn.disabled = false;
-                            btn.textContent = '<?php esc_attr_e('Warm Cache Now', 'flickr-justified-block'); ?>';
-                        });
-                    });
-
-                    // Process Queue button handler
-                    const processQueueBtn = document.getElementById('flickr-process-queue-btn');
-                    if (processQueueBtn) {
-                        processQueueBtn.addEventListener('click', function() {
-                            const btn = this;
-                            const progress = document.getElementById('flickr-warm-cache-progress');
-                            const status = document.getElementById('flickr-warm-cache-status');
-
-                            btn.disabled = true;
-                            btn.textContent = '<?php esc_attr_e('Processing...', 'flickr-justified-block'); ?>';
-                            progress.style.display = 'block';
-                            status.textContent = '<?php esc_js(_e('Running background queue processor...', 'flickr-justified-block')); ?>';
-
-                            const formData = new URLSearchParams();
-                            formData.append('action', 'flickr_process_queue');
-                            formData.append('nonce', '<?php echo wp_create_nonce('flickr_warm_cache_ajax'); ?>');
-
-                            fetch(ajaxurl, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                                body: formData
-                            })
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.success) {
-                                    status.innerHTML = '<strong style="color: #00a32a;">✓ ' + data.data.message + '</strong>';
-                                } else {
-                                    status.innerHTML = '<strong style="color: #d63638;">✗ Error: ' + data.data + '</strong>';
-                                }
-                                btn.disabled = false;
-                                btn.textContent = '<?php esc_attr_e('Process Queue (with Pagination)', 'flickr-justified-block'); ?>';
-                            })
-                            .catch(error => {
-                                status.innerHTML = '<strong style="color: #d63638;">✗ ' + error.message + '</strong>';
-                                btn.disabled = false;
-                                btn.textContent = '<?php esc_attr_e('Process Queue (with Pagination)', 'flickr-justified-block'); ?>';
-                            });
-                        });
-                    }
-                });
-                </script>
-
-                <h3><?php _e('Clear Cache', 'flickr-justified-block'); ?></h3>
-                <p><?php _e('If you\'re experiencing issues with images not updating, you can clear the cached Flickr data.', 'flickr-justified-block'); ?></p>
-                <form method="post" action="">
-                    <?php wp_nonce_field('flickr_justified_clear_cache', 'flickr_justified_clear_cache_nonce'); ?>
-                    <input type="hidden" name="action" value="clear_flickr_cache" />
-                    <?php submit_button(__('Clear All Flickr Cache', 'flickr-justified-block'), 'secondary', 'clear_cache', false); ?>
-                </form>
-
-                <hr style="margin: 30px 0;">
-
-                <h3><?php _e('Clear Individual Photo Cache', 'flickr-justified-block'); ?></h3>
-                <p><?php _e('If a specific photo isn\'t displaying correctly (e.g., showing 410 Gone error), clear just that photo\'s cache. This is useful when Flickr migrates old photos to new servers.', 'flickr-justified-block'); ?></p>
-                <p style="font-size: 12px; color: #666;">
-                    <strong><?php _e('Accepted formats:', 'flickr-justified-block'); ?></strong><br>
-                    • <?php _e('Photo IDs:', 'flickr-justified-block'); ?> <code>132149878</code><br>
-                    • <?php _e('Photo page URLs:', 'flickr-justified-block'); ?> <code>https://www.flickr.com/photos/username/132149878/</code><br>
-                    • <?php _e('Image URLs:', 'flickr-justified-block'); ?> <code>https://live.staticflickr.com/103/276208727_02aefaf69f_o.jpg</code><br>
-                    • <?php _e('Multiple entries (comma or newline separated)', 'flickr-justified-block'); ?>
-                </p>
-                <div style="margin-top: 15px;">
-                    <textarea id="flickr-refresh-photo-ids" placeholder="<?php esc_attr_e('Paste Photo IDs, photo URLs, or image URLs (one per line or comma-separated)', 'flickr-justified-block'); ?>" style="width: 100%; max-width: 500px; padding: 8px; min-height: 80px; font-family: monospace; font-size: 13px;"></textarea>
-                    <button type="button" id="flickr-refresh-photos-btn" class="button button-secondary" style="margin-top: 10px;">
-                        <?php _e('Clear Photo Cache', 'flickr-justified-block'); ?>
-                    </button>
-                    <div id="flickr-refresh-result" style="margin-top: 15px;"></div>
-                </div>
-
-                <script type="text/javascript">
-                    jQuery(document).ready(function($) {
-                        // Extract photo ID from various Flickr URL formats
-                        function extractPhotoId(input) {
-                            input = input.trim();
-                            if (!input) return null;
-
-                            // Already a numeric ID
-                            if (/^\d+$/.test(input)) {
-                                return input;
-                            }
-
-                            // Photo page URL: https://www.flickr.com/photos/username/132149878/
-                            let match = input.match(/flickr\.com\/photos\/[^\/]+\/(\d+)/i);
-                            if (match) return match[1];
-
-                            // Image URL: https://live.staticflickr.com/103/276208727_02aefaf69f_o.jpg
-                            // or: https://farm{n}.staticflickr.com/103/276208727_02aefaf69f_o.jpg
-                            match = input.match(/staticflickr\.com\/\d+\/(\d+)_/i);
-                            if (match) return match[1];
-
-                            return null;
-                        }
-
-                        $('#flickr-refresh-photos-btn').on('click', function() {
-                            const button = $(this);
-                            const textarea = $('#flickr-refresh-photo-ids');
-                            const resultDiv = $('#flickr-refresh-result');
-                            const rawInput = textarea.val().trim();
-
-                            if (!rawInput) {
-                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Please enter at least one Photo ID or URL.', 'flickr-justified-block'); ?></p></div>');
-                                return;
-                            }
-
-                            // Split by newlines and commas
-                            const lines = rawInput.split(/[\r\n,]+/);
-                            const photoIds = [];
-                            const failed = [];
-
-                            lines.forEach(function(line) {
-                                const id = extractPhotoId(line);
-                                if (id) {
-                                    photoIds.push(id);
-                                } else if (line.trim()) {
-                                    failed.push(line.trim());
-                                }
-                            });
-
-                            if (photoIds.length === 0) {
-                                resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('Could not extract any valid Photo IDs. Please check your input.', 'flickr-justified-block'); ?></p></div>');
-                                return;
-                            }
-
-                            if (failed.length > 0) {
-                                resultDiv.html('<div class="notice notice-warning inline"><p><?php esc_html_e('Warning: Could not extract Photo IDs from some entries:', 'flickr-justified-block'); ?> ' + failed.join(', ') + '</p></div>');
-                            }
-
-                            button.prop('disabled', true);
-                            button.text('<?php esc_html_e('Clearing...', 'flickr-justified-block'); ?>');
-
-                            // Show what IDs were extracted
-                            const extractedMsg = '<?php esc_html_e('Extracted Photo IDs:', 'flickr-justified-block'); ?> ' + photoIds.join(', ');
-                            resultDiv.html('<p>' + extractedMsg + '<br><?php esc_html_e('Clearing cache...', 'flickr-justified-block'); ?></p>');
-
-                            $.ajax({
-                                url: ajaxurl,
-                                type: 'POST',
-                                data: {
-                                    action: 'flickr_clear_photo_cache',
-                                    nonce: '<?php echo wp_create_nonce('flickr_clear_photo_cache'); ?>',
-                                    photo_ids: photoIds.join(',')
-                                },
-                                success: function(response) {
-                                    if (response.success) {
-                                        resultDiv.html('<div class="notice notice-success inline"><p><strong><?php esc_html_e('Success!', 'flickr-justified-block'); ?></strong> ' + response.data.message + '</p></div>');
-                                        textarea.val('');
-                                    } else {
-                                        resultDiv.html('<div class="notice notice-error inline"><p><strong><?php esc_html_e('Error:', 'flickr-justified-block'); ?></strong> ' + response.data.message + '</p></div>');
-                                    }
-                                },
-                                error: function() {
-                                    resultDiv.html('<div class="notice notice-error inline"><p><?php esc_html_e('An error occurred. Please try again.', 'flickr-justified-block'); ?></p></div>');
-                                },
-                                complete: function() {
-                                    button.prop('disabled', false);
-                                    button.text('<?php esc_html_e('Clear Photo Cache', 'flickr-justified-block'); ?>');
-                                }
-                            });
-                        });
-
-                        // Allow pressing Ctrl+Enter (or Cmd+Enter on Mac) to submit
-                        $('#flickr-refresh-photo-ids').on('keydown', function(e) {
-                            if ((e.ctrlKey || e.metaKey) && e.which === 13) {
-                                e.preventDefault();
-                                $('#flickr-refresh-photos-btn').click();
-                            }
-                        });
-                    });
-                </script>
-            </div>
+            <p style="margin-top: 12px;">
+                <a class="button" href="<?php echo esc_url(admin_url('options-general.php?page=flickr-justified-cache-browser')); ?>" target="_blank" rel="noopener">
+                    <?php _e('Open Cache Browser', 'flickr-justified-block'); ?>
+                </a>
+            </p>
 
             <div class="card" style="margin-top: 20px;">
                 <h2><?php _e('Support This Plugin', 'flickr-justified-block'); ?></h2>
@@ -1015,6 +818,154 @@ class FlickrJustifiedAdminSettings {
                     <li><strong><?php _e('Supported File Types:', 'flickr-justified-block'); ?></strong> JPG, PNG, WebP, AVIF, GIF, SVG</li>
                 </ul>
             </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Cache browser page.
+     */
+    public static function cache_browser_page() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        global $wpdb;
+        $meta_table = $wpdb->prefix . 'fjb_photo_meta';
+        $jobs_table = $wpdb->prefix . 'fjb_jobs';
+
+        $options = get_option('flickr_justified_options', []);
+        $cache_hours = isset($options['cache_duration']) ? max(1, (int) $options['cache_duration']) : 168;
+        $cache_ttl_seconds = $cache_hours * HOUR_IN_SECONDS;
+        $format_expiry = function($views_checked_at) use ($cache_ttl_seconds) {
+            if (empty($views_checked_at) || $views_checked_at === '0000-00-00 00:00:00') {
+                return __('expired', 'flickr-justified-block');
+            }
+            $start = strtotime($views_checked_at);
+            if (!$start) {
+                return __('expired', 'flickr-justified-block');
+            }
+            $expires = $start + $cache_ttl_seconds;
+            $delta = $expires - current_time('timestamp');
+            $sign = $delta < 0 ? '-' : '';
+            $abs = abs($delta);
+            $days = floor($abs / DAY_IN_SECONDS);
+            $hours = floor(($abs % DAY_IN_SECONDS) / HOUR_IN_SECONDS);
+            $mins = floor(($abs % HOUR_IN_SECONDS) / MINUTE_IN_SECONDS);
+            if ($days > 0) {
+                return sprintf('%s%dd %dh', $sign, $days, $hours);
+            }
+            if ($hours > 0) {
+                return sprintf('%s%dh %dm', $sign, $hours, $mins);
+            }
+            return sprintf('%s%dm', $sign, $mins);
+        };
+
+        $photo_search = isset($_GET['fjb_photo_search']) ? sanitize_text_field($_GET['fjb_photo_search']) : '';
+        $page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $per_page = 20;
+        $offset = ($page - 1) * $per_page;
+
+        $where = '';
+        $params = [];
+        if ($photo_search !== '') {
+            $where = 'WHERE photo_id LIKE %s';
+            $params[] = '%' . $wpdb->esc_like($photo_search) . '%';
+        }
+
+        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$meta_table} {$where}", ...($params ?: [''])));
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT photo_id, server, secret, views, views_checked_at, updated_at FROM {$meta_table} {$where} ORDER BY updated_at DESC LIMIT %d OFFSET %d", $per_page, $offset));
+
+        $jobs = $wpdb->get_results("SELECT job_key, job_type, priority, not_before, attempts, last_error, status, created_at FROM {$jobs_table} WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 50");
+
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html__('Flickr Cache Browser', 'flickr-justified-block'); ?></h1>
+
+            <h2><?php echo esc_html__('Photo Meta', 'flickr-justified-block'); ?></h2>
+            <form method="get" style="margin-bottom: 12px;">
+                <input type="hidden" name="page" value="flickr-justified-cache-browser" />
+                <label><?php esc_html_e('Search photo_id', 'flickr-justified-block'); ?> <input type="text" name="fjb_photo_search" value="<?php echo esc_attr($photo_search); ?>" /></label>
+                <button class="button"><?php esc_html_e('Search', 'flickr-justified-block'); ?></button>
+            </form>
+            <table class="widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e('Photo ID', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Server', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Secret', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Views', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Views Checked At', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Cache Expires', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Updated At', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Debug', 'flickr-justified-block'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php if (!empty($rows)) : ?>
+                    <?php foreach ($rows as $row) : ?>
+                        <tr>
+                            <td><?php echo esc_html($row->photo_id); ?></td>
+                            <td><?php echo esc_html($row->server); ?></td>
+                            <td><?php echo esc_html($row->secret); ?></td>
+                            <td><?php echo esc_html($row->views); ?></td>
+                            <td><?php echo esc_html($row->views_checked_at); ?></td>
+                            <td><?php echo esc_html($format_expiry($row->views_checked_at)); ?></td>
+                            <td><?php echo esc_html($row->updated_at); ?></td>
+                            <td><a href="<?php echo esc_url(admin_url('admin-ajax.php?action=flickr_justified_debug_photo&photo_id=' . rawurlencode($row->photo_id))); ?>" target="_blank" rel="noopener"><?php esc_html_e('Debug', 'flickr-justified-block'); ?></a></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else : ?>
+                    <tr><td colspan="7"><?php esc_html_e('No records found.', 'flickr-justified-block'); ?></td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
+            <?php
+            $total_pages = max(1, ceil($total / $per_page));
+            if ($total_pages > 1) {
+                echo '<div class="tablenav"><div class="tablenav-pages">';
+                for ($p = 1; $p <= $total_pages; $p++) {
+                    $url = add_query_arg(['page' => 'flickr-justified-cache-browser', 'paged' => $p, 'fjb_photo_search' => $photo_search], admin_url('options-general.php'));
+                    $class = $p === $page ? 'class="button button-primary"' : 'class="button"';
+                    echo '<a ' . $class . ' href="' . esc_url($url) . '">' . esc_html($p) . '</a> ';
+                }
+                echo '</div></div>';
+            }
+            ?>
+
+            <h2 style="margin-top:20px;"><?php echo esc_html__('Pending Jobs', 'flickr-justified-block'); ?></h2>
+            <table class="widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e('Job Key', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Type', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Priority', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Not Before', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Attempts', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Last Error', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Status', 'flickr-justified-block'); ?></th>
+                        <th><?php esc_html_e('Created', 'flickr-justified-block'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php if (!empty($jobs)) : ?>
+                    <?php foreach ($jobs as $job) : ?>
+                        <tr>
+                            <td><?php echo esc_html($job->job_key); ?></td>
+                            <td><?php echo esc_html($job->job_type); ?></td>
+                            <td><?php echo esc_html($job->priority); ?></td>
+                            <td><?php echo esc_html($job->not_before); ?></td>
+                            <td><?php echo esc_html($job->attempts); ?></td>
+                            <td><?php echo esc_html($job->last_error); ?></td>
+                            <td><?php echo esc_html($job->status); ?></td>
+                            <td><?php echo esc_html($job->created_at); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else : ?>
+                    <tr><td colspan="8"><?php esc_html_e('No pending jobs.', 'flickr-justified-block'); ?></td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }
@@ -1109,17 +1060,17 @@ class FlickrJustifiedAdminSettings {
     /**
      * Retrieve the configured cache warmer batch size.
      */
-    public static function get_cache_warmer_batch_size() {
+    public static function get_cache_warmer_api_calls_per_run() {
         $options = get_option('flickr_justified_options', []);
-        $batch_size = isset($options['cache_warmer_batch_size']) ? absint($options['cache_warmer_batch_size']) : 5;
+        $max_calls = isset($options['cache_warmer_batch_size']) ? absint($options['cache_warmer_batch_size']) : 20;
 
-        if ($batch_size < 1) {
-            $batch_size = 1;
-        } elseif ($batch_size > 25) {
-            $batch_size = 25;
+        if ($max_calls < 1) {
+            $max_calls = 1;
+        } elseif ($max_calls > 200) {
+            $max_calls = 200;
         }
 
-        return $batch_size;
+        return $max_calls;
     }
 
     /**

@@ -877,6 +877,7 @@ class FlickrJustifiedBlock {
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/render.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache-warmers.php';
+require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cli-warmers.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/admin-settings.php';
 
 // Initialize the plugin after includes are loaded

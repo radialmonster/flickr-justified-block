@@ -44,6 +44,8 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $per_page = 500; // Flickr maximum per page
     $page = 1;
     $all_photos = [];
+    $all_photo_views = [];
+    $all_photo_urls_map = [];
     $total_pages = 1;
     $total_photos = 0;
     $album_title = '';
@@ -107,6 +109,17 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         foreach ($page_result['photos'] as $photo) {
             $all_photos[] = $photo;
         }
+        // Accumulate views and URL map for set index (when provided)
+        if (isset($page_result['photo_views']) && is_array($page_result['photo_views'])) {
+            foreach ($page_result['photo_views'] as $pid => $views) {
+                $all_photo_views[$pid] = (int) $views;
+            }
+        }
+        if (isset($page_result['photo_urls_map']) && is_array($page_result['photo_urls_map'])) {
+            foreach ($page_result['photo_urls_map'] as $pid => $purl) {
+                $all_photo_urls_map[$pid] = $purl;
+            }
+        }
         $pages_fetched++;
         $last_successful_page = $page;
 
@@ -144,8 +157,27 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
 
     $loaded_photos_count = count($all_photos);
 
+    // Build ordered photo list: prefer membership ordering when available.
+    $ordered_photos = $all_photos;
+    if (!empty($photoset_id) && !empty($all_photo_urls_map)) {
+        $ordered_ids = FlickrJustifiedCache::get_membership_order($photoset_id);
+        if (!empty($ordered_ids)) {
+            $ordered_photos = [];
+            foreach ($ordered_ids as $pid) {
+                if (isset($all_photo_urls_map[$pid])) {
+                    $ordered_photos[] = $all_photo_urls_map[$pid];
+                }
+            }
+            foreach ($all_photo_urls_map as $pid => $url) {
+                if (!in_array($pid, $ordered_ids, true)) {
+                    $ordered_photos[] = $url;
+                }
+            }
+        }
+    }
+
     $full_result = [
-        'photos' => $all_photos,
+        'photos' => $ordered_photos,
         'has_more' => (bool) ($last_has_more || $incomplete || $rate_limited),
         'total' => $total_photos > 0 ? $total_photos : $loaded_photos_count,
         'page' => 1,
@@ -168,6 +200,26 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     }
 
     $should_snapshot_partial = $incomplete || $rate_limited;
+
+    // Build and store set-wide views index when we have data
+    if (!empty($all_photo_views) && !empty($all_photo_urls_map)) {
+        FlickrJustifiedCache::persist_set_views_index(
+            $resolved_user_id,
+            $photoset_id,
+            $all_photo_views,
+            $all_photo_urls_map,
+            $should_snapshot_partial,
+            $total_photos
+        );
+    }
+
+    // If views are stale, enqueue a high-priority refresh job for this set.
+    if (!empty($photoset_id) && class_exists('FlickrJustifiedCacheWarmer')) {
+        $stale_views_threshold = (int) apply_filters('flickr_justified_views_refresh_threshold_hours', 24);
+        if ($stale_views_threshold > 0 && FlickrJustifiedCache::views_are_stale_for_set($photoset_id, $stale_views_threshold)) {
+            FlickrJustifiedCacheWarmer::enqueue_hot_set($photoset_id, $resolved_user_id);
+        }
+    }
 
     if (!$full_result['has_more'] && $fetched_all_pages && !empty($all_photos) && !$rate_limited) {
         $cache_duration = 6 * HOUR_IN_SECONDS;

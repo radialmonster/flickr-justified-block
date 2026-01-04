@@ -181,6 +181,7 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
 
             // Cache always includes metadata (rotation + stats), so this always returns complete data
             $image_data = flickr_justified_get_flickr_image_sizes_with_dimensions($url, $available_sizes, true);
+            $rate_limited = is_array($image_data) && isset($image_data['rate_limited']) && $image_data['rate_limited'];
 
             if (!empty($photo['stats']) && is_array($photo['stats'])) {
                 $stats = $photo['stats'];
@@ -204,6 +205,14 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
 
             $display_src = isset($image_data[$image_size]['url']) ? $image_data[$image_size]['url'] : '';
             $dimensions = isset($image_data[$image_size]) ? $image_data[$image_size] : null;
+
+            // Static URL fallback if missing display size but server/secret are known
+            if (empty($display_src) && isset($image_data['_photo_info']['server'], $image_data['_photo_info']['secret'])) {
+                $static = FlickrJustifiedCache::build_static_url($image_size, $image_data['_photo_info']['server'], $image_data['_photo_info']['secret'], $image_data['_photo_info']['id'] ?? null);
+                if ($static) {
+                    $display_src = $static;
+                }
+            }
 
             // For PhotoSwipe, select size appropriate for high-res displays (around 2-3x screen width)
             $best_lightbox_size = flickr_justified_select_best_size($image_data, 3500, 3500);
@@ -234,6 +243,10 @@ function flickr_justified_render_justified_gallery($photos, $block_id, $gap, $im
 
             if (empty($display_src)) {
                 $error_mode = flickr_justified_get_admin_setting('get_privacy_error_mode', 'show_placeholder');
+                if ($rate_limited && 'show_nothing' === $error_mode) {
+                    // Never silently drop items due to Flickr rate limits
+                    $error_mode = 'show_error';
+                }
 
                 if ($error_mode === 'show_nothing') {
                     continue;

@@ -24,6 +24,11 @@ if (!defined('ABSPATH')) {
  * @return bool True if should use async loading
  */
 function flickr_justified_should_use_async_loading($urls) {
+    // Default: disable async rendering; performance optimizations make sync safe and avoids WAF/admin-ajax issues.
+    if (apply_filters('flickr_justified_disable_async', true)) {
+        return false;
+    }
+
     // Allow forcing synchronous render (e.g., when already in async context)
     if (apply_filters('flickr_justified_force_sync_render', false)) {
         return false;
@@ -49,6 +54,22 @@ function flickr_justified_should_use_async_loading($urls) {
     // Check if any URLs are albums or uncached photos
     foreach ($final_urls as $url) {
         $set_info = flickr_justified_parse_set_url($url);
+        // Early exit: if there are no album URLs and total URLs are small, render synchronously to avoid AJAX/WAF issues
+        static $checked_small_batch = false;
+        if (!$checked_small_batch) {
+            $checked_small_batch = true;
+            $has_album = false;
+            foreach ($final_urls as $u) {
+                if (flickr_justified_parse_set_url($u)) {
+                    $has_album = true;
+                    break;
+                }
+            }
+            if (!$has_album && count($final_urls) <= 30) {
+                return false;
+            }
+        }
+
         if ($set_info && !empty($set_info['photoset_id'])) {
             // Resolve user ID first (checks cache, won't make API call if cached)
             $resolved_user_id = FlickrJustifiedCache::resolve_user_id($set_info['user_id']);
@@ -127,8 +148,10 @@ function flickr_justified_should_use_async_loading($urls) {
  * Renders the block content asynchronously to prevent page load timeouts.
  */
 function flickr_justified_ajax_load_async() {
-    // Verify nonce for security
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'flickr_justified_async_load')) {
+    // Verify nonce for security; allow anonymous fallback to avoid cached-stale nonce failures on public pages.
+    $nonce_valid = (isset($_POST['nonce']) && wp_verify_nonce($_POST['nonce'], 'flickr_justified_async_load'));
+    $allow_anon_without_nonce = apply_filters('flickr_justified_allow_anon_async', true);
+    if (!$nonce_valid && (! $allow_anon_without_nonce || is_user_logged_in())) {
         wp_send_json_error('Security check failed', 403);
     }
 
@@ -163,3 +186,100 @@ function flickr_justified_ajax_load_async() {
 }
 add_action('wp_ajax_flickr_justified_load_async', 'flickr_justified_ajax_load_async');
 add_action('wp_ajax_nopriv_flickr_justified_load_async', 'flickr_justified_ajax_load_async');
+
+/**
+ * Debug endpoint: return cached data for a photo_id (sizes/stats/meta).
+ */
+function flickr_justified_debug_photo() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('unauthorized', 403);
+    }
+
+    $photo_id = isset($_GET['photo_id']) ? trim(sanitize_text_field($_GET['photo_id'])) : '';
+    if ('' === $photo_id) {
+        wp_send_json_error('missing photo_id', 400);
+    }
+
+    $available = flickr_justified_get_available_flickr_sizes(true);
+    $size_key = md5(implode(',', $available));
+
+    $cache_dims = FlickrJustifiedCache::get(['dims', $photo_id, $size_key]);
+    $cache_stats = FlickrJustifiedCache::get(['photo_stats', $photo_id]);
+    $meta_table = null;
+
+    global $wpdb;
+    $table_meta = $wpdb->prefix . 'fjb_photo_meta';
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_meta)) === $table_meta) {
+        $row = $wpdb->get_row($wpdb->prepare("SELECT meta_json, updated_at FROM {$table_meta} WHERE photo_id = %s LIMIT 1", $photo_id));
+        if ($row) {
+            $meta_table = [
+                'meta_json' => json_decode($row->meta_json, true),
+                'updated_at' => $row->updated_at,
+            ];
+        }
+    }
+
+    $table_cache = $wpdb->prefix . 'fjb_photo_cache';
+    $cache_table = null;
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_cache)) === $table_cache) {
+        $row = $wpdb->get_row($wpdb->prepare("SELECT cache_json, updated_at FROM {$table_cache} WHERE photo_id = %s AND sizes_key = %s LIMIT 1", $photo_id, $size_key));
+        if ($row) {
+            $cache_table = [
+                'cache_json' => json_decode($row->cache_json, true),
+                'updated_at' => $row->updated_at,
+            ];
+        }
+    }
+
+    wp_send_json_success([
+        'photo_id' => $photo_id,
+        'cache_dims' => $cache_dims,
+        'cache_stats' => $cache_stats,
+        'db_meta' => $meta_table,
+        'db_cache' => $cache_table,
+    ]);
+}
+add_action('wp_ajax_flickr_justified_debug_photo', 'flickr_justified_debug_photo');
+
+/**
+ * Debug endpoint: list pending jobs for the cache warmer.
+ */
+function flickr_justified_debug_jobs() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('unauthorized', 403);
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'fjb_jobs';
+    $rows = $wpdb->get_results(
+        "SELECT job_key, job_type, payload_json, priority, not_before, attempts, last_error, status, created_at, updated_at
+         FROM {$table}
+         WHERE status = 'pending'
+         ORDER BY priority DESC, created_at ASC
+         LIMIT 50"
+    );
+
+    $jobs = [];
+    if ($rows) {
+        foreach ($rows as $row) {
+            $jobs[] = [
+                'job_key' => $row->job_key,
+                'job_type' => $row->job_type,
+                'payload' => json_decode($row->payload_json, true),
+                'priority' => (int) $row->priority,
+                'not_before' => $row->not_before,
+                'attempts' => (int) $row->attempts,
+                'last_error' => $row->last_error,
+                'status' => $row->status,
+                'created_at' => $row->created_at,
+                'updated_at' => $row->updated_at,
+            ];
+        }
+    }
+
+    wp_send_json_success([
+        'jobs' => $jobs,
+        'count' => count($jobs),
+    ]);
+}
+add_action('wp_ajax_flickr_justified_debug_jobs', 'flickr_justified_debug_jobs');

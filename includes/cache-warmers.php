@@ -15,8 +15,6 @@ if (!defined('ABSPATH')) {
  */
 class FlickrJustifiedCacheWarmer {
     private const OPTION_KNOWN_URLS = 'flickr_justified_known_flickr_urls';
-    private const OPTION_QUEUE = 'flickr_justified_cache_warmer_queue';
-    private const OPTION_FAILURES = 'flickr_justified_cache_warmer_failures';
     private const OPTION_LOCK = 'flickr_justified_cache_warmer_lock';
     private const OPTION_PAUSE_UNTIL = 'flickr_justified_cache_warmer_pause_until';
     private const CRON_HOOK = 'flickr_justified_run_cache_warmer';
@@ -33,6 +31,7 @@ class FlickrJustifiedCacheWarmer {
         add_filter('cron_schedules', [__CLASS__, 'register_cron_schedule']);
         add_action(self::CRON_HOOK, [__CLASS__, 'process_queue']);
         add_action('init', [__CLASS__, 'maybe_schedule_recurring_event']);
+        add_action('flickr_justified_prune_jobs', [__CLASS__, 'prune_completed_jobs']);
 
         if (defined('WP_CLI') && WP_CLI) {
             self::register_cli_command();
@@ -51,17 +50,6 @@ class FlickrJustifiedCacheWarmer {
      */
     private static function is_slow_mode() {
         return (bool) flickr_justified_get_admin_setting('is_cache_warmer_slow_mode', true);
-    }
-
-    /**
-     * Retrieve configured batch size.
-     */
-    private static function get_batch_size() {
-        $size = (int) flickr_justified_get_admin_setting('get_cache_warmer_batch_size', 5);
-        if ($size < 1) {
-            $size = 1;
-        }
-        return min($size, 25);
     }
 
     /**
@@ -128,6 +116,10 @@ class FlickrJustifiedCacheWarmer {
         if (!wp_next_scheduled(self::CRON_HOOK)) {
             wp_schedule_event(time() + MINUTE_IN_SECONDS, self::CRON_SCHEDULE, self::CRON_HOOK);
         }
+
+        if (!wp_next_scheduled('flickr_justified_prune_jobs')) {
+            wp_schedule_event(time() + DAY_IN_SECONDS, 'daily', 'flickr_justified_prune_jobs');
+        }
     }
 
     /**
@@ -139,6 +131,12 @@ class FlickrJustifiedCacheWarmer {
             wp_unschedule_event($timestamp, self::CRON_HOOK);
             $timestamp = wp_next_scheduled(self::CRON_HOOK);
         }
+
+        $timestamp = wp_next_scheduled('flickr_justified_prune_jobs');
+        while (false !== $timestamp) {
+            wp_unschedule_event($timestamp, 'flickr_justified_prune_jobs');
+            $timestamp = wp_next_scheduled('flickr_justified_prune_jobs');
+        }
     }
 
     /**
@@ -147,6 +145,8 @@ class FlickrJustifiedCacheWarmer {
     public static function handle_activation() {
         self::rebuild_known_urls();
         self::prime_queue_from_known_urls(true);
+        // Drop legacy photo jobs and keep only bulk set/photostream jobs.
+        self::reset_to_bulk_queue();
         self::maybe_schedule_recurring_event();
         if (self::is_enabled()) {
             self::schedule_next_batch(0);
@@ -215,7 +215,15 @@ class FlickrJustifiedCacheWarmer {
                 }
             }
 
-            $batch_size = $process_all ? count($queue) : self::get_batch_size();
+        $default_calls = 20;
+        if (function_exists('flickr_justified_get_admin_setting')) {
+            $default_calls = (int) flickr_justified_get_admin_setting('get_cache_warmer_api_calls_per_run', 20);
+        }
+        $max_api_calls = $process_all ? PHP_INT_MAX : (int) apply_filters('flickr_justified_cache_warmer_max_api_calls', $default_calls);
+            if ($max_api_calls < 1) {
+                $max_api_calls = 1;
+            }
+
             $processed = 0;
             $attempted = 0;
             $remaining = [];
@@ -223,7 +231,12 @@ class FlickrJustifiedCacheWarmer {
             $last_error = '';
 
             foreach ($queue as $queue_item) {
-                if (!$process_all && $attempted >= $batch_size) {
+                if (null !== $max_seconds && (microtime(true) - $start_time) >= $max_seconds) {
+                    $remaining[] = $queue_item;
+                    continue;
+                }
+
+                if (!$process_all && $processed >= $max_api_calls) {
                     $remaining[] = $queue_item;
                     continue;
                 }
@@ -241,24 +254,19 @@ class FlickrJustifiedCacheWarmer {
                     continue;
                 }
 
+                $job_type = isset($queue_item['job_type']) ? $queue_item['job_type'] : (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url) ? 'photo' : 'set_page');
                 $queue_key = self::normalize_queue_key($queue_item);
-                $backoff_until = self::get_backoff_until($queue_key);
-                if ($backoff_until > time()) {
-                    // Skip this item for now but try to fill the batch with later items.
-                    $remaining[] = $queue_item;
-                    continue;
-                }
-
                 $attempted++;
 
-                $result = self::warm_url($url, $page);
+                $result = self::warm_url($url, $page, $job_type);
 
                 if ($result === 'rate_limited') {
                     // Rate limited - stop processing and keep this URL for retry
                     $rate_limited = true;
                     $remaining[] = $queue_item;
-                    self::clear_failure($queue_key);
+                    self::clear_failure($queue_key); // legacy map cleanup
                     self::set_pause_until(time() + HOUR_IN_SECONDS);
+                    self::mark_job_backoff($job_type, $url, $page, HOUR_IN_SECONDS, 'rate_limited');
 
                     // Add all remaining URLs back to queue
                     for ($i = $attempted; $i < count($queue); $i++) {
@@ -273,13 +281,15 @@ class FlickrJustifiedCacheWarmer {
                     // Album result with pagination info
                     if ($result['success']) {
                         $processed++;
-                        self::clear_failure($queue_key);
+                        self::clear_failure($queue_key); // legacy map cleanup
+                        self::mark_job_done($job_type, $url, $page);
 
                         // If we timed out on this page, retry it before moving forward.
                         if (!empty($result['needs_retry_page'])) {
                             array_unshift($remaining, [
                                 'url' => $url,
                                 'page' => $result['current_page'],
+                                'job_type' => $job_type,
                             ]);
 
                             if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -293,10 +303,15 @@ class FlickrJustifiedCacheWarmer {
                             // If there are more pages, add the next page to the FRONT of the queue
                             // This ensures we complete one album before moving to the next
                             $next_page = $result['current_page'] + 1;
-                            array_unshift($remaining, [
+                            $next_item = [
                                 'url' => $url,
                                 'page' => $next_page,
-                            ]);
+                                'job_type' => $job_type,
+                            ];
+                            if (isset($queue_item['user_id'])) {
+                                $next_item['user_id'] = $queue_item['user_id'];
+                            }
+                            array_unshift($remaining, $next_item);
 
                             if (defined('WP_DEBUG') && WP_DEBUG) {
                                 error_log(sprintf(
@@ -313,19 +328,21 @@ class FlickrJustifiedCacheWarmer {
                         if (!$drop) {
                             $remaining[] = $queue_item;
                         }
+                        self::mark_job_backoff($job_type, $url, $page, 300, 'album_fail');
                         $last_error = 'album_fail';
                     }
                 } elseif ($result) {
                     // Simple success (photo URL)
                     $processed++;
-                    self::clear_failure($queue_key);
+                    self::clear_failure($queue_key); // legacy map cleanup
+                    self::mark_job_done($job_type, $url, $page);
                     continue;
                 } else {
                     // Failed for other reasons - keep in queue for retry
-                    $drop = self::mark_failure($queue_key);
-                    if (!$drop) {
-                        $remaining[] = $queue_item;
-                    }
+                    // Legacy failure map cleanup; real backoff handled by job table.
+                    self::mark_failure($queue_key);
+                    $remaining[] = $queue_item;
+                    self::mark_job_backoff($job_type, $url, $page, 300, 'photo_fail');
                     $last_error = 'photo_fail';
                 }
 
@@ -370,7 +387,7 @@ class FlickrJustifiedCacheWarmer {
      * @return bool|string|array True on success, 'rate_limited' on rate limit, false on failure,
      *                           or album array with 'success', 'has_more_pages', 'needs_retry_page'.
      */
-    public static function warm_url($url, $page = 1) {
+    public static function warm_url($url, $page = 1, $job_type = 'set_page') {
         if (!is_string($url) || '' === trim($url)) {
             return false;
         }
@@ -378,22 +395,49 @@ class FlickrJustifiedCacheWarmer {
         $url = trim($url);
         $page = max(1, (int) $page);
         $start_time = microtime(true);
-        $max_duration = (int) apply_filters('flickr_justified_cache_warmer_max_seconds', 20);
+        $default_seconds = (int) flickr_justified_get_admin_setting('get_cache_warmer_max_seconds', 20);
+        $max_duration = (int) apply_filters('flickr_justified_cache_warmer_max_seconds', $default_seconds);
         $max_duration = max(5, $max_duration);
-        $sleep_seconds = (float) apply_filters('flickr_justified_cache_warmer_sleep_seconds', 1.0);
-        // Clamp to sane bounds: 0-2s
-        if ($sleep_seconds < 0) {
-            $sleep_seconds = 0.0;
-        } elseif ($sleep_seconds > 2) {
-            $sleep_seconds = 2.0;
-        }
+        $sleep_seconds = 0.0; // No per-photo sleeping in bulk mode
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            $log_message = 'Flickr warm_url processing: ' . $url;
+            $log_message = 'Flickr warm_url processing [' . $job_type . ']: ' . $url;
             if ($page > 1) {
                 $log_message .= ' (page ' . $page . ')';
             }
             error_log($log_message);
+        }
+
+        // Photostream page job (bulk)
+        if ('photostream_page' === $job_type) {
+            // Expect url format photostream:{user} and/or payload user_id
+            $user_id = '';
+            if (strpos($url, 'photostream:') === 0) {
+                $user_id = substr($url, strlen('photostream:'));
+            }
+            if (empty($user_id) && preg_match('#flickr\.com/photos/([^/]+)/#', $url, $m)) {
+                $user_id = $m[1];
+            }
+            if (empty($user_id)) {
+                return false;
+            }
+
+            $result = FlickrJustifiedCache::get_photostream_photos($user_id, $page, 500);
+            if (is_array($result) && isset($result['rate_limited']) && $result['rate_limited']) {
+                return 'rate_limited';
+            }
+            if (empty($result['photos'])) {
+                return false;
+            }
+
+            return [
+                'success' => true,
+                'has_more_pages' => !empty($result['has_more']),
+                'needs_retry_page' => false,
+                'current_page' => isset($result['page']) ? (int) $result['page'] : $page,
+                'total_pages' => isset($result['pages']) ? (int) $result['pages'] : 1,
+                'user_id' => $user_id,
+            ];
         }
 
         // Check if this is a photo URL
@@ -441,10 +485,7 @@ class FlickrJustifiedCacheWarmer {
                 }
 
                 // Add delay to respect Flickr's rate limit (3,600 calls/hour = 1 per second)
-                // Each photo can make 2 API calls (sizes + stats); filterable for tuning.
-                if ($sleep_seconds > 0) {
-                    usleep((int) ($sleep_seconds * 1000000));
-                }
+                // No per-photo sleep in bulk mode.
             } catch (Exception $e) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log('Flickr warm_url photo error: ' . $e->getMessage());
@@ -468,7 +509,14 @@ class FlickrJustifiedCacheWarmer {
         try {
             // Use the configured batch size to limit photos fetched from an album in one go.
             // This prevents server timeouts on huge albums.
-            $per_page = self::get_batch_size();
+            // Override with a high page size so we warm hundreds of photos with a single Flickr call.
+            $per_page = (int) apply_filters('flickr_justified_cache_warmer_album_page_size', 500);
+            if ($per_page < 1) {
+                $per_page = 1;
+            } elseif ($per_page > 500) {
+                $per_page = 500;
+            }
+
             $success = false;
             $available_sizes = flickr_justified_get_available_flickr_sizes(true);
 
@@ -501,64 +549,23 @@ class FlickrJustifiedCacheWarmer {
                 ));
             }
 
-            // Warm each photo from the current page.
-            foreach ($photos as $photo_url) {
-                // Bail out if this run has consumed its time budget.
-                if ((microtime(true) - $start_time) >= $max_duration) {
-                    $timed_out = true;
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('Flickr warm_url album: max duration reached, deferring remaining photos');
-                    }
-                    break;
-                }
+            // The album call already cached each photo's sizes + views; avoid per-photo API thrash.
+            $success = true;
 
-                $photo_url = trim((string) $photo_url);
-                if ('' === $photo_url) {
-                    continue;
-                }
-
-                if (!preg_match('#flickr\.com/photos/[^/]+/(\d+)#', $photo_url, $matches)) {
-                    continue;
-                }
-                $photo_id = $matches[1];
-
-                // Warm photo sizes and metadata
-                $data = FlickrJustifiedCache::get_photo_sizes($photo_id, $photo_url, $available_sizes, true, false);
-                if (is_array($data) && isset($data['rate_limited']) && $data['rate_limited']) {
-                    return 'rate_limited';
-                }
-
-                // If rotation is missing, warm photo info to capture it.
-                if (!isset($data['_rotation'])) {
-                    $info = FlickrJustifiedCache::get_photo_info($photo_id, false);
-                    if (is_array($info) && isset($info['rotation'])) {
-                        $success = true;
-                    }
-                }
-
-                // Warm photo stats
-                $stats = FlickrJustifiedCache::get_photo_stats($photo_id);
-                if (is_array($stats) && isset($stats['rate_limited']) && $stats['rate_limited']) {
-                    return 'rate_limited';
-                }
-
-                // Mark as success if at least one photo was processed
-                if (!empty($data)) {
-                    $success = true;
-                }
-
-                // Add delay between photos to respect Flickr's rate limit (3,600 calls/hour = 1 per second)
-                // Each photo can make 2 API calls (sizes + stats); filterable for tuning.
-                if ($sleep_seconds > 0) {
-                    usleep((int) ($sleep_seconds * 1000000));
-                }
-
-                if ((microtime(true) - $start_time) >= $max_duration) {
-                    $timed_out = true;
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('Flickr warm_url album: max duration reached mid-page, deferring remaining photos');
-                    }
-                    break;
+            // Persist a views index so views_desc sorting is instant.
+            $photo_views_map = isset($result['photo_views']) && is_array($result['photo_views']) ? $result['photo_views'] : [];
+            $photo_urls_map = isset($result['photo_urls_map']) && is_array($result['photo_urls_map']) ? $result['photo_urls_map'] : [];
+            if (!empty($photo_views_map) && !empty($photo_urls_map)) {
+                $resolved_user_id = FlickrJustifiedCache::resolve_user_id($set_info['user_id']);
+                if ($resolved_user_id) {
+                    FlickrJustifiedCache::persist_set_views_index(
+                        $resolved_user_id,
+                        $set_info['photoset_id'],
+                        $photo_views_map,
+                        $photo_urls_map,
+                        !empty($result['has_more']),
+                        $total_photos
+                    );
                 }
             }
 
@@ -814,17 +821,24 @@ class FlickrJustifiedCacheWarmer {
         $current_queue = self::get_queue();
 
         if (!$force && !empty($current_queue)) {
-            self::cleanup_failure_map($current_queue);
             return $current_queue;
         }
 
         $urls = self::get_all_known_urls();
+        $photostream_users = [];
 
         if (!$force) {
             // Simple case: queue is empty, just use the new URLs
-            self::save_queue($urls);
-            self::cleanup_failure_map($urls);
-            return $urls;
+            $queue = $urls;
+            // Collect users for photostream jobs.
+            foreach ($urls as $u) {
+                if (preg_match('#flickr\.com/photos/([^/]+)/#', $u, $m)) {
+                    $photostream_users[] = $m[1];
+                }
+            }
+            $queue = self::append_photostream_jobs($queue, $photostream_users);
+            self::save_queue($queue);
+            return $queue;
         }
 
         // When forcing, preserve in-progress paginated entries
@@ -865,10 +879,26 @@ class FlickrJustifiedCacheWarmer {
             if (!$already_queued) {
                 $merged_queue[] = $url;
             }
+
+            if (preg_match('#flickr\.com/photos/([^/]+)/#', $url, $m)) {
+                $photostream_users[] = $m[1];
+            }
         }
 
+        $merged_queue = self::append_photostream_jobs($merged_queue, $photostream_users);
+
+        // Strip any photo jobs from merged queue to keep it bulk-only.
+        $merged_queue = array_values(array_filter($merged_queue, function($item) {
+            if (is_array($item) && isset($item['job_type']) && $item['job_type'] === 'photo') {
+                return false;
+            }
+            if (is_string($item) && function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($item)) {
+                return false;
+            }
+            return true;
+        }));
+
         self::save_queue($merged_queue);
-        self::cleanup_failure_map($merged_queue);
         return $merged_queue;
     }
 
@@ -877,9 +907,39 @@ class FlickrJustifiedCacheWarmer {
      * Queue items can be either strings (legacy format) or arrays with 'url' and 'page' keys.
      */
     private static function get_queue() {
-        $queue = get_option(self::OPTION_QUEUE, []);
-        if (!is_array($queue)) {
-            $queue = [];
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        $rows = $wpdb->get_results(
+            "SELECT job_key, job_type, payload_json, priority FROM {$table}
+             WHERE status = 'pending' AND (not_before IS NULL OR not_before <= NOW())
+             ORDER BY priority DESC, created_at ASC
+             LIMIT 500"
+        );
+
+        $queue = [];
+        if (!empty($rows)) {
+            foreach ($rows as $row) {
+                $payload = json_decode($row->payload_json, true);
+                if (!is_array($payload)) {
+                    continue;
+                }
+                $url = isset($payload['url']) ? trim((string) $payload['url']) : '';
+                $page = isset($payload['page']) ? (int) $payload['page'] : 1;
+                $user_id = isset($payload['user_id']) ? $payload['user_id'] : '';
+                if ('' === $url) {
+                    continue;
+                }
+                $queue[] = [
+                    'url' => $url,
+                    'page' => $page,
+                    'job_type' => $row->job_type,
+                    'job_key' => $row->job_key,
+                    'user_id' => $user_id,
+                    'priority' => isset($row->priority) ? (int) $row->priority : 0,
+                ];
+            }
         }
 
         // Clean and validate queue items
@@ -907,130 +967,66 @@ class FlickrJustifiedCacheWarmer {
     }
 
     /**
+     * Enqueue a set_page job for a given set/page at the provided priority.
+     */
+    private static function enqueue_set_page($photoset_id, $page = 1, $priority = 10) {
+        $photoset_id = trim((string) $photoset_id);
+        $page = max(1, (int) $page);
+        if ('' === $photoset_id) {
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        $user = flickr_justified_get_admin_setting('api_user', 'radialmonster');
+        $user = rawurldecode((string) $user);
+        $url = 'https://flickr.com/photos/' . $user . '/albums/' . $photoset_id;
+        $payload = [
+            'url' => $url,
+            'page' => $page,
+        ];
+        $job_key = self::build_job_key('set_page', $url, $page);
+
+        $wpdb->replace(
+            $table,
+            [
+                'job_key' => $job_key,
+                'job_type' => 'set_page',
+                'payload_json' => wp_json_encode($payload),
+                'priority' => $priority,
+                'not_before' => null,
+                'attempts' => 0,
+                'last_error' => null,
+                'status' => 'pending',
+            ]
+        );
+    }
+
+    /**
      * Normalize queue item to a unique key for tracking failures/backoff.
      */
     private static function normalize_queue_key($item) {
         if (is_array($item)) {
             $url = isset($item['url']) ? trim((string) $item['url']) : '';
             $page = isset($item['page']) ? (int) $item['page'] : 1;
-            return $url . '|page:' . $page;
+            $job_type = isset($item['job_type']) ? $item['job_type'] : (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url) ? 'photo' : 'set_page');
+            return $job_type . ':' . $url . '|page:' . $page;
         }
 
-        return trim((string) $item) . '|page:1';
+        $url = trim((string) $item);
+        $job_type = (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) ? 'photo' : 'set_page';
+        return $job_type . ':' . $url . '|page:1';
     }
 
-    /**
-     * Retrieve failure/backoff map.
-     */
-    private static function get_failure_map() {
-        $map = get_option(self::OPTION_FAILURES, []);
-        return is_array($map) ? $map : [];
-    }
-
-    /**
-     * Persist failure/backoff map.
-     */
-    private static function save_failure_map($map) {
-        if (empty($map)) {
-            delete_option(self::OPTION_FAILURES);
-            return;
-        }
-        update_option(self::OPTION_FAILURES, $map, false);
-    }
-
-    /**
-     * Remove failure entries that no longer exist in the queue.
-     *
-     * @param array $queue
-     */
-    private static function cleanup_failure_map($queue) {
-        $map = self::get_failure_map();
-        if (empty($map)) {
-            return;
-        }
-
-        $valid_keys = [];
-        foreach ($queue as $item) {
-            $valid_keys[] = self::normalize_queue_key($item);
-        }
-        $valid_keys = array_unique($valid_keys);
-
-        $changed = false;
-        foreach (array_keys($map) as $key) {
-            if (!in_array($key, $valid_keys, true)) {
-                unset($map[$key]);
-                $changed = true;
-            }
-        }
-
-        if ($changed) {
-            self::save_failure_map($map);
-        }
-    }
-
-    /**
-     * Determine if a queue key is in backoff; clears stale entries.
-     */
-    private static function get_backoff_until($queue_key) {
-        if ('' === $queue_key) {
-            return 0;
-        }
-
-        $map = self::get_failure_map();
-        if (!isset($map[$queue_key])) {
-            return 0;
-        }
-
-        $backoff_until = isset($map[$queue_key]['backoff_until']) ? (int) $map[$queue_key]['backoff_until'] : 0;
-        if ($backoff_until <= time()) {
-            unset($map[$queue_key]);
-            self::save_failure_map($map);
-            return 0;
-        }
-
-        return $backoff_until;
-    }
-
-    /**
-     * Record a failure and apply exponential-ish backoff (15m steps capped at 6h).
-     * @return bool True if item should be dropped due to too many failures.
-     */
-    private static function mark_failure($queue_key) {
-        if ('' === $queue_key) {
-            return false;
-        }
-
-        $map = self::get_failure_map();
-        $count = isset($map[$queue_key]['count']) ? (int) $map[$queue_key]['count'] : 0;
-        $count++;
-
-        $delay = max(15 * MINUTE_IN_SECONDS, $count * 15 * MINUTE_IN_SECONDS);
-        $delay = min(6 * HOUR_IN_SECONDS, $delay);
-
-        $map[$queue_key] = [
-            'count' => $count,
-            'backoff_until' => time() + $delay,
-            'last_failed' => time(),
-        ];
-
-        self::save_failure_map($map);
-        return ($count >= self::MAX_FAILURES);
-    }
-
-    /**
-     * Clear recorded failure/backoff.
-     */
-    private static function clear_failure($queue_key) {
-        if ('' === $queue_key) {
-            return;
-        }
-
-        $map = self::get_failure_map();
-        if (isset($map[$queue_key])) {
-            unset($map[$queue_key]);
-            self::save_failure_map($map);
-        }
-    }
+    // Legacy failure map is deprecated; keep no-ops for backward compatibility.
+    private static function get_failure_map() { return []; }
+    private static function save_failure_map($map) { }
+    private static function cleanup_failure_map($queue) { }
+    private static function get_backoff_until($queue_key) { return 0; }
+    private static function mark_failure($queue_key) { return false; }
+    private static function clear_failure($queue_key) { }
 
     /**
      * Record last run metadata for diagnostics.
@@ -1076,13 +1072,385 @@ class FlickrJustifiedCacheWarmer {
      * Save the queue.
      */
     private static function save_queue($queue) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        // If queue is empty, clear pending jobs.
         if (empty($queue)) {
-            delete_option(self::OPTION_QUEUE);
-            delete_option(self::OPTION_FAILURES);
+            $wpdb->query("DELETE FROM {$table} WHERE status = 'pending'");
             return;
         }
 
-        update_option(self::OPTION_QUEUE, array_values($queue), false);
+        // Wipe pending jobs and rebuild from queue snapshot.
+        $wpdb->query("DELETE FROM {$table} WHERE status = 'pending'");
+
+        foreach ($queue as $item) {
+            $url = '';
+            $page = 1;
+            $user_id = '';
+            if (is_array($item)) {
+                $url = isset($item['url']) ? trim((string) $item['url']) : '';
+                $page = isset($item['page']) ? (int) $item['page'] : 1;
+                $user_id = isset($item['user_id']) ? $item['user_id'] : '';
+            } else {
+                $url = trim((string) $item);
+            }
+            if ('' === $url) {
+                continue;
+            }
+
+            $payload = [
+                'url' => $url,
+                'page' => $page,
+            ];
+            if ('' !== $user_id) {
+                $payload['user_id'] = $user_id;
+            }
+            $job_type = 'set_page';
+            if (is_array($item) && isset($item['job_type']) && '' !== $item['job_type']) {
+                $job_type = $item['job_type'];
+            } elseif (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
+                $job_type = 'photo';
+            }
+            // Disallow photo jobs in bulk mode.
+            if ($job_type === 'photo') {
+                continue;
+            }
+
+            $priority = 0;
+            if ('photostream_page' === $job_type) {
+                $priority = -5;
+            }
+            if ('set_page' === $job_type) {
+                $priority = 10;
+            }
+            if (is_array($item) && (isset($item['priority']) || array_key_exists('priority', $item))) {
+                $priority = (int) $item['priority'];
+            }
+
+            $job_key = $job_type . ':' . md5($url . '|' . $page);
+            $wpdb->replace(
+                $table,
+                [
+                    'job_key' => $job_key,
+                    'job_type' => $job_type,
+                    'payload_json' => wp_json_encode($payload),
+                    'priority' => $priority,
+                    'status' => 'pending',
+                    'not_before' => null,
+                    'attempts' => 0,
+                    'last_error' => null,
+                ]
+            );
+        }
+
+        // Drop legacy option queue entirely.
+        // (No-op now; legacy option removed.)
+    }
+
+    /**
+     * Reset the queue to bulk mode: drop all photo jobs and rebuild from content.
+     */
+    public static function reset_to_bulk_queue() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        // Drop all existing jobs to remove legacy photo jobs.
+        if ($wpdb->query("DELETE FROM {$table}") === false) {
+            throw new RuntimeException('Failed to clear jobs table');
+        }
+
+        // Clear any legacy option queue remnants.
+        delete_option('flickr_justified_cache_warmer_queue');
+
+        // Rebuild from content (set_page + photostream as configured).
+        self::rebuild_known_urls();
+        self::prime_queue_from_known_urls(true);
+    }
+
+    /**
+     * Rebuild queue from content without wiping existing jobs.
+     *
+     * @param bool $force Whether to merge/refresh paginated entries (true keeps existing page>1 items).
+     */
+    public static function rebuild_queue_from_content($force = true) {
+        self::rebuild_known_urls();
+        self::prime_queue_from_known_urls($force);
+    }
+
+    /**
+     * Requeue any photos missing core metadata (server, secret, or views_checked_at).
+     * This backfills by enqueueing their albums and photostream pages at normal priority.
+     */
+    public static function requeue_missing_metadata() {
+        global $wpdb;
+        $meta_table = $wpdb->prefix . 'fjb_photo_meta';
+        $membership_table = $wpdb->prefix . 'fjb_photo_membership';
+
+        // First, heal bad timestamps for rows that already have some data.
+        $wpdb->query(
+            "UPDATE {$meta_table}
+             SET updated_at = NOW()
+             WHERE (updated_at IS NULL OR updated_at = '0000-00-00 00:00:00')
+               AND (server <> '' OR secret <> '' OR views_checked_at IS NOT NULL)"
+        );
+
+        // Find photos missing critical fields.
+        $photos = $wpdb->get_results(
+            "SELECT photo_id FROM {$meta_table}
+             WHERE server IS NULL OR server = ''
+                OR secret IS NULL OR secret = ''
+                OR views_checked_at IS NULL
+                OR updated_at IS NULL OR updated_at = '0000-00-00 00:00:00'
+             LIMIT 1000",
+            ARRAY_A
+        );
+
+        if (empty($photos)) {
+            return 0;
+        }
+
+        $photo_ids = wp_list_pluck($photos, 'photo_id');
+
+        // Map to albums via membership table.
+        $placeholders = implode(',', array_fill(0, count($photo_ids), '%s'));
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT DISTINCT photoset_id FROM {$membership_table} WHERE photo_id IN ({$placeholders})",
+                $photo_ids
+            ),
+            ARRAY_A
+        );
+
+        $queued = 0;
+        if (!empty($rows)) {
+            foreach ($rows as $row) {
+                $photoset_id = trim((string) $row['photoset_id']);
+                if ($photoset_id === '') {
+                    continue;
+                }
+                self::enqueue_set_page($photoset_id, 1, 10);
+                $queued++;
+            }
+        }
+
+        // Also enqueue photostream page 1 for primary users referenced in known URLs.
+        $known_urls = self::get_all_known_urls();
+        $users = [];
+        foreach ($known_urls as $url) {
+            if (preg_match('#flickr\.com/photos/([^/]+)/#', $url, $m)) {
+                $users[] = $m[1];
+            }
+        }
+        $users = array_unique($users);
+        if (!empty($users)) {
+            $queue = [];
+            $queue = self::append_photostream_jobs($queue, $users);
+            self::save_queue(array_merge(self::get_queue(), $queue));
+            $queued += count($queue);
+        }
+
+        return $queued;
+    }
+
+    /**
+     * Ensure the jobs table exists for queue storage.
+     */
+    private static function ensure_jobs_table() {
+        global $wpdb;
+        static $created = false;
+        if ($created) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'fjb_jobs';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $sql = "CREATE TABLE {$table} (
+            job_key VARCHAR(191) NOT NULL,
+            job_type VARCHAR(32) NOT NULL,
+            payload_json LONGTEXT NOT NULL,
+            priority INT NOT NULL DEFAULT 0,
+            not_before DATETIME DEFAULT NULL,
+            attempts INT NOT NULL DEFAULT 0,
+            last_error TEXT DEFAULT NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (job_key),
+            KEY idx_status_priority (status, priority, created_at),
+            KEY idx_not_before (not_before)
+        ) {$charset_collate};";
+        dbDelta($sql);
+
+        $created = true;
+    }
+
+    /**
+     * Append photostream jobs (page 1) for provided users if enabled.
+     *
+     * @param array $queue
+     * @param array $user_ids
+     * @return array
+     */
+    private static function append_photostream_jobs($queue, $user_ids) {
+        $enable_photostream = (bool) apply_filters(
+            'flickr_justified_cache_warmer_enable_photostream',
+            (bool) flickr_justified_get_admin_setting('is_cache_warmer_photostream_enabled', true)
+        );
+        if (!$enable_photostream || empty($user_ids)) {
+            return $queue;
+        }
+
+        $existing = [];
+        foreach ($queue as $item) {
+            if (is_array($item) && isset($item['job_type'], $item['user_id']) && $item['job_type'] === 'photostream_page') {
+                $existing[$item['user_id']] = true;
+            } elseif (is_array($item) && isset($item['url']) && strpos((string) $item['url'], 'photostream:') === 0) {
+                $existing[(string) $item['url']] = true;
+            }
+        }
+
+        foreach (array_unique($user_ids) as $user) {
+            if (isset($existing[$user]) || isset($existing['photostream:' . $user])) {
+                continue;
+            }
+            $queue[] = [
+                'url' => 'photostream:' . $user,
+                'page' => 1,
+                'job_type' => 'photostream_page',
+                'user_id' => $user,
+            ];
+        }
+
+        return $queue;
+    }
+
+    /**
+     * Enqueue a high-priority set refresh job (hot path when views are stale).
+     *
+     * @param string $photoset_id
+     * @param string $resolved_user_id
+     */
+    public static function enqueue_hot_set($photoset_id, $resolved_user_id) {
+        $photoset_id = trim((string) $photoset_id);
+        $resolved_user_id = trim((string) $resolved_user_id);
+        if ('' === $photoset_id || '' === $resolved_user_id) {
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        $url = 'https://flickr.com/photos/' . rawurlencode($resolved_user_id) . '/albums/' . $photoset_id;
+        $payload = [
+            'url' => $url,
+            'page' => 1,
+        ];
+        $job_type = 'set_page';
+        $job_key = self::build_job_key($job_type, $url, 1);
+
+        $wpdb->replace(
+            $table,
+            [
+                'job_key' => $job_key,
+                'job_type' => $job_type,
+                'payload_json' => wp_json_encode($payload),
+                'priority' => 50, // hot priority
+                'status' => 'pending',
+                'not_before' => null,
+                'attempts' => 0,
+                'last_error' => null,
+            ]
+        );
+    }
+
+    /**
+     * Helper to build a deterministic job key.
+     */
+    private static function build_job_key($job_type, $url, $page) {
+        return $job_type . ':' . md5($url . '|' . (int) $page);
+    }
+
+    /**
+     * Mark a job as done.
+     */
+    private static function mark_job_done($job_type, $url, $page) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+        $job_key = self::build_job_key($job_type, $url, $page);
+        $wpdb->update(
+            $table,
+            ['status' => 'done', 'not_before' => null, 'last_error' => null, 'updated_at' => current_time('mysql')],
+            ['job_key' => $job_key],
+            ['%s', '%s', '%s', '%s'],
+            ['%s']
+        );
+    }
+
+    /**
+     * Back off a job with a delay and error message.
+     */
+    private static function mark_job_backoff($job_type, $url, $page, $delay_seconds, $error) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+        $job_key = self::build_job_key($job_type, $url, $page);
+        $not_before = date('Y-m-d H:i:s', time() + max(0, (int) $delay_seconds));
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$table}
+                 SET not_before = %s,
+                     attempts = attempts + 1,
+                     last_error = %s,
+                     status = 'pending',
+                     updated_at = %s
+                 WHERE job_key = %s",
+                $not_before,
+                $error,
+                current_time('mysql'),
+                $job_key
+            )
+        );
+    }
+
+    /**
+     * Prune completed jobs older than a retention window.
+     */
+    public static function prune_completed_jobs() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        $retain_days = (int) apply_filters('flickr_justified_jobs_retain_days', 7);
+        if ($retain_days < 1) {
+            $retain_days = 1;
+        }
+
+        $cutoff = gmdate('Y-m-d H:i:s', time() - ($retain_days * DAY_IN_SECONDS));
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$table} WHERE status = 'done' AND updated_at < %s",
+                $cutoff
+            )
+        );
+
+        // Clear very old partial set snapshots to avoid stale data.
+        $partial_ttl_days = (int) apply_filters('flickr_justified_partial_cache_retain_days', 14);
+        if ($partial_ttl_days < 1) {
+            $partial_ttl_days = 1;
+        }
+        $partial_cutoff = time() - ($partial_ttl_days * DAY_IN_SECONDS);
+        // Partial snapshots are stored as transients; rely on expiration + optional filter hook.
+        do_action('flickr_justified_cleanup_partials', $partial_cutoff);
+        if (class_exists('FlickrJustifiedCache')) {
+            FlickrJustifiedCache::cleanup_partials($partial_cutoff);
+        }
     }
 
     /**
