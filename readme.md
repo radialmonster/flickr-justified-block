@@ -327,32 +327,6 @@ define('WP_DEBUG', true);
 define('WP_DEBUG_LOG', true);
 ```
 
-### Code Standards
-
-- Follow [WordPress Coding Standards](https://developer.wordpress.org/coding-standards/wordpress-coding-standards/)
-- Use meaningful variable names
-- Comment complex logic
-- Test with multiple album sizes
-
----
-
-## 📝 Changelog
-
-### 1.1.0
-- Fixed 504 timeout issue with large albums (1000+ photos)
-- Improved cache lookup performance during render
-- Better rotation data handling
-- Enhanced error messages
-
-### 1.0.0
-- Initial release
-- Justified layout engine
-- Smart caching system
-- Background cache warming
-- PhotoSwipe lightbox integration
-- Sort by views feature
-- EXIF rotation support
-
 ---
 
 ## 📄 License
@@ -396,7 +370,7 @@ If you find this plugin helpful, please:
 - ⭐ **Star** the repository
 - 🐛 **Report bugs** or suggest features
 - 💬 **Share** with others
-- ☕ [**Buy me a coffee**](https://www.buymeacoffee.com/radialmonster)
+- ☕ [**Buy me a coffee**](https://radialmonster.github.io/send-a-virtual-gift/)
 
 ---
 
