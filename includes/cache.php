@@ -784,6 +784,15 @@ class FlickrJustifiedCache {
         // Cache for configured duration
         self::set($cache_key, $photo_info);
 
+        // Persist to database for durability and cache browser visibility
+        self::persist_photo_meta_locally($photo_id, $photo_info);
+
+        // Update photo contexts (set memberships) - called here so it happens for:
+        // 1. First photo fetch
+        // 2. Manual refresh (via queued job)
+        // 3. Cache expiry refetch (via queued job)
+        self::update_photo_contexts($photo_id);
+
         return $photo_info;
     }
 
@@ -1818,6 +1827,87 @@ class FlickrJustifiedCache {
             ],
             ['%d', '%d', '%d', '%s']
         );
+    }
+
+    /**
+     * Fetch and store all sets/pools a photo belongs to using flickr.photos.getAllContexts.
+     * Should be called whenever we fetch/refresh photo data.
+     *
+     * @param string $photo_id The Flickr photo ID.
+     * @return bool True on success, false on failure.
+     */
+    public static function update_photo_contexts($photo_id) {
+        if ('' === trim($photo_id)) {
+            return false;
+        }
+
+        $api_key = self::get_api_key();
+        if (empty($api_key)) {
+            return false;
+        }
+
+        // Check API quota before making call
+        if (!self::can_make_api_call()) {
+            return false; // Skip if quota exceeded
+        }
+
+        // Call flickr.photos.getAllContexts
+        $url = add_query_arg([
+            'method' => 'flickr.photos.getAllContexts',
+            'api_key' => $api_key,
+            'photo_id' => $photo_id,
+            'format' => 'json',
+            'nojsoncallback' => 1,
+        ], 'https://api.flickr.com/services/rest/');
+
+        $response = wp_remote_get($url, [
+            'timeout' => 10,
+            'user-agent' => 'WordPress Flickr Justified Block'
+        ]);
+
+        // Track API call
+        self::increment_api_calls();
+
+        if (is_wp_error($response)) {
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (empty($data) || !isset($data['stat']) || $data['stat'] !== 'ok') {
+            return false;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_photo_membership';
+        self::ensure_local_tables();
+
+        // Clear existing memberships for this photo
+        $wpdb->delete($table, ['photo_id' => $photo_id], ['%d']);
+
+        // Store set memberships
+        if (isset($data['set']) && is_array($data['set'])) {
+            foreach ($data['set'] as $index => $set) {
+                if (isset($set['id'])) {
+                    $wpdb->insert(
+                        $table,
+                        [
+                            'photoset_id' => $set['id'],
+                            'photo_id' => $photo_id,
+                            'position' => $index,
+                            'updated_at' => current_time('mysql'),
+                        ],
+                        ['%d', '%d', '%d', '%s']
+                    );
+                }
+            }
+        }
+
+        // Note: We're not storing pool memberships for now
+        // Could add later if needed: $data['pool']
+
+        return true;
     }
 
     /**

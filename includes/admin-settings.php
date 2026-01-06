@@ -27,6 +27,8 @@ class FlickrJustifiedAdminSettings {
         add_action('wp_ajax_flickr_warm_batch', [__CLASS__, 'ajax_warm_batch']);
         add_action('wp_ajax_flickr_process_queue', [__CLASS__, 'ajax_process_queue']);
         add_action('wp_ajax_flickr_clear_photo_cache', [__CLASS__, 'ajax_clear_photo_cache']);
+        add_action('wp_ajax_flickr_refresh_photo', [__CLASS__, 'ajax_refresh_photo']);
+        add_action('wp_ajax_flickr_queue_photo', [__CLASS__, 'ajax_queue_photo']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_scripts']);
     }
 
@@ -862,31 +864,103 @@ class FlickrJustifiedAdminSettings {
         };
 
         $photo_search = isset($_GET['fjb_photo_search']) ? sanitize_text_field($_GET['fjb_photo_search']) : '';
+        $set_search = isset($_GET['fjb_set_search']) ? sanitize_text_field($_GET['fjb_set_search']) : '';
         $page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
         $per_page = 20;
         $offset = ($page - 1) * $per_page;
 
+        $membership_table = $wpdb->prefix . 'fjb_membership';
+
+        // Build query with optional filters
         $where = '';
+        $join = '';
         $params = [];
-        if ($photo_search !== '') {
+        $count_params = [];
+
+        if ($photo_search !== '' && $set_search !== '') {
+            // Both filters active
+            $join = "INNER JOIN {$membership_table} m ON {$meta_table}.photo_id = m.photo_id";
+            $where = 'WHERE ' . $meta_table . '.photo_id LIKE %s AND m.photoset_id LIKE %s';
+            $params = ['%' . $wpdb->esc_like($photo_search) . '%', '%' . $wpdb->esc_like($set_search) . '%'];
+            $count_params = $params;
+        } elseif ($photo_search !== '') {
+            // Only photo filter
             $where = 'WHERE photo_id LIKE %s';
-            $params[] = '%' . $wpdb->esc_like($photo_search) . '%';
+            $params = ['%' . $wpdb->esc_like($photo_search) . '%'];
+            $count_params = $params;
+        } elseif ($set_search !== '') {
+            // Only set filter
+            $join = "INNER JOIN {$membership_table} m ON {$meta_table}.photo_id = m.photo_id";
+            $where = 'WHERE m.photoset_id LIKE %s';
+            $params = ['%' . $wpdb->esc_like($set_search) . '%'];
+            $count_params = $params;
         }
 
-        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$meta_table} {$where}", ...($params ?: [''])));
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT photo_id, server, secret, views, views_checked_at, updated_at FROM {$meta_table} {$where} ORDER BY updated_at DESC LIMIT %d OFFSET %d", $per_page, $offset));
+        // Count total with filters
+        $count_query = "SELECT COUNT(DISTINCT {$meta_table}.photo_id) FROM {$meta_table} {$join} {$where}";
+        $total = (int) $wpdb->get_var($count_params ? $wpdb->prepare($count_query, ...$count_params) : $count_query);
 
-        $jobs = $wpdb->get_results("SELECT job_key, job_type, priority, not_before, attempts, last_error, status, created_at FROM {$jobs_table} WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 50");
+        // Get rows with filters
+        $select_query = "SELECT DISTINCT {$meta_table}.photo_id, {$meta_table}.server, {$meta_table}.secret, {$meta_table}.views, {$meta_table}.views_checked_at, {$meta_table}.updated_at FROM {$meta_table} {$join} {$where} ORDER BY {$meta_table}.updated_at DESC LIMIT %d OFFSET %d";
+        $query_params = array_merge($params, [$per_page, $offset]);
+        $rows = $wpdb->get_results($wpdb->prepare($select_query, ...$query_params));
+
+        // Build pending jobs query with optional filters
+        $jobs_where = "WHERE status = 'pending'";
+        $jobs_params = [];
+
+        if ($photo_search !== '' && $set_search !== '') {
+            // Filter by both photo ID and set ID
+            $jobs_where .= " AND (job_key LIKE %s OR payload_json LIKE %s OR job_key LIKE %s OR payload_json LIKE %s)";
+            $jobs_params = [
+                '%' . $wpdb->esc_like($photo_search) . '%',
+                '%' . $wpdb->esc_like($photo_search) . '%',
+                '%' . $wpdb->esc_like($set_search) . '%',
+                '%' . $wpdb->esc_like($set_search) . '%'
+            ];
+        } elseif ($photo_search !== '') {
+            // Filter by photo ID only
+            $jobs_where .= " AND (job_key LIKE %s OR payload_json LIKE %s)";
+            $jobs_params = [
+                '%' . $wpdb->esc_like($photo_search) . '%',
+                '%' . $wpdb->esc_like($photo_search) . '%'
+            ];
+        } elseif ($set_search !== '') {
+            // Filter by set ID only
+            $jobs_where .= " AND (job_key LIKE %s OR payload_json LIKE %s)";
+            $jobs_params = [
+                '%' . $wpdb->esc_like($set_search) . '%',
+                '%' . $wpdb->esc_like($set_search) . '%'
+            ];
+        }
+
+        $jobs_query = "SELECT job_key, job_type, priority, not_before, attempts, last_error, status, created_at FROM {$jobs_table} {$jobs_where} ORDER BY priority DESC, created_at ASC LIMIT 50";
+        $jobs = $jobs_params ? $wpdb->get_results($wpdb->prepare($jobs_query, ...$jobs_params)) : $wpdb->get_results($jobs_query);
 
         ?>
         <div class="wrap">
             <h1><?php echo esc_html__('Flickr Cache Browser', 'flickr-justified-block'); ?></h1>
 
             <h2><?php echo esc_html__('Photo Meta', 'flickr-justified-block'); ?></h2>
+
+            <div style="margin-bottom: 20px; padding: 15px; background: #f0f0f1; border-radius: 4px;">
+                <strong><?php esc_html_e('Queue Photo for Processing:', 'flickr-justified-block'); ?></strong>
+                <div style="margin-top: 8px;">
+                    <input type="text" id="fjb-queue-photo-id" placeholder="<?php esc_attr_e('Enter Photo ID (e.g., 128197508)', 'flickr-justified-block'); ?>" style="width: 250px;" />
+                    <button type="button" id="fjb-queue-photo-btn" class="button button-primary"><?php esc_html_e('Queue Photo', 'flickr-justified-block'); ?></button>
+                    <span id="fjb-queue-result" style="margin-left: 10px;"></span>
+                </div>
+                <p class="description" style="margin-top: 8px;"><?php esc_html_e('Enter a photo ID to manually fetch and cache it. Useful for adding new photos or re-processing existing ones.', 'flickr-justified-block'); ?></p>
+            </div>
+
             <form method="get" style="margin-bottom: 12px;">
                 <input type="hidden" name="page" value="flickr-justified-cache-browser" />
-                <label><?php esc_html_e('Search photo_id', 'flickr-justified-block'); ?> <input type="text" name="fjb_photo_search" value="<?php echo esc_attr($photo_search); ?>" /></label>
+                <label><?php esc_html_e('Photo ID', 'flickr-justified-block'); ?> <input type="text" name="fjb_photo_search" value="<?php echo esc_attr($photo_search); ?>" placeholder="<?php esc_attr_e('e.g., 12345', 'flickr-justified-block'); ?>" /></label>
+                <label style="margin-left: 10px;"><?php esc_html_e('Set ID', 'flickr-justified-block'); ?> <input type="text" name="fjb_set_search" value="<?php echo esc_attr($set_search); ?>" placeholder="<?php esc_attr_e('e.g., 72177720301234567', 'flickr-justified-block'); ?>" /></label>
                 <button class="button"><?php esc_html_e('Search', 'flickr-justified-block'); ?></button>
+                <?php if ($photo_search !== '' || $set_search !== '') : ?>
+                    <a href="<?php echo esc_url(admin_url('options-general.php?page=flickr-justified-cache-browser')); ?>" class="button"><?php esc_html_e('Clear', 'flickr-justified-block'); ?></a>
+                <?php endif; ?>
             </form>
             <table class="widefat fixed striped">
                 <thead>
@@ -912,11 +986,23 @@ class FlickrJustifiedAdminSettings {
                             <td><?php echo esc_html($row->views_checked_at); ?></td>
                             <td><?php echo esc_html($format_expiry($row->views_checked_at)); ?></td>
                             <td><?php echo esc_html($row->updated_at); ?></td>
-                            <td><a href="<?php echo esc_url(admin_url('admin-ajax.php?action=flickr_justified_debug_photo&photo_id=' . rawurlencode($row->photo_id))); ?>" target="_blank" rel="noopener"><?php esc_html_e('Debug', 'flickr-justified-block'); ?></a></td>
+                            <td>
+                                <a href="<?php echo esc_url(admin_url('admin-ajax.php?action=flickr_justified_debug_photo&photo_id=' . rawurlencode($row->photo_id))); ?>" target="_blank" rel="noopener"><?php esc_html_e('Debug', 'flickr-justified-block'); ?></a>
+                                |
+                                <a href="#" class="fjb-refresh-photo" data-photo-id="<?php echo esc_attr($row->photo_id); ?>" style="color: #2271b1;"><?php esc_html_e('Refresh', 'flickr-justified-block'); ?></a>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else : ?>
-                    <tr><td colspan="7"><?php esc_html_e('No records found.', 'flickr-justified-block'); ?></td></tr>
+                    <tr><td colspan="8">
+                        <?php
+                        if ($photo_search !== '' || $set_search !== '') {
+                            esc_html_e('No records matching search.', 'flickr-justified-block');
+                        } else {
+                            esc_html_e('No records found.', 'flickr-justified-block');
+                        }
+                        ?>
+                    </td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -924,11 +1010,35 @@ class FlickrJustifiedAdminSettings {
             $total_pages = max(1, ceil($total / $per_page));
             if ($total_pages > 1) {
                 echo '<div class="tablenav"><div class="tablenav-pages">';
-                for ($p = 1; $p <= $total_pages; $p++) {
-                    $url = add_query_arg(['page' => 'flickr-justified-cache-browser', 'paged' => $p, 'fjb_photo_search' => $photo_search], admin_url('options-general.php'));
-                    $class = $p === $page ? 'class="button button-primary"' : 'class="button"';
-                    echo '<a ' . $class . ' href="' . esc_url($url) . '">' . esc_html($p) . '</a> ';
+
+                // Build base URL for pagination
+                $base_url = remove_query_arg('paged', add_query_arg([
+                    'page' => 'flickr-justified-cache-browser',
+                    'fjb_photo_search' => $photo_search,
+                    'fjb_set_search' => $set_search
+                ], admin_url('options-general.php')));
+
+                $pagination_args = [
+                    'base' => $base_url . '%_%',
+                    'format' => '&paged=%#%',
+                    'current' => $page,
+                    'total' => $total_pages,
+                    'prev_text' => '&laquo; ' . __('Previous', 'flickr-justified-block'),
+                    'next_text' => __('Next', 'flickr-justified-block') . ' &raquo;',
+                    'mid_size' => 2,
+                    'end_size' => 1,
+                    'type' => 'plain'
+                ];
+
+                $pagination = paginate_links($pagination_args);
+                if ($pagination) {
+                    echo '<span class="displaying-num">' . sprintf(
+                        _n('%s item', '%s items', $total, 'flickr-justified-block'),
+                        number_format_i18n($total)
+                    ) . '</span>';
+                    echo $pagination;
                 }
+
                 echo '</div></div>';
             }
             ?>
@@ -962,11 +1072,115 @@ class FlickrJustifiedAdminSettings {
                         </tr>
                     <?php endforeach; ?>
                 <?php else : ?>
-                    <tr><td colspan="8"><?php esc_html_e('No pending jobs.', 'flickr-justified-block'); ?></td></tr>
+                    <tr><td colspan="8">
+                        <?php
+                        if ($photo_search !== '' || $set_search !== '') {
+                            esc_html_e('No pending jobs matching search.', 'flickr-justified-block');
+                        } else {
+                            esc_html_e('No pending jobs.', 'flickr-justified-block');
+                        }
+                        ?>
+                    </td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
         </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            // Queue photo button handler
+            $('#fjb-queue-photo-btn').on('click', function(e) {
+                e.preventDefault();
+
+                var $btn = $(this);
+                var $input = $('#fjb-queue-photo-id');
+                var $result = $('#fjb-queue-result');
+                var photoId = $input.val().trim();
+
+                if (!photoId) {
+                    $result.html('<span style="color: #d63638;">Please enter a photo ID</span>');
+                    return;
+                }
+
+                if (!/^\d+$/.test(photoId)) {
+                    $result.html('<span style="color: #d63638;">Invalid photo ID - must be numbers only</span>');
+                    return;
+                }
+
+                $btn.prop('disabled', true).text('<?php esc_html_e('Queueing...', 'flickr-justified-block'); ?>');
+                $result.html('');
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'flickr_queue_photo',
+                        photo_id: photoId,
+                        nonce: '<?php echo wp_create_nonce('fjb_queue_photo'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $result.html('<span style="color: #00a32a;">✓ ' + response.data.message + '</span>');
+                            $input.val('');
+                        } else {
+                            $result.html('<span style="color: #d63638;">✗ ' + response.data.message + '</span>');
+                        }
+                    },
+                    error: function() {
+                        $result.html('<span style="color: #d63638;">✗ <?php esc_html_e('An error occurred. Please try again.', 'flickr-justified-block'); ?></span>');
+                    },
+                    complete: function() {
+                        $btn.prop('disabled', false).text('<?php esc_html_e('Queue Photo', 'flickr-justified-block'); ?>');
+                    }
+                });
+            });
+
+            // Allow Enter key to submit
+            $('#fjb-queue-photo-id').on('keypress', function(e) {
+                if (e.which === 13) {
+                    e.preventDefault();
+                    $('#fjb-queue-photo-btn').click();
+                }
+            });
+
+            // Refresh photo button handler
+            $('.fjb-refresh-photo').on('click', function(e) {
+                e.preventDefault();
+
+                var $link = $(this);
+                var photoId = $link.data('photo-id');
+
+                if (!confirm('<?php esc_html_e('Clear cache and requeue this photo for processing?', 'flickr-justified-block'); ?>')) {
+                    return;
+                }
+
+                $link.text('<?php esc_html_e('Processing...', 'flickr-justified-block'); ?>').css('opacity', '0.5');
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'flickr_refresh_photo',
+                        photo_id: photoId,
+                        nonce: '<?php echo wp_create_nonce('fjb_refresh_photo'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            alert(response.data.message);
+                            location.reload();
+                        } else {
+                            alert('<?php esc_html_e('Error:', 'flickr-justified-block'); ?> ' + response.data.message);
+                            $link.text('<?php esc_html_e('Refresh', 'flickr-justified-block'); ?>').css('opacity', '1');
+                        }
+                    },
+                    error: function() {
+                        alert('<?php esc_html_e('An error occurred. Please try again.', 'flickr-justified-block'); ?>');
+                        $link.text('<?php esc_html_e('Refresh', 'flickr-justified-block'); ?>').css('opacity', '1');
+                    }
+                });
+            });
+        });
+        </script>
         <?php
     }
 
@@ -1442,6 +1656,191 @@ class FlickrJustifiedAdminSettings {
                 'message' => __('Failed to clear cache for any photos', 'flickr-justified-block')
             ]);
         }
+    }
+
+    /**
+     * AJAX handler to refresh a photo (clear cache and requeue)
+     */
+    public static function ajax_refresh_photo() {
+        check_ajax_referer('fjb_refresh_photo', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([
+                'message' => __('Insufficient permissions', 'flickr-justified-block')
+            ]);
+        }
+
+        $photo_id = isset($_POST['photo_id']) ? sanitize_text_field($_POST['photo_id']) : '';
+
+        if (empty($photo_id) || !is_numeric($photo_id)) {
+            wp_send_json_error([
+                'message' => __('Invalid photo ID provided', 'flickr-justified-block')
+            ]);
+        }
+
+        global $wpdb;
+        $meta_table = $wpdb->prefix . 'fjb_photo_meta';
+        $cache_table = $wpdb->prefix . 'fjb_photo_cache';
+        $membership_table = $wpdb->prefix . 'fjb_membership';
+
+        try {
+            // 1. Clear cache and metadata
+            $wpdb->delete($meta_table, ['photo_id' => $photo_id], ['%d']);
+            $wpdb->delete($cache_table, ['photo_id' => $photo_id], ['%d']);
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                 WHERE option_name LIKE %s
+                    OR option_name LIKE %s
+                    OR option_name LIKE %s",
+                '%flickr_justified_dims_' . $photo_id . '%',
+                '%flickr_justified_photo_' . $photo_id . '%',
+                '%flickr_justified_stats_' . $photo_id . '%'
+            ));
+
+            if (function_exists('wp_cache_flush')) {
+                wp_cache_flush();
+            }
+
+            // 2. Queue photo for refetch (will get owner from API since we deleted metadata)
+            $result = self::create_photo_job($photo_id, true);
+
+            if (!$result['success']) {
+                wp_send_json_error(['message' => $result['error']]);
+                return;
+            }
+
+            $message = sprintf(
+                __('Photo %s cache cleared and queued for refresh.', 'flickr-justified-block'),
+                $photo_id
+            );
+
+            self::log("Refreshed photo ID: {$photo_id} ({$result['photo_url']})");
+
+            wp_send_json_success([
+                'message' => $message,
+                'photo_id' => $photo_id,
+                'requeued_items' => $requeued_items
+            ]);
+        } catch (Exception $e) {
+            self::log("Error refreshing photo ID {$photo_id}: " . $e->getMessage());
+            wp_send_json_error([
+                'message' => sprintf(
+                    __('Failed to refresh photo: %s', 'flickr-justified-block'),
+                    $e->getMessage()
+                )
+            ]);
+        }
+    }
+
+    /**
+     * Helper function to create a photo job (used by refresh and queue)
+     *
+     * @param string $photo_id The photo ID
+     * @param bool $fetch_from_api Whether to fetch owner from API if not in DB
+     * @return array ['success' => bool, 'owner_nsid' => string, 'photo_url' => string, 'error' => string]
+     */
+    private static function create_photo_job($photo_id, $fetch_from_api = true) {
+        global $wpdb;
+        $meta_table = $wpdb->prefix . 'fjb_photo_meta';
+
+        // Get photo metadata to build URL (if it exists)
+        $photo_meta = $wpdb->get_row($wpdb->prepare(
+            "SELECT meta_json FROM {$meta_table} WHERE photo_id = %d",
+            $photo_id
+        ));
+
+        $owner_nsid = null;
+        if ($photo_meta && !empty($photo_meta->meta_json)) {
+            $meta_data = json_decode($photo_meta->meta_json, true);
+            if (isset($meta_data['owner']['nsid'])) {
+                $owner_nsid = $meta_data['owner']['nsid'];
+            }
+        }
+
+        // If no metadata and fetch allowed, try API
+        if (empty($owner_nsid) && $fetch_from_api) {
+            if (class_exists('FlickrJustifiedCache')) {
+                $photo_info = FlickrJustifiedCache::get_photo_info($photo_id);
+                if (!empty($photo_info['owner']['nsid'])) {
+                    $owner_nsid = $photo_info['owner']['nsid'];
+                }
+            }
+        }
+
+        if (empty($owner_nsid)) {
+            return [
+                'success' => false,
+                'error' => __('Could not determine photo owner. Photo may not exist or be private.', 'flickr-justified-block')
+            ];
+        }
+
+        // Build Flickr photo URL and create job
+        $photo_url = 'https://www.flickr.com/photos/' . $owner_nsid . '/' . $photo_id . '/';
+        $jobs_table = $wpdb->prefix . 'fjb_jobs';
+        $job_key = 'photo:' . $photo_id;
+        $payload = json_encode([
+            'url' => $photo_url,
+            'page' => 1
+        ]);
+
+        $wpdb->replace(
+            $jobs_table,
+            [
+                'job_key' => $job_key,
+                'job_type' => 'photo',
+                'payload_json' => $payload,
+                'priority' => 50,
+                'status' => 'pending',
+                'created_at' => current_time('mysql'),
+                'updated_at' => current_time('mysql')
+            ],
+            ['%s', '%s', '%s', '%d', '%s', '%s', '%s']
+        );
+
+        return [
+            'success' => true,
+            'owner_nsid' => $owner_nsid,
+            'photo_url' => $photo_url
+        ];
+    }
+
+    /**
+     * AJAX handler to manually queue a photo by ID
+     */
+    public static function ajax_queue_photo() {
+        check_ajax_referer('fjb_queue_photo', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([
+                'message' => __('Insufficient permissions', 'flickr-justified-block')
+            ]);
+        }
+
+        $photo_id = isset($_POST['photo_id']) ? sanitize_text_field($_POST['photo_id']) : '';
+
+        if (empty($photo_id) || !is_numeric($photo_id)) {
+            wp_send_json_error([
+                'message' => __('Invalid photo ID provided', 'flickr-justified-block')
+            ]);
+        }
+
+        $result = self::create_photo_job($photo_id, true);
+
+        if (!$result['success']) {
+            wp_send_json_error(['message' => $result['error']]);
+            return;
+        }
+
+        self::log("Manually queued photo ID: {$photo_id} ({$result['photo_url']})");
+
+        wp_send_json_success([
+            'message' => sprintf(
+                __('Photo %s queued successfully. It will be processed shortly.', 'flickr-justified-block'),
+                $photo_id
+            ),
+            'photo_id' => $photo_id,
+            'photo_url' => $result['photo_url']
+        ]);
     }
 }
 

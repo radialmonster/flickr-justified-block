@@ -464,12 +464,11 @@ class FlickrJustifiedCacheWarmer {
                     $success = true;
                 }
 
-                // If rotation is missing, warm photo info to capture it.
-                if (!isset($data['_rotation'])) {
-                    $info = FlickrJustifiedCache::get_photo_info($photo_id, false);
-                    if (is_array($info) && isset($info['rotation'])) {
-                        $success = true;
-                    }
+                // Always warm photo info to ensure DB persistence and context updates
+                // Force refresh for queued photo jobs to ensure fresh data and DB persistence
+                $info = FlickrJustifiedCache::get_photo_info($photo_id, true);
+                if (is_array($info) && !empty($info)) {
+                    $success = true;
                 }
 
                 // Warm photo stats using cache.php directly
@@ -887,17 +886,6 @@ class FlickrJustifiedCacheWarmer {
 
         $merged_queue = self::append_photostream_jobs($merged_queue, $photostream_users);
 
-        // Strip any photo jobs from merged queue to keep it bulk-only.
-        $merged_queue = array_values(array_filter($merged_queue, function($item) {
-            if (is_array($item) && isset($item['job_type']) && $item['job_type'] === 'photo') {
-                return false;
-            }
-            if (is_string($item) && function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($item)) {
-                return false;
-            }
-            return true;
-        }));
-
         self::save_queue($merged_queue);
         return $merged_queue;
     }
@@ -1113,12 +1101,11 @@ class FlickrJustifiedCacheWarmer {
             } elseif (function_exists('flickr_justified_is_flickr_photo_url') && flickr_justified_is_flickr_photo_url($url)) {
                 $job_type = 'photo';
             }
-            // Disallow photo jobs in bulk mode.
-            if ($job_type === 'photo') {
-                continue;
-            }
 
             $priority = 0;
+            if ($job_type === 'photo') {
+                $priority = 20; // Higher priority for individual photo refreshes
+            }
             if ('photostream_page' === $job_type) {
                 $priority = -5;
             }
