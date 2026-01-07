@@ -56,14 +56,26 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $last_successful_page = 0;
 
     if (is_array($partial_cached)) {
-        $all_photos = isset($partial_cached['photos']) && is_array($partial_cached['photos']) ? $partial_cached['photos'] : [];
+        // BUGFIX: Partial cache resume should always start fresh from page 1
+        // The $all_photo_urls_map (keyed by photo_id) will naturally dedupe if photos are refetched
+        // This ensures fresh URLs and prevents the duplication issue caused by appending to $all_photos
         $album_title = isset($partial_cached['album_title']) ? $partial_cached['album_title'] : '';
         $total_pages = isset($partial_cached['pages']) ? max(1, (int) $partial_cached['pages']) : 1;
         $total_photos = isset($partial_cached['total']) ? max(0, (int) $partial_cached['total']) : 0;
-        $pages_fetched = isset($partial_cached['pages_fetched']) ? max(0, (int) $partial_cached['pages_fetched']) : (count($all_photos) > 0 ? 1 : 0);
-        $last_successful_page = isset($partial_cached['last_page']) ? max(0, (int) $partial_cached['last_page']) : $pages_fetched;
-        $page = isset($partial_cached['resume_page']) ? max(1, (int) $partial_cached['resume_page']) : ($last_successful_page + 1);
+        // Don't resume from a later page - always start from page 1 to ensure we have all photos
+        // and let the photo_urls_map dedupe for us
+        $page = 1;
+        $pages_fetched = 0;
+        $last_successful_page = 0;
         $incomplete = true; // Any partial cache implies prior incompletion
+
+        // DEBUG: Log partial cache resume
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                'Resuming from partial cache for photoset %s: restarting from page 1 to refetch with fresh URLs (photo_urls_map will dedupe)',
+                $photoset_id
+            ));
+        }
     }
 
     $start_time = microtime(true);
@@ -123,6 +135,18 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         $pages_fetched++;
         $last_successful_page = $page;
 
+        // DEBUG: Log accumulation after each page
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                'Fetched page %d for photoset %s: added %d photos, all_photos total=%d, all_photo_urls_map total=%d',
+                $page,
+                $photoset_id,
+                count($page_result['photos']),
+                count($all_photos),
+                count($all_photo_urls_map)
+            ));
+        }
+
         $last_has_more = !empty($page_result['has_more']);
         if (!$last_has_more) {
             break;
@@ -157,23 +181,96 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
 
     $loaded_photos_count = count($all_photos);
 
-    // Build ordered photo list: prefer membership ordering when available.
-    $ordered_photos = $all_photos;
+    // BUGFIX: Always use $all_photo_urls_map as the source of truth since it's keyed by photo_id
+    // and naturally prevents duplicates when photos are refetched. $all_photos can have dupes.
+    $ordered_photos = [];
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log(sprintf(
+            'Before ordering: all_photos=%d (unique=%d), all_photo_urls_map=%d',
+            count($all_photos),
+            count(array_unique($all_photos)),
+            count($all_photo_urls_map)
+        ));
+    }
+
     if (!empty($photoset_id) && !empty($all_photo_urls_map)) {
+        // Try to get membership ordering from database
         $ordered_ids = FlickrJustifiedCache::get_membership_order($photoset_id);
         if (!empty($ordered_ids)) {
-            $ordered_photos = [];
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Applying membership ordering: ordered_ids=%d (unique=%d)',
+                    count($ordered_ids),
+                    count(array_unique($ordered_ids))
+                ));
+            }
+
+            // Build ordered list from membership table order
             foreach ($ordered_ids as $pid) {
                 if (isset($all_photo_urls_map[$pid])) {
                     $ordered_photos[] = $all_photo_urls_map[$pid];
                 }
             }
+
+            // Add any photos not in membership table (shouldn't happen, but safety)
             foreach ($all_photo_urls_map as $pid => $url) {
                 if (!in_array($pid, $ordered_ids, true)) {
                     $ordered_photos[] = $url;
                 }
             }
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'After membership ordering: ordered_photos=%d',
+                    count($ordered_photos)
+                ));
+            }
+        } else {
+            // No membership ordering available - use photo_urls_map values directly
+            $ordered_photos = array_values($all_photo_urls_map);
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'No membership ordering - using photo_urls_map directly: ordered_photos=%d',
+                    count($ordered_photos)
+                ));
+            }
         }
+    } else {
+        // Fallback to $all_photos if photo_urls_map is empty (shouldn't happen for photosets)
+        $ordered_photos = $all_photos;
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('FALLBACK: Using all_photos array (photo_urls_map empty)');
+        }
+    }
+
+    // DEBUG: Log photo counts to identify duplication
+    $before_dedup_count = count($ordered_photos);
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log(sprintf(
+            'flickr_justified_get_full_photoset_photos: photoset=%s, all_photos=%d, all_photo_urls_map=%d, ordered_photos=%d, ordered_ids=%d',
+            $photoset_id,
+            count($all_photos),
+            count($all_photo_urls_map),
+            $before_dedup_count,
+            count($ordered_ids ?? [])
+        ));
+    }
+
+    // SAFETY NET: Deduplicate photos array while preserving order
+    // This shouldn't be needed now since we use $all_photo_urls_map (keyed by photo_id)
+    // but kept as a safeguard. If this triggers, it indicates a logic bug elsewhere.
+    $ordered_photos = array_values(array_unique($ordered_photos, SORT_STRING));
+
+    if (defined('WP_DEBUG') && WP_DEBUG && count($ordered_photos) !== $before_dedup_count) {
+        error_log(sprintf(
+            'WARNING: DEDUPLICATION APPLIED (should not happen): photoset=%s reduced from %d to %d photos',
+            $photoset_id,
+            $before_dedup_count,
+            count($ordered_photos)
+        ));
     }
 
     $full_result = [
