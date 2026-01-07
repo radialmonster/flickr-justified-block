@@ -56,26 +56,41 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
     $last_successful_page = 0;
 
     if (is_array($partial_cached)) {
-        // BUGFIX: Partial cache resume should always start fresh from page 1
-        // The $all_photo_urls_map (keyed by photo_id) will naturally dedupe if photos are refetched
-        // This ensures fresh URLs and prevents the duplication issue caused by appending to $all_photos
+        // BUGFIX: When resuming, rebuild $all_photo_urls_map from membership table instead of loading
+        // $all_photos from cache. This prevents duplicates when resuming from a later page.
+        // The membership table has all successfully cached photo IDs, so we can rebuild the URL map
+        // without refetching. Then continue from the resume page.
         $album_title = isset($partial_cached['album_title']) ? $partial_cached['album_title'] : '';
         $total_pages = isset($partial_cached['pages']) ? max(1, (int) $partial_cached['pages']) : 1;
         $total_photos = isset($partial_cached['total']) ? max(0, (int) $partial_cached['total']) : 0;
-        // Don't resume from a later page - always start from page 1 to ensure we have all photos
-        // and let the photo_urls_map dedupe for us
-        $page = 1;
-        $pages_fetched = 0;
-        $last_successful_page = 0;
+        $pages_fetched = isset($partial_cached['pages_fetched']) ? max(0, (int) $partial_cached['pages_fetched']) : 0;
+        $last_successful_page = isset($partial_cached['last_page']) ? max(0, (int) $partial_cached['last_page']) : $pages_fetched;
+        $page = isset($partial_cached['resume_page']) ? max(1, (int) $partial_cached['resume_page']) : ($last_successful_page + 1);
         $incomplete = true; // Any partial cache implies prior incompletion
 
-        // DEBUG: Log partial cache resume
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log(sprintf(
-                'Resuming from partial cache for photoset %s: restarting from page 1 to refetch with fresh URLs (photo_urls_map will dedupe)',
-                $photoset_id
-            ));
+        // Rebuild photo_urls_map from membership table (has all successfully cached photos)
+        if (!empty($photoset_id)) {
+            $cached_photo_ids = FlickrJustifiedCache::get_membership_order($photoset_id);
+            if (!empty($cached_photo_ids)) {
+                $resolved_user_id = FlickrJustifiedCache::resolve_user_id($user_id);
+                foreach ($cached_photo_ids as $pid) {
+                    $photo_url = 'https://flickr.com/photos/' . rawurlencode($resolved_user_id) . '/' . $pid . '/';
+                    $all_photo_urls_map[$pid] = $photo_url;
+                }
+
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log(sprintf(
+                        'Resuming from partial cache for photoset %s: loaded %d photos from membership table, resuming at page %d',
+                        $photoset_id,
+                        count($all_photo_urls_map),
+                        $page
+                    ));
+                }
+            }
         }
+
+        // Don't load $all_photos from partial cache - let it rebuild from new fetches
+        // This prevents the append-duplicate issue
     }
 
     $start_time = microtime(true);
@@ -85,7 +100,8 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
 
     while (true) {
         // If a soft cap is configured and already reached, stop before fetching more
-        if ($soft_photo_cap > 0 && count($all_photos) >= $soft_photo_cap) {
+        // Check against photo_urls_map since it includes resumed photos from membership table
+        if ($soft_photo_cap > 0 && count($all_photo_urls_map) >= $soft_photo_cap) {
             $incomplete = true;
             $last_has_more = true;
             break;
@@ -172,14 +188,16 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         }
 
         // Optional safety: prevent unbounded memory growth; still mark partial so loader can continue
-        if ($soft_photo_cap > 0 && count($all_photos) >= $soft_photo_cap) {
+        // Check against photo_urls_map since it includes resumed photos from membership table
+        if ($soft_photo_cap > 0 && count($all_photo_urls_map) >= $soft_photo_cap) {
             $incomplete = true;
             $last_has_more = true;
             break;
         }
     }
 
-    $loaded_photos_count = count($all_photos);
+    // Use photo_urls_map count since it's the source of truth (includes resumed photos from membership table)
+    $loaded_photos_count = count($all_photo_urls_map);
 
     // BUGFIX: Always use $all_photo_urls_map as the source of truth since it's keyed by photo_id
     // and naturally prevents duplicates when photos are refetched. $all_photos can have dupes.
@@ -318,7 +336,7 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         }
     }
 
-    if (!$full_result['has_more'] && $fetched_all_pages && !empty($all_photos) && !$rate_limited) {
+    if (!$full_result['has_more'] && $fetched_all_pages && !empty($all_photo_urls_map) && !$rate_limited) {
         $cache_duration = 6 * HOUR_IN_SECONDS;
         $configured_duration = flickr_justified_get_admin_setting('get_cache_duration', 0);
         if ($configured_duration > 0) {
@@ -335,8 +353,8 @@ function flickr_justified_get_full_photoset_photos($user_id, $photoset_id) {
         $resume_page = $last_successful_page > 0 ? ($last_successful_page + 1) : $page;
 
         $partial_snapshot = [
-            // Keep photos but allow developers to disable via filter if size is a concern
-            'photos' => apply_filters('flickr_justified_full_photoset_partial_include_photos', true) ? $all_photos : [],
+            // Don't store photos - we rebuild from membership table when resuming
+            // This saves memory/cache space and prevents the duplicate photo issue
             'album_title' => $album_title,
             'total' => $total_photos,
             'pages' => $total_pages,
