@@ -1321,8 +1321,9 @@ class FlickrJustifiedCacheWarmer {
      *
      * @param string $photoset_id
      * @param string $resolved_user_id
+     * @param bool $reset_existing_jobs If true, also reset any existing "done" jobs for this album
      */
-    public static function enqueue_hot_set($photoset_id, $resolved_user_id) {
+    public static function enqueue_hot_set($photoset_id, $resolved_user_id, $reset_existing_jobs = false) {
         $photoset_id = trim((string) $photoset_id);
         $resolved_user_id = trim((string) $resolved_user_id);
         if ('' === $photoset_id || '' === $resolved_user_id) {
@@ -1340,6 +1341,26 @@ class FlickrJustifiedCacheWarmer {
         ];
         $job_type = 'set_page';
         $job_key = self::build_job_key($job_type, $url, 1);
+
+        // If requested, reset any existing "done" jobs for this album back to "pending"
+        // This handles the case where cache was flushed but jobs stayed "done"
+        if ($reset_existing_jobs) {
+            $like_pattern = '%' . $wpdb->esc_like($photoset_id) . '%';
+            $reset_count = $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$table} SET status = 'pending', attempts = 0, last_error = NULL WHERE payload_json LIKE %s AND status = 'done'",
+                    $like_pattern
+                )
+            );
+
+            if ($reset_count > 0 && defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'Flickr Justified: Reset %d stale "done" job(s) for album %s (cache was empty)',
+                    $reset_count,
+                    $photoset_id
+                ));
+            }
+        }
 
         $wpdb->replace(
             $table,

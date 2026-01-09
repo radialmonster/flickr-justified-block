@@ -137,6 +137,7 @@ function flickr_justified_render_block($attributes) {
     $set_metadata = [];
     $position_counter = 0;
     $rate_limited = false; // Track if we hit rate limiting
+    $used_fallback_fetch = false; // Track if we used fallback fetch for views_desc
 
     foreach ($url_lines as $url) {
         // Stop processing if we hit rate limiting
@@ -158,7 +159,54 @@ function flickr_justified_render_block($attributes) {
                     $set_info['photoset_id'],
                     $limit_for_query
                 );
-                $set_result = ['photos' => $top_photos];
+
+                // FALLBACK: If cache is empty, fetch first page to show something to the user
+                // and trigger background cache warming for next time
+                if (empty($top_photos)) {
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log(sprintf(
+                            'Flickr Justified: views_desc cache empty for album %s/%s, falling back to first page fetch',
+                            $set_info['user_id'],
+                            $set_info['photoset_id']
+                        ));
+                    }
+
+                    // Fetch first page of photos (up to 50)
+                    $per_page = max(1, min(50, $limit_for_query));
+                    $set_result = flickr_justified_get_photoset_photos_paginated($set_info['user_id'], $set_info['photoset_id'], 1, $per_page);
+
+                    // Trigger background cache warming to fetch all photos + stats for next time
+                    // IMPORTANT: Pass true for $reset_existing_jobs to handle cache flush scenarios
+                    // where cache is empty but jobs are marked "done"
+                    if (class_exists('FlickrJustifiedCacheWarmer') && class_exists('FlickrJustifiedCache')) {
+                        // Resolve user_id to numeric ID before enqueueing
+                        $resolved_user_id = FlickrJustifiedCache::resolve_user_id($set_info['user_id']);
+                        if ($resolved_user_id) {
+                            FlickrJustifiedCacheWarmer::enqueue_hot_set(
+                                $set_info['photoset_id'],
+                                $resolved_user_id,
+                                true // Reset any stale "done" jobs
+                            );
+
+                            if (defined('WP_DEBUG') && WP_DEBUG) {
+                                error_log(sprintf(
+                                    'Flickr Justified: Triggered background warming for album %s/%s (resolved to %s) with job reset',
+                                    $set_info['user_id'],
+                                    $set_info['photoset_id'],
+                                    $resolved_user_id
+                                ));
+                            }
+                        }
+                    }
+
+                    // Add marker to indicate this was a fallback fetch (partial/unsorted data)
+                    if (!isset($set_result['_fallback_fetch'])) {
+                        $set_result['_fallback_fetch'] = true;
+                    }
+                    $used_fallback_fetch = true;
+                } else {
+                    $set_result = ['photos' => $top_photos];
+                }
             } elseif (null !== $remaining_limit) {
                 // For input order with limit: use paginated fetching
                 $per_page = max(1, min(50, $remaining_limit));
@@ -428,6 +476,17 @@ function flickr_justified_render_block($attributes) {
             esc_html(sprintf(__('Showing %d photos while we wait for more from Flickr. Check back soon for the full gallery.', 'flickr-justified-block'), $partial_count))
         );
         $gallery_html = $partial_message . $gallery_html;
+    }
+
+    // Prepend message if using fallback fetch for views_desc (cache not ready)
+    if ($used_fallback_fetch && 'views_desc' === $sort_order && !empty($photo_items)) {
+        $fallback_message = sprintf(
+            '<div class="flickr-justified-notice flickr-justified-loading-notice" role="status" aria-live="polite" style="padding: 16px 20px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404; font-size: 14px; line-height: 1.5; margin: 20px 0 15px;">
+                <p style="margin: 0;">%s</p>
+            </div>',
+            esc_html__('Error fetching top viewed photos, showing photos in set order. Check back later while we refresh the top photos.', 'flickr-justified-block')
+        );
+        $gallery_html = $fallback_message . $gallery_html;
     }
 
     return $gallery_html;
