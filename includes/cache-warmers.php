@@ -212,6 +212,10 @@ class FlickrJustifiedCacheWarmer {
             // This handles cases where jobs were cleared but known_urls still has data
             $queue = self::prime_queue_from_known_urls();
 
+            // Detect and reset stale "done" set_page jobs that have empty caches
+            // This happens after cache flush - jobs stay "done" but cache is empty
+            self::reset_stale_done_jobs();
+
             if (empty($queue)) {
                 return 0;
             }
@@ -993,7 +997,7 @@ class FlickrJustifiedCacheWarmer {
     /**
      * Enqueue a set_page job for a given set/page at the provided priority.
      */
-    private static function enqueue_set_page($photoset_id, $page = 1, $priority = 10) {
+    private static function enqueue_set_page($photoset_id, $page = 1, $priority = 50) {
         $photoset_id = trim((string) $photoset_id);
         $page = max(1, (int) $page);
         if ('' === $photoset_id) {
@@ -1140,13 +1144,13 @@ class FlickrJustifiedCacheWarmer {
 
             $priority = 0;
             if ($job_type === 'photo') {
-                $priority = 20; // Higher priority for individual photo refreshes
+                $priority = 5; // Low priority - individual photo refreshes can wait
             }
             if ('photostream_page' === $job_type) {
-                $priority = -5;
+                $priority = 10; // Medium priority - background full stream warming
             }
             if ('set_page' === $job_type) {
-                $priority = 10;
+                $priority = 50; // Highest priority - user-facing galleries need views indexes
             }
             if (is_array($item) && (isset($item['priority']) || array_key_exists('priority', $item))) {
                 $priority = (int) $item['priority'];
@@ -1461,6 +1465,75 @@ class FlickrJustifiedCacheWarmer {
                 $job_key
             )
         );
+    }
+
+    /**
+     * Detect and reset stale "done" set_page jobs that have empty caches.
+     * This happens when cache is flushed but jobs stay marked as "done".
+     */
+    private static function reset_stale_done_jobs() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'fjb_jobs';
+        self::ensure_jobs_table();
+
+        // Get all "done" set_page jobs
+        $done_jobs = $wpdb->get_results(
+            "SELECT job_key, payload_json FROM {$table} WHERE status = 'done' AND job_type = 'set_page' LIMIT 50"
+        );
+
+        if (empty($done_jobs)) {
+            return;
+        }
+
+        $reset_count = 0;
+        $resolved_user_id = FlickrJustifiedCache::resolve_user_id('radialmonster');
+
+        if (!$resolved_user_id) {
+            return;
+        }
+
+        foreach ($done_jobs as $job) {
+            $payload = json_decode($job->payload_json, true);
+            if (!$payload || empty($payload['url'])) {
+                continue;
+            }
+
+            // Extract album ID from URL
+            if (!preg_match('#/(sets|albums)/(\d+)#', $payload['url'], $m)) {
+                continue;
+            }
+
+            $album_id = $m[2];
+
+            // Check if views index exists in cache
+            $cache_key = 'set_views_index:' . md5($resolved_user_id . '_' . $album_id);
+            $cached = wp_cache_get($cache_key, 'flickr_justified');
+
+            // If cache is empty, reset job to pending
+            if (empty($cached)) {
+                $wpdb->update(
+                    $table,
+                    [
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'last_error' => null,
+                        'not_before' => null,
+                        'updated_at' => current_time('mysql')
+                    ],
+                    ['job_key' => $job->job_key],
+                    ['%s', '%d', '%s', '%s', '%s'],
+                    ['%s']
+                );
+                $reset_count++;
+            }
+        }
+
+        if ($reset_count > 0 && defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                'Flickr cache warmer: Reset %d stale "done" set_page jobs (cache was empty)',
+                $reset_count
+            ));
+        }
     }
 
     /**

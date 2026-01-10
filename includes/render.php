@@ -480,11 +480,16 @@ function flickr_justified_render_block($attributes) {
 
     // Prepend message if using fallback fetch for views_desc (cache not ready)
     if ($used_fallback_fetch && 'views_desc' === $sort_order && !empty($photo_items)) {
+        $album_id = isset($set_info['photoset_id']) ? $set_info['photoset_id'] : 'unknown';
+        $error_text = sprintf(
+            __('Error fetching top viewed photos, showing photos in set order. Check back later while we refresh the top photos. (Album ID: %s)', 'flickr-justified-block'),
+            $album_id
+        );
         $fallback_message = sprintf(
             '<div class="flickr-justified-notice flickr-justified-loading-notice" role="status" aria-live="polite" style="padding: 16px 20px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404; font-size: 14px; line-height: 1.5; margin: 20px 0 15px;">
                 <p style="margin: 0;">%s</p>
             </div>',
-            esc_html__('Error fetching top viewed photos, showing photos in set order. Check back later while we refresh the top photos.', 'flickr-justified-block')
+            esc_html($error_text)
         );
         $gallery_html = $fallback_message . $gallery_html;
     }
