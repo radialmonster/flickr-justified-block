@@ -273,7 +273,16 @@ class FlickrJustifiedCache {
             return self::$request_cache[$full_key];
         }
 
-        $value = get_transient($full_key);
+        // Check wp_cache (Redis) first, then transients
+        $value = false;
+        if (function_exists('wp_cache_get')) {
+            $value = wp_cache_get($full_key, 'flickr_justified');
+        }
+
+        // Fallback to transients if not in wp_cache
+        if (false === $value) {
+            $value = get_transient($full_key);
+        }
 
         // Store in request cache
         if (false !== $value) {
@@ -296,7 +305,16 @@ class FlickrJustifiedCache {
         // Store in request cache
         self::$request_cache[$full_key] = $value;
 
-        return set_transient($full_key, $value, $expiration);
+        // Use both wp_cache and transients for redundancy
+        // wp_cache_set works better with Redis in some configurations
+        $wp_cache_result = false;
+        if (function_exists('wp_cache_set')) {
+            $wp_cache_result = wp_cache_set($full_key, $value, 'flickr_justified', $expiration);
+        }
+
+        $transient_result = set_transient($full_key, $value, $expiration);
+
+        return $wp_cache_result || $transient_result;
     }
 
     /**

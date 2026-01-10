@@ -557,19 +557,51 @@ class FlickrJustifiedCacheWarmer {
             $success = true;
 
             // Persist a views index so views_desc sorting is instant.
-            $photo_views_map = isset($result['photo_views']) && is_array($result['photo_views']) ? $result['photo_views'] : [];
-            $photo_urls_map = isset($result['photo_urls_map']) && is_array($result['photo_urls_map']) ? $result['photo_urls_map'] : [];
-            if (!empty($photo_views_map) && !empty($photo_urls_map)) {
+            // For multi-page albums, only create the index when this is the LAST page (no more pages).
+            // When it's the last page, fetch ALL photos from the full album cache, not just current page.
+            $is_last_page = empty($result['has_more']);
+
+            if ($is_last_page) {
                 $resolved_user_id = FlickrJustifiedCache::resolve_user_id($set_info['user_id']);
                 if ($resolved_user_id) {
-                    FlickrJustifiedCache::persist_set_views_index(
-                        $resolved_user_id,
-                        $set_info['photoset_id'],
-                        $photo_views_map,
-                        $photo_urls_map,
-                        !empty($result['has_more']),
-                        $total_photos
-                    );
+                    // Fetch the FULL album data with ALL photos from all pages
+                    $full_album = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], 1, 500);
+
+                    // If there are more pages beyond page 1, fetch them too
+                    if (!empty($full_album['has_more']) && $total_photos > 500) {
+                        $pages_needed = ceil($total_photos / 500);
+                        for ($p = 2; $p <= $pages_needed; $p++) {
+                            $next_page = FlickrJustifiedCache::get_photoset_photos($set_info['user_id'], $set_info['photoset_id'], $p, 500);
+                            if (!empty($next_page['photo_views'])) {
+                                // Merge the photos from additional pages
+                                $full_album['photo_views'] = array_merge($full_album['photo_views'], $next_page['photo_views']);
+                                $full_album['photo_urls_map'] = array_merge($full_album['photo_urls_map'], $next_page['photo_urls_map']);
+                            }
+                        }
+                    }
+
+                    $photo_views_map = isset($full_album['photo_views']) && is_array($full_album['photo_views']) ? $full_album['photo_views'] : [];
+                    $photo_urls_map = isset($full_album['photo_urls_map']) && is_array($full_album['photo_urls_map']) ? $full_album['photo_urls_map'] : [];
+
+                    if (!empty($photo_views_map) && !empty($photo_urls_map)) {
+                        FlickrJustifiedCache::persist_set_views_index(
+                            $resolved_user_id,
+                            $set_info['photoset_id'],
+                            $photo_views_map,
+                            $photo_urls_map,
+                            false, // Not partial since this is the last page
+                            $total_photos
+                        );
+
+                        if (defined('WP_DEBUG') && WP_DEBUG) {
+                            error_log(sprintf(
+                                'Flickr cache warmer: Created views index for album %s with %d photos (total: %d)',
+                                $set_info['photoset_id'],
+                                count($photo_views_map),
+                                $total_photos
+                            ));
+                        }
+                    }
                 }
             }
 
@@ -867,8 +899,34 @@ class FlickrJustifiedCacheWarmer {
         $photostream_users = [];
 
         if (!$force) {
-            // Simple case: queue is empty, just use the new URLs
-            $queue = $urls;
+            // Preserve paginated entries (page > 1) that are still in known URLs
+            $paginated_entries = [];
+            foreach ($current_queue as $item) {
+                if (is_array($item) && isset($item['url']) && isset($item['page']) && $item['page'] > 1) {
+                    if (in_array($item['url'], $urls, true)) {
+                        $paginated_entries[] = $item;
+                    }
+                }
+            }
+
+            // Start with preserved paginated entries
+            $queue = $paginated_entries;
+
+            // Add all URLs from known URLs list (avoiding duplicates)
+            foreach ($urls as $url) {
+                $already_queued = false;
+                foreach ($queue as $item) {
+                    $item_url = is_array($item) ? ($item['url'] ?? '') : $item;
+                    if ($item_url === $url) {
+                        $already_queued = true;
+                        break;
+                    }
+                }
+                if (!$already_queued) {
+                    $queue[] = $url;
+                }
+            }
+
             // Collect users for photostream jobs.
             foreach ($urls as $u) {
                 if (preg_match('#flickr\.com/photos/([^/]+)/#', $u, $m)) {
@@ -1492,6 +1550,8 @@ class FlickrJustifiedCacheWarmer {
             return;
         }
 
+        // Group jobs by album ID to handle multi-page albums
+        $albums_to_check = [];
         foreach ($done_jobs as $job) {
             $payload = json_decode($job->payload_json, true);
             if (!$payload || empty($payload['url'])) {
@@ -1504,33 +1564,47 @@ class FlickrJustifiedCacheWarmer {
             }
 
             $album_id = $m[2];
+            if (!isset($albums_to_check[$album_id])) {
+                $albums_to_check[$album_id] = [];
+            }
+            $albums_to_check[$album_id][] = $job->job_key;
+        }
 
-            // Check if views index exists in cache
+        // Check each album's cache and reset ALL pages if cache is empty
+        foreach ($albums_to_check as $album_id => $job_keys) {
             $cache_key = 'set_views_index:' . md5($resolved_user_id . '_' . $album_id);
-            $cached = wp_cache_get($cache_key, 'flickr_justified');
+            // Use FlickrJustifiedCache::get() to check both wp_cache and transients
+            $cached = FlickrJustifiedCache::get($cache_key);
 
-            // If cache is empty, reset job to pending
+            // If cache is empty, reset ALL jobs for this album (all pages)
             if (empty($cached)) {
-                $wpdb->update(
-                    $table,
-                    [
-                        'status' => 'pending',
-                        'attempts' => 0,
-                        'last_error' => null,
-                        'not_before' => null,
-                        'updated_at' => current_time('mysql')
-                    ],
-                    ['job_key' => $job->job_key],
-                    ['%s', '%d', '%s', '%s', '%s'],
-                    ['%s']
+                // Reset all jobs for this album using album ID pattern match
+                $updated = $wpdb->query(
+                    $wpdb->prepare(
+                        "UPDATE {$table}
+                         SET status = 'pending', attempts = 0, last_error = NULL, not_before = NULL, updated_at = %s
+                         WHERE job_type = 'set_page' AND payload_json LIKE %s",
+                        current_time('mysql'),
+                        '%' . $wpdb->esc_like($album_id) . '%'
+                    )
                 );
-                $reset_count++;
+
+                if ($updated > 0) {
+                    $reset_count += $updated;
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log(sprintf(
+                            'Flickr cache warmer: Reset %d page(s) for album %s (cache was empty)',
+                            $updated,
+                            $album_id
+                        ));
+                    }
+                }
             }
         }
 
         if ($reset_count > 0 && defined('WP_DEBUG') && WP_DEBUG) {
             error_log(sprintf(
-                'Flickr cache warmer: Reset %d stale "done" set_page jobs (cache was empty)',
+                'Flickr cache warmer: Reset total of %d stale set_page job(s)',
                 $reset_count
             ));
         }
