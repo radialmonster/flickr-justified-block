@@ -208,11 +208,12 @@ class FlickrJustifiedCacheWarmer {
                 ));
             }
 
+            // Always check if queue needs rebuilding (auto-detection inside prime_queue_from_known_urls)
+            // This handles cases where jobs were cleared but known_urls still has data
+            $queue = self::prime_queue_from_known_urls();
+
             if (empty($queue)) {
-                $queue = self::prime_queue_from_known_urls();
-                if (empty($queue)) {
-                    return 0;
-                }
+                return 0;
             }
 
         $default_calls = 20;
@@ -818,12 +819,47 @@ class FlickrJustifiedCacheWarmer {
      */
     private static function prime_queue_from_known_urls($force = false) {
         $current_queue = self::get_queue();
+        $urls = self::get_all_known_urls();
+
+        // Auto-detect when queue is out of sync with known URLs
+        // This handles cases where jobs were cleared but known_urls still has data
+        if (!$force && !empty($urls)) {
+            global $wpdb;
+            $table = $wpdb->prefix . 'fjb_jobs';
+            self::ensure_jobs_table();
+
+            // Count album URLs in known_flickr_urls
+            $album_urls = 0;
+            foreach ($urls as $url) {
+                if (preg_match('#/(sets|albums)/\d+#', $url)) {
+                    $album_urls++;
+                }
+            }
+
+            // Count set_page jobs in database (both pending and done)
+            $set_jobs_count = (int) $wpdb->get_var(
+                "SELECT COUNT(DISTINCT SUBSTRING_INDEX(SUBSTRING_INDEX(payload_json, '\"url\":\"', -1), '\"', 1))
+                 FROM {$table}
+                 WHERE job_type = 'set_page'"
+            );
+
+            // If we have significantly more album URLs than jobs, force rebuild
+            // Use threshold: if we're missing more than 5 albums
+            if ($album_urls > 0 && $set_jobs_count < ($album_urls - 5)) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log(sprintf(
+                        'Flickr cache warmer: Queue out of sync (%d album URLs, %d set_page jobs), auto-rebuilding...',
+                        $album_urls,
+                        $set_jobs_count
+                    ));
+                }
+                $force = true;
+            }
+        }
 
         if (!$force && !empty($current_queue)) {
             return $current_queue;
         }
-
-        $urls = self::get_all_known_urls();
         $photostream_users = [];
 
         if (!$force) {
