@@ -1,0 +1,667 @@
+/**
+ * Flickr Justified Block Styles - Justified Gallery Layout
+ */
+
+/* The main container - justified gallery layout */
+.flickr-justified-grid {
+    --gap: 12px;
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    width: 100%;
+    overflow-anchor: auto; /* Enable native scroll anchoring in modern browsers */
+}
+
+/* Container query fallback: reasonable layout before JS creates row wrappers.
+   Only applies to :not(.justified-initialized) — once JS runs, it controls layout. */
+@container (max-width: 480px) {
+    .flickr-justified-grid:not(.justified-initialized) > .flickr-justified-card {
+        flex: 0 0 100%; /* 1 per row */
+    }
+}
+@container (min-width: 481px) and (max-width: 768px) {
+    .flickr-justified-grid:not(.justified-initialized) > .flickr-justified-card {
+        flex: 0 0 calc(50% - var(--gap) / 2); /* 2 per row */
+    }
+}
+@container (min-width: 769px) and (max-width: 1200px) {
+    .flickr-justified-grid:not(.justified-initialized) > .flickr-justified-card {
+        flex: 0 0 calc(33.333% - var(--gap) * 2 / 3); /* 3 per row */
+    }
+}
+@container (min-width: 1201px) {
+    .flickr-justified-grid:not(.justified-initialized) > .flickr-justified-card {
+        flex: 0 0 calc(25% - var(--gap) * 3 / 4); /* 4 per row */
+    }
+}
+
+/* Pre-JS: wrap cards into rows using flex-wrap */
+.flickr-justified-grid:not(.justified-initialized) {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+/* Single image alignment - applied to rows within single-image grids to prevent flash */
+.flickr-justified-grid[data-single-image-alignment="left"] .flickr-justified-row {
+    justify-content: flex-start;
+}
+
+.flickr-justified-grid[data-single-image-alignment="center"] .flickr-justified-row {
+    justify-content: center;
+}
+
+.flickr-justified-grid[data-single-image-alignment="right"] .flickr-justified-row {
+    justify-content: flex-end;
+}
+
+/* Initial alignment before JavaScript creates rows - prevents flash */
+.flickr-justified-grid[data-single-image-alignment="left"]:not(.justified-initialized) {
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+.flickr-justified-grid[data-single-image-alignment="center"]:not(.justified-initialized) {
+    align-items: center;
+    justify-content: center;
+}
+
+.flickr-justified-grid[data-single-image-alignment="right"]:not(.justified-initialized) {
+    align-items: flex-end;
+    justify-content: flex-end;
+}
+
+/* Row container for images */
+.flickr-justified-row {
+    display: flex;
+    gap: var(--gap);
+    width: 100%;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+/* Individual card styles - dimensions set by JavaScript */
+.flickr-justified-card {
+    background: transparent;
+    border-radius: 8px;
+    overflow: hidden;
+    box-sizing: border-box;
+    flex: 0 0 auto; /* Prevent shrinking/growing from JS-calculated size */
+}
+
+/* Modern browser fallback: aspect ratio for images without dimensions */
+.flickr-justified-card:not([data-width]) {
+    aspect-ratio: 3 / 2; /* Landscape fallback for non-Flickr images */
+}
+
+/* Images sized by JavaScript - maintain crisp display */
+.flickr-justified-card img {
+    display: block;
+    object-fit: cover; /* Cover the container for justified layout */
+    max-width: none; /* neutralize global img resets */
+    object-position: center; /* nicer crops */
+}
+
+/* Helps reduce CLS while images decode */
+.flickr-justified-card img[loading="lazy"] {
+    content-visibility: auto;
+    contain-intrinsic-size: 300px 200px; /* pick a sensible average */
+}
+
+/* Staging container for new cards during layout */
+.flickr-staging {
+    display: none;
+}
+
+/* Make anchor fill the card (consistent click target) */
+.flickr-justified-card > a {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Individual gallery item links */
+.flickr-justified-card .flickr-justified-item,
+.flickr-justified-card .flickr-builtin-lightbox {
+    display: block;
+    width: 100%;
+    text-decoration: none;
+    color: inherit;
+}
+
+/* Focus states for accessibility */
+.flickr-justified-card .flickr-justified-item:focus,
+.flickr-justified-card .flickr-builtin-lightbox:focus {
+    outline: 2px solid #005cee;
+    outline-offset: 2px;
+}
+
+/* --- Gallery Layout Styles --- */
+
+/* Editor-specific styles */
+.flickr-justified-block-editor {
+    min-height: 100px;
+}
+
+/* Card grid layout */
+.fjb-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+@media (max-width: 1024px) {
+    .fjb-card-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .fjb-card-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* --- Image Card --- */
+.fjb-image-card {
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f0f0f0;
+    aspect-ratio: 3 / 2;
+    cursor: grab;
+    user-select: none;
+    touch-action: none; /* Prevent scroll/zoom during pointer drag */
+    border: 2px solid transparent;
+    transition: border-color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fjb-image-card:active {
+    cursor: grabbing;
+}
+
+.fjb-image-card--selected {
+    border-color: var(--wp-admin-theme-color, #007cba);
+    box-shadow: 0 0 0 1px var(--wp-admin-theme-color, #007cba);
+}
+
+.fjb-image-card--full-row {
+    grid-column: 1 / -1;
+    aspect-ratio: auto;
+}
+
+.fjb-image-card--dragging {
+    opacity: 0.4;
+}
+
+.fjb-image-card--drop-target {
+    border-color: #00a32a;
+    box-shadow: 0 0 0 2px rgba(0, 163, 42, 0.3);
+}
+
+/* Card image */
+.fjb-image-card__img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+}
+
+/* Number badge */
+.fjb-image-card__badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 3px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* Full-row indicator badge */
+.fjb-image-card__fullrow-badge {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 124, 186, 0.85);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 8px;
+    border-radius: 3px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* Hover overlay */
+.fjb-image-card__overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.fjb-image-card:hover .fjb-image-card__overlay,
+.fjb-image-card:focus-within .fjb-image-card__overlay {
+    opacity: 1;
+}
+
+/* Overlay buttons */
+.fjb-image-card__btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease;
+    padding: 0;
+}
+
+.fjb-image-card__btn:hover {
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.fjb-image-card__btn--fullrow.fjb-image-card__btn--active {
+    background: rgba(0, 124, 186, 0.85);
+}
+
+.fjb-image-card__btn--remove:hover {
+    background: rgba(204, 24, 30, 0.85);
+}
+
+.fjb-image-card__btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
+}
+
+/* Card loading state */
+.fjb-image-card__loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #666;
+    font-size: 13px;
+    gap: 8px;
+}
+
+.fjb-image-card__spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #ddd;
+    border-top-color: #007cba;
+    border-radius: 50%;
+    animation: fjb-spin 0.8s linear infinite;
+}
+
+@keyframes fjb-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Card error state */
+.fjb-image-card__error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 12px;
+    color: #cc181e;
+    font-size: 12px;
+    text-align: center;
+    word-break: break-all;
+}
+
+/* Card URL fallback */
+.fjb-image-card__url-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 12px;
+    color: #666;
+    font-size: 11px;
+    text-align: center;
+    word-break: break-all;
+}
+
+/* Album card style */
+.fjb-image-card__album {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 16px;
+    background: #f7fbff;
+    border: 2px solid #0073aa;
+    border-radius: 4px;
+    text-align: center;
+    color: #0073aa;
+}
+
+.fjb-image-card__album-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+
+.fjb-image-card__album-title {
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.fjb-image-card__album-label {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* --- Add Zone --- */
+.fjb-add-zone {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-top: 4px;
+}
+
+.fjb-add-zone__input {
+    flex: 1;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 2px dashed #ccc;
+    border-radius: 6px;
+    background: #fafafa;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.15s ease;
+}
+
+.fjb-add-zone__input:focus {
+    border-color: var(--wp-admin-theme-color, #007cba);
+    outline: none;
+    background: #fff;
+}
+
+.fjb-add-zone__input::placeholder {
+    color: #999;
+}
+
+.fjb-add-zone__btn {
+    flex-shrink: 0;
+    min-height: 40px;
+}
+
+/* --- Empty State --- */
+.fjb-empty-state {
+    padding: 40px 20px 20px;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    text-align: center;
+    color: #666;
+    background: #f9f9f9;
+}
+
+.fjb-empty-state__title {
+    margin: 0 0 8px;
+    font-size: 16px;
+}
+
+.fjb-empty-state__subtitle {
+    margin: 0 0 20px;
+    font-size: 14px;
+}
+
+.fjb-empty-state .fjb-add-zone {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+/* --- External Drop Zone Active State --- */
+.fjb-card-grid--drop-active,
+.fjb-empty-state--drop-active {
+    outline: 3px dashed var(--wp-admin-theme-color, #007cba);
+    outline-offset: -3px;
+    background: rgba(0, 124, 186, 0.04);
+    border-radius: 8px;
+}
+
+.fjb-empty-state--drop-active {
+    border-color: var(--wp-admin-theme-color, #007cba);
+    background: rgba(0, 124, 186, 0.06);
+}
+
+/* Loading state for images */
+.flickr-justified-card img[src=""] {
+    background: #f0f0f0;
+    min-height: 200px;
+}
+
+/* Alignment support */
+.wp-block-flickr-justified-block.alignwide {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.wp-block-flickr-justified-block.alignfull {
+    max-width: none;
+    width: 100vw;
+    position: relative;
+    left: 50%;
+    right: 50%;
+    margin-left: -50vw;
+    margin-right: -50vw;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .flickr-justified-card {
+        border: 1px solid currentColor;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .flickr-justified-card,
+    .flickr-justified-card img {
+        transition: none;
+    }
+}
+
+/* PhotoSwipe theme protection and mobile enhancements */
+
+/* Keep PhotoSwipe slide images from inheriting global img rules */
+.pswp img {
+    max-width: none !important;
+    height: auto;
+}
+
+/* Give the PhotoSwipe top bar consistent spacing */
+.pswp__top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px 8px 10px;
+}
+
+/* Base styling for the Flickr attribution control */
+.pswp__button--flickr-attribution {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35em;
+    font-size: 13px;
+    line-height: 1.25;
+    color: #fff;
+    text-decoration: underline;
+    background-color: rgba(0, 0, 0, 0.35);
+    border-radius: 4px;
+    padding: 6px 12px;
+    margin-right: 8px;
+    white-space: nowrap;
+    transition: background-color 0.2s ease;
+}
+
+.pswp__button--flickr-attribution:hover,
+.pswp__button--flickr-attribution:focus-visible {
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #fff;
+}
+
+.pswp__button--flickr-attribution:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.6);
+    outline-offset: 2px;
+}
+
+/* Respect notches / dynamic islands */
+.pswp {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Fullscreen container for mobile */
+.pswp-fullscreen-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    width: 100dvw; /* Dynamic viewport width */
+    height: 100dvh; /* Dynamic viewport height */
+    background: #000;
+    z-index: 999999;
+}
+
+/* Ensure PhotoSwipe inside fullscreen container uses full space */
+.pswp-fullscreen-container .pswp {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* In landscape mode, ensure no padding issues */
+@media (orientation: landscape) and (max-width: 1024px) {
+    .pswp-fullscreen-container {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .pswp-fullscreen-container .pswp {
+        padding: 0 !important;
+    }
+
+    /* Adjust top bar for landscape */
+    .pswp-fullscreen-container .pswp__top-bar {
+        padding: 6px 10px;
+    }
+}
+
+
+/* Mobile: keep controls compact without forcing a second row */
+@media (max-width: 768px) {
+  .pswp__top-bar {
+    align-items: center;
+    gap: 8px 10px;
+    padding: 10px;
+  }
+
+  .pswp__counter {
+    order: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-right: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pswp__button--zoom {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .pswp__button--close {
+    order: 2;
+  }
+
+  .pswp__button--flickr-attribution {
+    order: 3;
+    margin-right: 0;
+    white-space: nowrap;
+    justify-content: center;
+    padding: 8px 12px;
+  }
+
+  .pswp__button svg,
+  .pswp__preloader .pswp__icn {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* On very narrow phones, keep controls visible but reduce chrome */
+@media (max-width: 420px) {
+  .pswp__top-bar {
+    flex-wrap: wrap;
+  }
+
+  .pswp__counter {
+    order: 3;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* Async loading states */
+.flickr-justified-loading {
+    padding: 40px;
+    text-align: center;
+    background: #f0f0f1;
+    border-radius: 4px;
+}
+
+.flickr-justified-loading p {
+    margin: 0;
+    color: #666;
+}
+
+.flickr-justified-loading p.flickr-loading-icon {
+    margin-bottom: 10px;
+}
+
+.flickr-justified-loading .dashicons {
+    animation: rotation 2s infinite linear;
+    font-size: 24px;
+}
+
+.flickr-loading-retry {
+    margin: 0 !important;
+    color: #666 !important;
+}
+
+@keyframes rotation {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(359deg); }
+}

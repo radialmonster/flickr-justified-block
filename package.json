@@ -1,0 +1,17 @@
+{
+  "name": "flickr-justified-block",
+  "version": "1.2.1",
+  "private": true,
+  "description": "Flickr Justified Block WordPress plugin",
+  "scripts": {
+    "build": "WP_EXPERIMENTAL_MODULES=true wp-scripts build",
+    "start": "WP_EXPERIMENTAL_MODULES=true wp-scripts start",
+    "lint:js": "wp-scripts lint-js src/",
+    "lint:css": "wp-scripts lint-style assets/css/",
+    "lint": "npm run lint:js && npm run lint:css",
+    "test": "wp-scripts test-unit-js --passWithNoTests"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^30.0.0"
+  }
+}
