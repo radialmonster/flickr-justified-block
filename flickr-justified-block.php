@@ -11,9 +11,6 @@
  * Requires at least: 6.7
  * Tested up to: 6.7
  * Requires PHP: 8.1
- * GitHub Plugin URI: radialmonster/flickr-justified-block
- * Primary Branch: main
- *
  * @package FlickrJustifiedBlock
  */
 
