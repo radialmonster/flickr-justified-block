@@ -6,6 +6,8 @@ A powerful WordPress Gutenberg block that creates beautiful justified photo gall
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-purple.svg)
 ![License](https://img.shields.io/badge/License-GPLv2-green.svg)
 
+*Last updated: 2026-04-05*
+
 ---
 
 ## ✨ Features
