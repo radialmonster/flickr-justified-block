@@ -33,20 +33,17 @@ All Flickr size mappings in this plugin are defined in **ONE place** and derive 
 
 All other size-related methods derive from `get_size_definitions()`:
 
-### 1. `get_size_suffix_map()`
-**Returns**: `['l' => 'large1024', 'o' => 'original', ...]`
-**Used by**: Album response parsing
-**Generated from**: `suffix` property
+### Private (internal cache class use)
 
-### 2. `get_size_label_map()`
-**Returns**: `['large1024' => ['Large 1024', 'Large 1600', 'Original'], ...]`
-**Used by**: Individual photo API parsing
-**Generated from**: `labels` property
+- **`get_size_suffix_map()`** — `['l' => 'large1024', ...]` — Album response parsing
+- **`get_size_label_map()`** — `['large1024' => ['Large 1024', ...], ...]` — Photo API parsing
+- **`get_comprehensive_size_list()`** — `['large1024', 'original', ...]` — Cache key generation
 
-### 3. `get_comprehensive_size_list()`
-**Returns**: `['large1024', 'original', 'medium500', ...]`
-**Used by**: Cache key generation
-**Generated from**: All sizes with `suffix` defined
+### Public (used by render helpers, AJAX validation, JS config)
+
+- **`get_size_names($include_thumbnails)`** — Ordered array of size name strings (replaces hardcoded lists in render-helpers.php and AJAX validation)
+- **`get_suffix_to_name_map()`** — Public version of suffix map (delivered to frontend JS via Script Module data)
+- **`get_name_to_suffix_map()`** — Inverse map for static URL construction (used by `build_static_url()`)
 
 ## Adding a New Size
 
@@ -77,6 +74,16 @@ That's it! The change propagates everywhere automatically.
 | thumbnail100 | t | Thumbnail | 100 on longest side |
 | thumbnail150s | q | Large Square 150 | 150x150 square |
 | thumbnail75s | sq | Square 75 | 75x75 square |
+
+## Consumers
+
+All these locations now derive from `get_size_definitions()` instead of hardcoding:
+
+- `includes/render-helpers.php` — `flickr_justified_get_available_flickr_sizes()` → `get_size_names()`
+- `includes/render-helpers.php` — `flickr_justified_select_best_size()` size preference → `get_size_names()`
+- `flickr-justified-block.php` — AJAX `$valid_sizes` validation → `get_size_names(true)`
+- `includes/cache.php` — `build_static_url()` suffix map → `get_name_to_suffix_map()`
+- `src/frontend/image-fallback.js` — JS sizeMap → read from Script Module data via `getSizeMap()`
 
 ## Philosophy
 

@@ -61,6 +61,13 @@ class FlickrJustifiedCache {
      * - 'suffix': Flickr URL suffix (sq, t, s, etc.) for album responses
      * - 'labels': Array of Flickr API label names (in fallback priority order)
      *
+     * NOTE: Some suffix values here may not match the official Flickr "Size Suffixes"
+     * table (e.g. large1024 uses 'l' here but Flickr documents 'b' for 1024px large).
+     * These suffixes are used for parsing Flickr API `extras` fields (url_l, url_s, etc.)
+     * and are currently working in production. Do NOT change suffix values without testing
+     * against live Flickr API responses first.
+     *
+     * @see https://www.flickr.com/services/api/misc.urls.html
      * @return array Map of our size names to their Flickr properties
      */
     private static function get_size_definitions() {
@@ -147,6 +154,65 @@ class FlickrJustifiedCache {
         return $size_list;
     }
 
+    // ========================================================================
+    // PUBLIC SIZE ACCESSORS
+    // Expose size data derived from get_size_definitions() for use outside
+    // this class (render helpers, AJAX validation, JS config delivery).
+    // ========================================================================
+
+    /**
+     * Get ordered array of size name strings.
+     *
+     * @param bool $include_thumbnails Whether to include thumbnail sizes.
+     * @return string[]
+     */
+    public static function get_size_names($include_thumbnails = false) {
+        static $standard = null;
+        static $with_thumbs = null;
+
+        if (null === $standard) {
+            $standard = [];
+            $thumbs = [];
+            foreach (self::get_size_definitions() as $name => $props) {
+                if (str_starts_with($name, 'thumbnail')) {
+                    $thumbs[] = $name;
+                } else {
+                    $standard[] = $name;
+                }
+            }
+            $with_thumbs = array_merge($standard, $thumbs);
+        }
+
+        return $include_thumbnails ? $with_thumbs : $standard;
+    }
+
+    /**
+     * Get the suffix-to-name map for external consumers (JS config, etc.).
+     *
+     * @return array<string, string> E.g. ['o' => 'original', 'k' => 'large2048', ...]
+     */
+    public static function get_suffix_to_name_map() {
+        return self::get_size_suffix_map();
+    }
+
+    /**
+     * Get the name-to-suffix map (inverse of suffix map) for static URL construction.
+     *
+     * Sizes without a suffix return null and cannot be used in static URLs.
+     *
+     * @return array<string, string|null> E.g. ['original' => 'o', 'large' => null, ...]
+     */
+    public static function get_name_to_suffix_map() {
+        static $map = null;
+        if (null === $map) {
+            $map = [];
+            foreach (self::get_size_definitions() as $name => $props) {
+                $map[$name] = $props['suffix'] ?? null;
+            }
+        }
+        return $map;
+    }
+
     /**
      * Build static Flickr URLs for common sizes (b, q, t, m) from server/secret.
      *
@@ -199,20 +265,21 @@ class FlickrJustifiedCache {
         if (empty($photo_id) || '' === $server || '' === $secret) {
             return null;
         }
-        $map = [
-            'large1024' => 'b',
-            'thumbnail150s' => 'q',
-            'thumbnail100' => 't',
-            'small240' => 'm',
-            'medium500' => '',
-            'medium' => '',
-        ];
-        if (!isset($map[$size])) {
+
+        // Derive suffix from the single source of truth.
+        // Sizes with null suffix cannot be used for static URL construction.
+        $name_to_suffix = self::get_name_to_suffix_map();
+        if (!isset($name_to_suffix[$size])) {
             return null;
         }
-        $suffix = $map[$size];
+
+        $suffix = $name_to_suffix[$size];
+        if (null === $suffix) {
+            return null;
+        }
+
         $base = 'https://live.staticflickr.com/' . rawurlencode($server) . '/' . rawurlencode($photo_id) . '_' . rawurlencode($secret);
-        return $base . ($suffix === '' ? '' : '_' . $suffix) . '.jpg';
+        return $base . '_' . $suffix . '.jpg';
     }
 
     /**
@@ -274,10 +341,7 @@ class FlickrJustifiedCache {
         }
 
         // Check wp_cache (Redis) first, then transients
-        $value = false;
-        if (function_exists('wp_cache_get')) {
-            $value = wp_cache_get($full_key, 'flickr_justified');
-        }
+        $value = wp_cache_get($full_key, 'flickr_justified');
 
         // Fallback to transients if not in wp_cache
         if (false === $value) {
@@ -307,10 +371,7 @@ class FlickrJustifiedCache {
 
         // Use both wp_cache and transients for redundancy
         // wp_cache_set works better with Redis in some configurations
-        $wp_cache_result = false;
-        if (function_exists('wp_cache_set')) {
-            $wp_cache_result = wp_cache_set($full_key, $value, 'flickr_justified', $expiration);
-        }
+        $wp_cache_result = wp_cache_set($full_key, $value, 'flickr_justified', $expiration);
 
         $transient_result = set_transient($full_key, $value, $expiration);
 
@@ -437,13 +498,10 @@ class FlickrJustifiedCache {
         $counter_key = self::get_api_counter_key();
 
         // Try to use object cache increment when available
-        $new_count = null;
-        if (function_exists('wp_cache_incr')) {
+        $new_count = wp_cache_incr($counter_key, 1, '', 0);
+        if (false === $new_count) {
+            wp_cache_add($counter_key, 0, '', HOUR_IN_SECONDS);
             $new_count = wp_cache_incr($counter_key, 1, '', 0);
-            if (false === $new_count) {
-                wp_cache_add($counter_key, 0, '', HOUR_IN_SECONDS);
-                $new_count = wp_cache_incr($counter_key, 1, '', 0);
-            }
         }
 
         // Fallback to transient counter
@@ -460,11 +518,9 @@ class FlickrJustifiedCache {
         $counter_key = self::get_api_counter_key();
         $count = 0;
 
-        if (function_exists('wp_cache_get')) {
-            $cached = wp_cache_get($counter_key);
-            if (false !== $cached && is_numeric($cached)) {
-                $count = (int) $cached;
-            }
+        $cached = wp_cache_get($counter_key);
+        if (false !== $cached && is_numeric($cached)) {
+            $count = (int) $cached;
         }
 
         if (0 === $count) {

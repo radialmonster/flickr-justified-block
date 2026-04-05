@@ -58,11 +58,9 @@ class FlickrJustifiedCacheWarmer {
     private static function acquire_lock() {
         $expires = time() + self::LOCK_TTL;
 
-        // Prefer object cache for atomic add when available.
-        if (function_exists('wp_cache_add')) {
-            if (wp_cache_add(self::OPTION_LOCK, 1, '', self::LOCK_TTL)) {
-                return true;
-            }
+        // Prefer object cache for atomic add.
+        if (wp_cache_add(self::OPTION_LOCK, 1, '', self::LOCK_TTL)) {
+            return true;
         }
 
         $existing = get_option(self::OPTION_LOCK);
@@ -78,9 +76,7 @@ class FlickrJustifiedCacheWarmer {
      * Release the lock.
      */
     private static function release_lock() {
-        if (function_exists('wp_cache_delete')) {
-            wp_cache_delete(self::OPTION_LOCK, '');
-        }
+        wp_cache_delete(self::OPTION_LOCK, '');
         delete_option(self::OPTION_LOCK);
     }
 
@@ -704,7 +700,7 @@ class FlickrJustifiedCacheWarmer {
      * Extract Flickr URLs from block content.
      */
     private static function extract_block_urls($content) {
-        if (!function_exists('parse_blocks') || !is_string($content) || '' === $content) {
+        if (!is_string($content) || '' === $content) {
             return [];
         }
 

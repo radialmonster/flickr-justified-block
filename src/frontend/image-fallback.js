@@ -3,7 +3,7 @@
  * Detects 404 errors and fetches fresh URLs from Flickr API
  */
 
-import { getAjaxUrl, getFallbackNonce } from './config';
+import { getAjaxUrl, getFallbackNonce, getSizeMap } from './config';
 import { initJustifiedGallery } from './layout';
 
 const attemptedRefresh = new WeakSet();
@@ -112,21 +112,9 @@ async function handleImageError( event ) {
 	}
 
 	const sizeSuffix = getSizeSuffix( img.src );
-	const sizeMap = {
-		o: 'original',
-		k: 'large2048',
-		h: 'large1600',
-		l: 'large1024',
-		c: 'medium800',
-		z: 'medium640',
-		m: 'medium500',
-		n: 'small320',
-		s: 'small240',
-		t: 'thumbnail100',
-		q: 'thumbnail150s',
-		sq: 'thumbnail75s',
-		b: 'large',
-	};
+	// Suffix-to-name map derived from PHP's single source of truth (get_size_definitions).
+	// Delivered via WP Script Module data; falls back to 'large' if unavailable.
+	const sizeMap = getSizeMap();
 	const size = sizeMap[ sizeSuffix ] || 'large';
 
 	const freshData = await fetchFreshUrl( photoId, size );
@@ -208,26 +196,31 @@ document.addEventListener( 'flickr-gallery-updated', () => {
 } );
 
 if ( typeof MutationObserver !== 'undefined' ) {
+	let mutationTimer;
 	const observer = new MutationObserver( ( mutations ) => {
-		const hasNewGalleries = mutations.some( ( m ) =>
-			Array.from( m.addedNodes ).some(
-				( n ) =>
+		// Quick bail: only inspect element additions, skip text/attribute changes
+		let hasNewGalleries = false;
+		for ( const m of mutations ) {
+			if ( hasNewGalleries ) break;
+			for ( const n of m.addedNodes ) {
+				if (
 					n.nodeType === 1 &&
-					( ( n.classList &&
-						n.classList.contains(
-							'flickr-justified-grid'
-						) ) ||
-						( n.querySelector &&
-							n.querySelector(
-								'.flickr-justified-grid'
-							) ) )
-			)
-		);
+					( n.classList?.contains( 'flickr-justified-grid' ) ||
+						n.querySelector?.( '.flickr-justified-grid' ) )
+				) {
+					hasNewGalleries = true;
+					break;
+				}
+			}
+		}
 
 		if ( hasNewGalleries ) {
-			setTimeout( initImageFallback, 200 );
+			clearTimeout( mutationTimer );
+			mutationTimer = setTimeout( initImageFallback, 200 );
 		}
 	} );
 
+	// Observe body with subtree — galleries can be nested in various theme containers.
+	// The callback bails early when no galleries are added, keeping overhead low.
 	observer.observe( document.body, { childList: true, subtree: true } );
 }

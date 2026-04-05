@@ -52,30 +52,8 @@ function flickr_justified_get_admin_setting($method, $default = null) {
  * @return array<int, string>
  */
 function flickr_justified_get_available_flickr_sizes($include_thumbnails = false) {
-    static $standard_sizes = null;
-    static $sizes_with_thumbnails = null;
-
-    if (null === $standard_sizes) {
-        $standard_sizes = [
-            'original', 'large6k', 'large5k', 'largef', 'large4k', 'large3k',
-            'large2048', 'large1600', 'large1024', 'large',
-            'medium800', 'medium640', 'medium500', 'medium',
-            'small400', 'small320', 'small240',
-        ];
-    }
-
-    if (!$include_thumbnails) {
-        return $standard_sizes;
-    }
-
-    if (null === $sizes_with_thumbnails) {
-        $sizes_with_thumbnails = array_merge(
-            $standard_sizes,
-            ['thumbnail100', 'thumbnail150s', 'thumbnail75s']
-        );
-    }
-
-    return $sizes_with_thumbnails;
+    // Derived from FlickrJustifiedCache::get_size_definitions() — the single source of truth.
+    return FlickrJustifiedCache::get_size_names($include_thumbnails);
 }
 
 /**
@@ -91,12 +69,9 @@ function flickr_justified_select_best_size($image_sizes_data, $max_width = 2048,
         return null;
     }
 
-    // Size preference order (largest to smallest)
-    $size_preference = [
-        'original', 'large6k', 'large5k', 'large4k', 'large3k',
-        'large2048', 'large1600', 'large1024', 'large',
-        'medium800', 'medium640', 'medium500', 'medium'
-    ];
+    // Size preference order (largest to smallest) — derived from get_size_definitions() key order,
+    // excluding thumbnails and small sizes which are not useful for display/lightbox.
+    $size_preference = FlickrJustifiedCache::get_size_names(false);
 
     $best_size = null;
     $best_area = 0;
@@ -127,10 +102,10 @@ function flickr_justified_select_best_size($image_sizes_data, $max_width = 2048,
         }
     }
 
-    // If no size fits within constraints, use the smallest available size
+    // If no size fits within constraints, use the smallest available non-thumbnail size
     if (!$best_size) {
-        $smallest_sizes = ['medium', 'medium500', 'medium640', 'medium800'];
-        foreach ($smallest_sizes as $size_key) {
+        $all_sizes = array_reverse(FlickrJustifiedCache::get_size_names(false));
+        foreach ($all_sizes as $size_key) {
             if (isset($image_sizes_data[$size_key])) {
                 $best_size = $size_key;
                 break;
@@ -152,7 +127,7 @@ function flickr_justified_select_best_size($image_sizes_data, $max_width = 2048,
  * @return string
  */
 function flickr_justified_encode_json_attr($data) {
-    $encoded = function_exists('wp_json_encode') ? wp_json_encode($data) : json_encode($data);
+    $encoded = wp_json_encode($data);
 
     return is_string($encoded) ? $encoded : '';
 }
@@ -201,7 +176,10 @@ function flickr_justified_empty_photoset_result($page = 1) {
 // ============================================================================
 
 /**
- * Determine whether a URL points to a Flickr photo page.
+ * Determine whether a URL points to a specific Flickr photo page (with numeric photo ID).
+ *
+ * This is stricter than FlickrJustifiedBlock::is_flickr_url() — it requires the URL
+ * to contain /photos/USERNAME/DIGITS, confirming it's an individual photo, not an album.
  *
  * @param string $url Potential Flickr photo URL.
  * @return bool

@@ -457,8 +457,8 @@ class FlickrJustifiedAdminSettings {
         ?>
         <script>
         document.getElementById('reset-breakpoints').addEventListener('click', function() {
-            var defaults = <?php echo json_encode(self::get_default_breakpoints()); ?>;
-            var defaultResponsive = <?php echo json_encode(self::get_default_responsive_settings()); ?>;
+            var defaults = <?php echo wp_json_encode(self::get_default_breakpoints()); ?>;
+            var defaultResponsive = <?php echo wp_json_encode(self::get_default_responsive_settings()); ?>;
             for (var key in defaults) {
                 var breakpointInput = document.querySelector('input[name="flickr_justified_options[breakpoints][' + key + ']"]');
                 var responsiveInput = document.querySelector('input[name="flickr_justified_options[default_responsive_settings][' + key + ']"]');
@@ -1786,7 +1786,7 @@ class FlickrJustifiedAdminSettings {
         $photo_url = 'https://www.flickr.com/photos/' . $owner_nsid . '/' . $photo_id . '/';
         $jobs_table = $wpdb->prefix . 'fjb_jobs';
         $job_key = 'photo:' . $photo_id;
-        $payload = json_encode([
+        $payload = wp_json_encode([
             'url' => $photo_url,
             'page' => 1
         ]);

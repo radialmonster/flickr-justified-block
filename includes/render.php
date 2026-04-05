@@ -71,8 +71,8 @@ function flickr_justified_render_block($attributes) {
 
     if ($use_async_loading) {
         // Return loading placeholder that will load via AJAX (handled by external script)
-        $placeholder_id = 'flickr-justified-async-' . uniqid();
-        $target_gallery_id = 'flickr-justified-' . uniqid();
+        $placeholder_id = wp_unique_id('flickr-justified-async-');
+        $target_gallery_id = wp_unique_id('flickr-justified-');
 
         // Store target gallery ID in attributes so rendered gallery uses same ID
         $attributes['_target_gallery_id'] = $target_gallery_id;
@@ -99,19 +99,11 @@ function flickr_justified_render_block($attributes) {
         return $placeholder_html;
     }
 
-    // Get configured default responsive settings from admin, with fallback
-    $default_responsive = flickr_justified_get_admin_setting('get_configured_default_responsive_settings', []);
-    if (empty($default_responsive)) {
-        $default_responsive = [
-            'mobile' => 1,
-            'mobile_landscape' => 1,
-            'tablet_portrait' => 2,
-            'tablet_landscape' => 3,
-            'desktop' => 3,
-            'large_desktop' => 4,
-            'extra_large' => 4
-        ];
-    }
+    // Get configured default responsive settings from admin
+    // Canonical defaults live in FlickrJustifiedAdminSettings::get_default_responsive_settings()
+    $default_responsive = flickr_justified_get_admin_setting('get_configured_default_responsive_settings',
+        flickr_justified_get_admin_setting('get_default_responsive_settings', [])
+    );
 
     $responsive_settings = $attributes['responsiveSettings'] ?? $default_responsive;
     $row_height_mode = $attributes['rowHeightMode'] ?? 'auto';
@@ -433,9 +425,9 @@ function flickr_justified_render_block($attributes) {
     // Show user-friendly message when rate limited and no photos available
     if ($rate_limited && empty($photo_items)) {
         return sprintf(
-            '<div class="flickr-justified-notice" role="status" aria-live="polite" style="padding: 30px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; color: #856404; font-size: 16px; line-height: 1.6; margin: 20px 0;">
-                <p style="margin: 0;"><strong>%s</strong></p>
-                <p style="margin: 10px 0 0;">%s</p>
+            '<div class="flickr-justified-notice flickr-justified-notice--warning" role="status" aria-live="polite">
+                <p><strong>%s</strong></p>
+                <p>%s</p>
             </div>',
             esc_html__('This gallery is temporarily unavailable.', 'flickr-justified-block'),
             esc_html__('We are waiting for Flickr to allow more requests. Please check back shortly.', 'flickr-justified-block')
@@ -460,7 +452,7 @@ function flickr_justified_render_block($attributes) {
 
     // Generate unique ID for this block instance
     // Use target gallery ID if provided (from async loading), otherwise generate new one
-    $block_id = $attributes['_target_gallery_id'] ?? 'flickr-justified-' . uniqid();
+    $block_id = $attributes['_target_gallery_id'] ?? wp_unique_id('flickr-justified-');
 
     $gallery_html = flickr_justified_render_justified_gallery(
         photos: $photo_items,
@@ -483,8 +475,8 @@ function flickr_justified_render_block($attributes) {
     if ($rate_limited && !empty($photo_items)) {
         $partial_count = count($photo_items);
         $partial_message = sprintf(
-            '<div class="flickr-justified-notice" role="status" aria-live="polite" style="padding: 20px; text-align: center; background: #d1ecf1; border: 1px solid #17a2b8; border-radius: 8px; color: #0c5460; font-size: 15px; line-height: 1.5; margin: 20px 0 15px;">
-                <p style="margin: 0;">%s</p>
+            '<div class="flickr-justified-notice flickr-justified-notice--info" role="status" aria-live="polite">
+                <p>%s</p>
             </div>',
             esc_html(sprintf(__('Showing %d photos while we wait for more from Flickr. Check back soon for the full gallery.', 'flickr-justified-block'), $partial_count))
         );
@@ -499,8 +491,8 @@ function flickr_justified_render_block($attributes) {
             $album_id
         );
         $fallback_message = sprintf(
-            '<div class="flickr-justified-notice flickr-justified-loading-notice" role="status" aria-live="polite" style="padding: 16px 20px; text-align: center; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404; font-size: 14px; line-height: 1.5; margin: 20px 0 15px;">
-                <p style="margin: 0;">%s</p>
+            '<div class="flickr-justified-notice flickr-justified-notice--loading" role="status" aria-live="polite">
+                <p>%s</p>
             </div>',
             esc_html($error_text)
         );

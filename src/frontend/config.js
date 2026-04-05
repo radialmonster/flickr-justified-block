@@ -57,3 +57,7 @@ export function getFallbackNonce() {
 export function getAsyncNonce() {
 	return getConfig().asyncNonce || '';
 }
+
+export function getSizeMap() {
+	return getConfig().sizeMap || {};
+}

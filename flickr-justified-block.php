@@ -105,7 +105,11 @@ class FlickrJustifiedBlock {
     }
 
     /**
-     * Determine whether the provided URL points to Flickr.
+     * Determine whether the provided URL points to any Flickr /photos/ page.
+     *
+     * This matches albums, sets, and individual photo pages alike.
+     * For checking specifically whether a URL is a single Flickr photo
+     * (with a numeric photo ID), use flickr_justified_is_flickr_photo_url() instead.
      *
      * @param string $url URL to inspect.
      *
@@ -147,21 +151,8 @@ class FlickrJustifiedBlock {
     public static function modify_block_attributes($metadata) {
         if (isset($metadata['name']) && $metadata['name'] === 'flickr-justified/block') {
             // Get configured default responsive settings from admin
-            $configured_defaults = [];
-            if (class_exists('FlickrJustifiedAdminSettings') && method_exists('FlickrJustifiedAdminSettings', 'get_configured_default_responsive_settings')) {
-                $configured_defaults = FlickrJustifiedAdminSettings::get_configured_default_responsive_settings();
-            } else {
-                // Fallback to hardcoded defaults if admin class not loaded
-                $configured_defaults = [
-                    'mobile' => 1,
-                    'mobile_landscape' => 1,
-                    'tablet_portrait' => 2,
-                    'tablet_landscape' => 3,
-                    'desktop' => 3,
-                    'large_desktop' => 4,
-                    'extra_large' => 4
-                ];
-            }
+            // FlickrJustifiedAdminSettings is loaded before init() fires, so the class is always available.
+            $configured_defaults = FlickrJustifiedAdminSettings::get_configured_default_responsive_settings();
 
             // Update the default value for responsiveSettings
             if (isset($metadata['attributes']['responsiveSettings'])) {
@@ -198,13 +189,11 @@ class FlickrJustifiedBlock {
             );
         }
 
-        if (function_exists('wp_set_script_translations')) {
-            wp_set_script_translations(
-                $handle,
-                'flickr-justified-block',
-                FLICKR_JUSTIFIED_PLUGIN_PATH . 'languages'
-            );
-        }
+        wp_set_script_translations(
+            $handle,
+            'flickr-justified-block',
+            FLICKR_JUSTIFIED_PLUGIN_PATH . 'languages'
+        );
     }
 
     /**
@@ -246,6 +235,7 @@ class FlickrJustifiedBlock {
             'restUrl'       => esc_url_raw(rest_url('flickr-justified/v1')),
             'restNonce'     => wp_create_nonce('wp_rest'),
             'debug'         => defined('WP_DEBUG') && WP_DEBUG,
+            'sizeMap'       => FlickrJustifiedCache::get_suffix_to_name_map(),
         ]);
     }
 
@@ -334,7 +324,9 @@ class FlickrJustifiedBlock {
      * Implements rate limiting to prevent abuse
      */
     public static function check_load_album_permissions($request) {
-        // Get client IP for rate limiting
+        // Get client IP for rate limiting.
+        // Trusts X-Forwarded-For / X-Real-IP when present (assumes a trusted reverse proxy).
+        // If running without a proxy, these headers are spoofable — override via the filter below.
         $client_ip = '';
         if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
             // Take the first (client) IP from the chain
@@ -345,6 +337,13 @@ class FlickrJustifiedBlock {
             $client_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         }
         $client_ip = trim(sanitize_text_field($client_ip));
+
+        /**
+         * Filter the detected client IP used for rate limiting.
+         *
+         * @param string $client_ip Detected IP address.
+         */
+        $client_ip = apply_filters('flickr_justified_client_ip', $client_ip);
 
         // Generate rate limit key based on IP and endpoint
         $rate_limit_key = 'flickr_justified_rate_limit_' . md5($client_ip . '_load_album');
@@ -441,7 +440,7 @@ class FlickrJustifiedBlock {
                 ];
 
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('Flickr Justified Block: REST API returning album data: ' . json_encode($response_data));
+                    error_log('Flickr Justified Block: REST API returning album data: ' . wp_json_encode($response_data));
                 }
 
                 return rest_ensure_response($response_data);
@@ -808,9 +807,9 @@ add_action('deleted_post', [FlickrJustifiedCacheWarmer::class, 'handle_post_dele
 
 /**
  * Handle URL parameter to force refresh specific photo cache
- * Usage: Add ?flickr_refresh=PHOTO_ID to any page URL
- * Example: ?flickr_refresh=132149878
- * Multiple photos: ?flickr_refresh=132149878,987654321
+ * Usage: Add ?flickr_refresh=PHOTO_ID&_wpnonce=NONCE to any page URL
+ * Generate a valid link with: wp_nonce_url( add_query_arg( 'flickr_refresh', PHOTO_ID ), 'flickr_refresh_cache' )
+ * Multiple photos: ?flickr_refresh=132149878,987654321&_wpnonce=NONCE
  */
 add_action('init', function() {
     if (!isset($_GET['flickr_refresh'])) {
@@ -821,6 +820,11 @@ add_action('init', function() {
     $has_permission = current_user_can('edit_posts');
 
     if (!$has_permission) {
+        return;
+    }
+
+    // Verify nonce to prevent CSRF
+    if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'flickr_refresh_cache')) {
         return;
     }
 
@@ -843,21 +847,21 @@ add_action('init', function() {
         $wpdb->query($wpdb->prepare(
             "DELETE FROM {$wpdb->options}
              WHERE option_name LIKE %s",
-            '%flickr_justified_dims_' . $photo_id . '%'
+            '%' . $wpdb->esc_like('flickr_justified_dims_' . $photo_id) . '%'
         ));
 
         // Delete transients for photo info
         $wpdb->query($wpdb->prepare(
             "DELETE FROM {$wpdb->options}
              WHERE option_name LIKE %s",
-            '%flickr_justified_photo_' . $photo_id . '%'
+            '%' . $wpdb->esc_like('flickr_justified_photo_' . $photo_id) . '%'
         ));
 
         // Delete transients for photo stats
         $wpdb->query($wpdb->prepare(
             "DELETE FROM {$wpdb->options}
              WHERE option_name LIKE %s",
-            '%flickr_justified_stats_' . $photo_id . '%'
+            '%' . $wpdb->esc_like('flickr_justified_stats_' . $photo_id) . '%'
         ));
 
         $cleared[] = $photo_id;
@@ -878,7 +882,7 @@ add_action('init', function() {
         // Also show notice on frontend for logged-in users
         if (!is_admin()) {
             add_action('wp_footer', function() use ($cleared) {
-                echo '<div style="position:fixed;bottom:20px;right:20px;background:#00a32a;color:white;padding:15px 20px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:999999;font-family:sans-serif;">';
+                echo '<div class="flickr-justified-toast">';
                 printf(
                     esc_html__('✓ Cleared cache for %d photo(s): %s. Refresh this page to see updated images.', 'flickr-justified-block'),
                     count($cleared),
@@ -907,10 +911,9 @@ function flickr_justified_ajax_refresh_photo_url() {
         wp_send_json_error('No photo ID provided');
     }
 
-    // Validate size
-    $valid_sizes = ['original', 'large2048', 'large1600', 'large1024', 'large',
-                    'medium800', 'medium640', 'medium500', 'small320', 'small240'];
-    if (!in_array($size, $valid_sizes)) {
+    // Validate size against the single source of truth
+    $valid_sizes = FlickrJustifiedCache::get_size_names(true);
+    if (!in_array($size, $valid_sizes, true)) {
         $size = 'large';
     }
 

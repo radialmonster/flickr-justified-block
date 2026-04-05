@@ -273,20 +273,7 @@ function flickr_justified_render_justified_gallery(
 
                 $error_message = 'Photo unavailable';
                 $output .= sprintf(
-                    '<article class="flickr-justified-card flickr-error">
-                        <div style="
-                            padding: 20px;
-                            background: #f8d7da;
-                            border: 1px solid #f5c6cb;
-                            border-radius: 4px;
-                            color: #721c24;
-                            text-align: center;
-                            min-height: 100px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                        ">%s</div>
-                    </article>',
+                    '<article class="flickr-justified-card flickr-error"><div>%s</div></article>',
                     esc_html($error_message)
                 );
                 continue;
@@ -322,7 +309,7 @@ function flickr_justified_render_justified_gallery(
             $comments = isset($stats['comments']) ? (int) $stats['comments'] : 0;
             $favorites = isset($stats['favorites']) ? (int) $stats['favorites'] : 0;
 
-            $card_attributes = ['class="flickr-justified-card"', 'style="position: relative;"'];
+            $card_attributes = ['class="flickr-justified-card"'];
             if (!empty($photo['full_row'])) {
                 $card_attributes[] = 'data-full-row="1"';
             }
@@ -420,7 +407,7 @@ function flickr_justified_render_justified_gallery(
             $favorites = isset($photo['favorites']) ? (int) $photo['favorites'] : 0;
             $photo_text = flickr_justified_get_photo_text($photo, [], false);
 
-            $card_attributes = ['class="flickr-justified-card"', 'style="position: relative;"'];
+            $card_attributes = ['class="flickr-justified-card"'];
             if (!empty($photo['full_row'])) {
                 $card_attributes[] = 'data-full-row="1"';
             }

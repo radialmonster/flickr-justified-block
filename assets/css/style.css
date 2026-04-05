@@ -82,6 +82,7 @@
 
 /* Individual card styles - dimensions set by JavaScript */
 .flickr-justified-card {
+    position: relative;
     background: transparent;
     border-radius: 8px;
     overflow: hidden;
@@ -664,4 +665,80 @@
 @keyframes rotation {
     from { transform: rotate(0deg); }
     to { transform: rotate(359deg); }
+}
+
+/* ============================================================================
+   NOTICE / STATUS MESSAGES
+   ============================================================================ */
+
+.flickr-justified-notice {
+    padding: 20px;
+    text-align: center;
+    border-radius: 8px;
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 20px 0 15px;
+}
+
+.flickr-justified-notice p {
+    margin: 0;
+}
+
+.flickr-justified-notice p + p {
+    margin-top: 10px;
+}
+
+/* Rate limit — full block, no photos available */
+.flickr-justified-notice--warning {
+    padding: 30px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    color: #856404;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+/* Partial results available */
+.flickr-justified-notice--info {
+    background: #d1ecf1;
+    border: 1px solid #17a2b8;
+    color: #0c5460;
+}
+
+/* Fallback fetch notice (views_desc cache warming) */
+.flickr-justified-notice--loading {
+    padding: 16px 20px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    color: #856404;
+    font-size: 14px;
+}
+
+/* Photo unavailable error card */
+.flickr-justified-card.flickr-error > div {
+    padding: 20px;
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    color: #721c24;
+    text-align: center;
+    min-height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Frontend cache-cleared toast */
+.flickr-justified-toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #00a32a;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 999999;
+    font-family: sans-serif;
 }

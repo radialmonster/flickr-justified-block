@@ -146,9 +146,7 @@ export function initJustifiedGallery() {
 				return;
 			}
 
-			const staging = document.createElement( 'div' );
-			staging.className = 'flickr-staging';
-			grid.appendChild( staging );
+			const staging = document.createDocumentFragment();
 
 			const imagesPerRow = getImagesPerRow(
 				containerWidth,
@@ -189,8 +187,7 @@ export function initJustifiedGallery() {
 				row.appendChild( card );
 				staging.appendChild( row );
 
-				grid.insertBefore( staging.firstElementChild, staging );
-				staging.remove();
+				grid.appendChild( staging );
 				return;
 			}
 
@@ -310,15 +307,12 @@ export function initJustifiedGallery() {
 			const shouldPreserveIndicator =
 				loadingIndicator && ! loadingIndicator.dataset.removeMe;
 
-			while ( staging.firstElementChild ) {
-				grid.insertBefore( staging.firstElementChild, staging );
-			}
+			// DocumentFragment empties itself when appended — single DOM operation
+			grid.appendChild( staging );
 
 			if ( loadingIndicator && shouldPreserveIndicator ) {
 				grid.appendChild( loadingIndicator );
 			}
-
-			staging.remove();
 		}
 
 		try {
@@ -329,24 +323,31 @@ export function initJustifiedGallery() {
 
 		grid.classList.add( 'justified-initialized' );
 
+		// Observe container resizes (catches sidebar collapse, CSS transitions, etc.)
+		if ( ! grid._flickrResizeObserver ) {
+			grid._flickrResizeObserver = resizeObserver;
+			resizeObserver.observe( grid );
+		}
+
 		const reinitEvent = new CustomEvent( 'flickrGalleryReorganized', {
 			detail: { grid },
 		} );
 		document.dispatchEvent( reinitEvent );
 
-		setTimeout( () => {
+		requestAnimationFrame( () => {
 			const photoswipeEvent = new CustomEvent(
 				'flickr-gallery-updated',
 				{ detail: { gallery: grid } }
 			);
 			document.dispatchEvent( photoswipeEvent );
-		}, 100 );
+		} );
 	} );
 }
 
-// Re-layout on window resize (debounced)
+// ResizeObserver replaces the old window resize listener — it catches both
+// window resizes and container-level size changes (e.g. sidebar toggle).
 let resizeTimeout;
-window.addEventListener( 'resize', () => {
+const resizeObserver = new ResizeObserver( () => {
 	clearTimeout( resizeTimeout );
 	resizeTimeout = setTimeout( () => {
 		const grids = document.querySelectorAll(
@@ -357,6 +358,6 @@ window.addEventListener( 'resize', () => {
 		} );
 		initJustifiedGallery();
 	}, 250 );
-}, { passive: true } );
+} );
 
 export { normalizeRotation, shouldSwapDimensions, getAspectRatioForCard };
