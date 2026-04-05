@@ -44,11 +44,14 @@ export function isSupportedUrl( url ) {
 	const trimmed = url.trim();
 	if ( /(?:www\.)?flickr\.com\/photos\/[^/]+\/\d+/i.test( trimmed ) )
 		return true;
+	if ( isAlbumUrl( trimmed ) )
+		return true;
 	if (
 		/\.(jpe?g|png|webp|avif|gif|svg)(\?|#|$)/i.test( trimmed ) &&
 		! isFlickrCdnUrl( trimmed )
 	)
 		return true;
+	console.log( '[FJB Drop] isSupportedUrl rejected:', trimmed );
 	return false;
 }
 

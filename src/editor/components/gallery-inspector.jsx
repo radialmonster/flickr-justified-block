@@ -84,12 +84,17 @@ export default function GalleryInspector( {
 		),
 	};
 
+	console.log( '[FJB Debug] GalleryInspector render — selectedIndex:', selectedIndex, 'selectedImage:', selectedImage ? selectedImage.url : null );
+
 	return (
 		<InspectorControls>
 			{ selectedImage ? (
 				<PanelBody
 					title={
-						__( 'Selected Image', 'flickr-justified-block' ) +
+						( selectedIsAlbum
+							? __( 'Selected Album', 'flickr-justified-block' )
+							: __( 'Selected Image', 'flickr-justified-block' )
+						) +
 						' #' +
 						( selectedIndex + 1 )
 					}

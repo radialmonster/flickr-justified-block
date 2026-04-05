@@ -8,18 +8,21 @@ export default function useExternalDrop( blockBodyRef, handleAddImages ) {
 	addImagesRef.current = handleAddImages;
 
 	function handleExternalDragOver( e ) {
+		console.log( '[FJB Drop] handleExternalDragOver — types:', Array.from( e.dataTransfer.types ) );
 		e.preventDefault();
 		e.stopPropagation();
 		e.dataTransfer.dropEffect = 'copy';
 	}
 
 	function handleExternalDragEnter( e ) {
+		console.log( '[FJB Drop] handleExternalDragEnter — target:', e.target.tagName, e.target.className );
 		e.preventDefault();
 		externalDragCountRef.current++;
 		setExternalDragOver( true );
 	}
 
 	function handleExternalDragLeave() {
+		console.log( '[FJB Drop] handleExternalDragLeave' );
 		externalDragCountRef.current--;
 		if ( externalDragCountRef.current <= 0 ) {
 			externalDragCountRef.current = 0;
@@ -28,9 +31,11 @@ export default function useExternalDrop( blockBodyRef, handleAddImages ) {
 	}
 
 	function handleExternalDrop( e ) {
+		console.log( '[FJB Drop] handleExternalDrop — types:', Array.from( e.dataTransfer.types ) );
 		e.preventDefault();
 		e.stopPropagation();
 		const urls = extractUrlsFromDropEvent( e );
+		console.log( '[FJB Drop] extracted URLs:', urls );
 		if ( urls.length > 0 ) {
 			handleAddImages( urls );
 		}
@@ -47,8 +52,10 @@ export default function useExternalDrop( blockBodyRef, handleAddImages ) {
 		}
 
 		function onDropCapture( e ) {
+			console.log( '[FJB Drop] onDropCapture — isInsideBlock:', isInsideBlock( e ), 'target:', e.target.tagName, e.target.className );
 			if ( ! isInsideBlock( e ) ) return;
 			const urls = extractUrlsFromDropEvent( e );
+			console.log( '[FJB Drop] onDropCapture extracted URLs:', urls );
 			if ( urls.length > 0 ) {
 				e.preventDefault();
 				e.stopImmediatePropagation();

@@ -387,6 +387,9 @@ class FlickrJustifiedCache {
         // Remove from request cache
         unset(self::$request_cache[$full_key]);
 
+        // Delete from both wp_cache (Redis) and transients to match set()
+        wp_cache_delete($full_key, 'flickr_justified');
+
         return delete_transient($full_key);
     }
 

@@ -20,6 +20,9 @@ export default function AddImagesZone( { onAdd } ) {
 			<textarea
 				ref={ inputRef }
 				className="fjb-add-zone__input"
+				onFocus={ () => {
+					console.log( '[FJB Debug] AddImagesZone textarea focused' );
+				} }
 				placeholder={ __(
 					'+ Paste Flickr or image URLs here (one per line)',
 					'flickr-justified-block'

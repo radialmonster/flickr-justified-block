@@ -1,5 +1,6 @@
 import { useState, useRef } from '@wordpress/element';
 import { useBlockProps } from '@wordpress/block-editor';
+import { useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
 import { generateId, urlsToImages, parseUrlsFromText } from './utils/url-helpers';
 import useImageMigration from './hooks/use-image-migration';
@@ -10,10 +11,15 @@ import AddImagesZone from './components/add-images-zone';
 import GalleryInspector from './components/gallery-inspector';
 
 export default function FlickrJustifiedEdit( props ) {
-	const { attributes, setAttributes } = props;
+	const { attributes, setAttributes, isSelected, clientId } = props;
 	const { urls, images } = attributes;
 
+	const { selectBlock } = useDispatch( 'core/block-editor' );
+
+	console.log( '[FJB Debug] Edit render — isSelected:', isSelected, 'clientId:', clientId );
+
 	useImageMigration( urls, images, setAttributes );
+
 
 	const imagesList =
 		images && images.length > 0
@@ -70,6 +76,7 @@ export default function FlickrJustifiedEdit( props ) {
 	}
 
 	function handleSelect( idx ) {
+		console.log( '[FJB Debug] handleSelect called — idx:', idx, 'prev selectedIndex:', selectedIndex );
 		setSelectedIndex( selectedIndex === idx ? null : idx );
 	}
 
@@ -115,7 +122,15 @@ export default function FlickrJustifiedEdit( props ) {
 	} = useExternalDrop( blockBodyRef, handleAddImages );
 
 	return (
-		<div>
+		<div { ...blockProps }
+			onClick={ ( e ) => {
+				console.log( '[FJB Debug] Block root clicked — isSelected:', isSelected, 'target:', e.target.tagName, 'className:', e.target.className );
+				if ( ! isSelected ) {
+					console.log( '[FJB Debug] Programmatically selecting block via onClick', clientId );
+					selectBlock( clientId );
+				}
+			} }
+		>
 			<GalleryInspector
 				attributes={ attributes }
 				setAttributes={ setAttributes }
@@ -126,8 +141,7 @@ export default function FlickrJustifiedEdit( props ) {
 				onUpdateUrl={ handleUpdateUrl }
 			/>
 
-			<div { ...blockProps }>
-				{ imagesList.length > 0 ? (
+			{ imagesList.length > 0 ? (
 					<div
 						className={
 							'fjb-card-grid' +
@@ -185,7 +199,6 @@ export default function FlickrJustifiedEdit( props ) {
 						<AddImagesZone onAdd={ handleAddImages } />
 					</div>
 				) }
-			</div>
 		</div>
 	);
 }
