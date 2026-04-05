@@ -2,8 +2,8 @@
 
 A powerful WordPress Gutenberg block that creates beautiful justified photo galleries from Flickr albums, individual photos, or direct image URLs. Features intelligent caching, automatic pagination, and built-in lightbox.
 
-![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)
-![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)
+![WordPress](https://img.shields.io/badge/WordPress-6.7%2B-blue.svg)
+![PHP](https://img.shields.io/badge/PHP-8.1%2B-purple.svg)
 ![License](https://img.shields.io/badge/License-GPLv2-green.svg)
 
 ---
@@ -57,8 +57,8 @@ A powerful WordPress Gutenberg block that creates beautiful justified photo gall
 
 ## 📋 Requirements
 
-- **WordPress:** 5.0 or higher
-- **PHP:** 7.4 or higher
+- **WordPress:** 6.7 or higher
+- **PHP:** 8.1 or higher
 - **Flickr API Key:** Required for Flickr URLs (free from [Flickr App Garden](https://www.flickr.com/services/apps/create/))
 
 ---
@@ -225,23 +225,34 @@ Target the plugin classes:
 
 ```
 flickr-justified-block/
-├── flickr-justified-block.php    # Main plugin file
-├── block.json                     # Block configuration
+├── flickr-justified-block.php    # Main plugin file & REST routes
+├── block.json                     # Block configuration (source of truth for attributes)
 ├── includes/
 │   ├── admin-settings.php         # Admin settings page
-│   ├── cache.php                  # Cache management
-│   ├── cache-warmers.php          # Background cache warming
+│   ├── cache.php                  # Cache management & size definitions
+│   ├── cache-warmers.php          # Background cache warming (WP-Cron)
 │   ├── cli-warmers.php            # WP-CLI commands
 │   ├── render.php                 # Main render orchestration
-│   ├── render-ajax.php            # AJAX handlers
-│   ├── render-helpers.php         # Helper functions
-│   ├── render-html.php            # HTML generation
+│   ├── render-ajax.php            # AJAX / async loading handlers
+│   ├── render-helpers.php         # Helper functions (URL parsing, size selection)
+│   ├── render-html.php            # HTML generation for galleries
 │   └── render-photo-fetcher.php   # Flickr API integration
+├── src/                           # ES module source (built via wp-scripts)
+│   ├── view.module.js             # Frontend entry point
+│   ├── frontend/
+│   │   ├── config.js              # Server config reader (Script Module data)
+│   │   ├── layout.js              # Justified layout engine
+│   │   ├── lazy-loading.js        # Infinite scroll for albums
+│   │   ├── photoswipe-init.js     # Built-in lightbox
+│   │   ├── image-fallback.js      # Auto-recovery for expired URLs
+│   │   └── async-loader.js        # Async gallery loading
+│   └── editor/                    # Block editor UI
+│       ├── index.js               # Editor entry point
+│       └── components/            # Inspector controls, image cards, drag-drop
+├── build/                         # Compiled JS bundles (auto-generated)
 └── assets/
-    ├── css/
-    │   └── style.css              # Frontend styles
-    └── js/
-        └── editor.js              # Block editor script
+    ├── css/style.css              # Frontend styles
+    └── lib/photoswipe/            # PhotoSwipe lightbox library
 ```
 
 ### Caching Strategy
@@ -254,7 +265,7 @@ flickr-justified-block/
 ### Performance Optimizations
 
 - **Lazy loading:** Images load only when visible
-- **Progressive enhancement:** Core functionality works without JavaScript
+- **Container query fallback:** Basic grid layout via CSS before JS initializes
 - **Srcset/Sizes:** Responsive image loading
 - **Rate limiting:** Protects against Flickr API limits
 - **Pagination:** Large albums load incrementally
@@ -319,10 +330,18 @@ Contributions are welcome! Please follow these guidelines:
 git clone https://github.com/radialmonster/flickr-justified-block.git
 cd flickr-justified-block
 
-# Set up WordPress development environment
-# (Docker, Local, or your preferred method)
+# Install dependencies and build
+npm install
+npm run build
 
-# Enable WP_DEBUG in wp-config.php
+# For development with auto-rebuild on changes
+npm start
+
+# Copy to your WordPress plugins directory or symlink
+```
+
+Enable debugging in `wp-config.php`:
+```php
 define('WP_DEBUG', true);
 define('WP_DEBUG_LOG', true);
 ```
@@ -334,7 +353,7 @@ define('WP_DEBUG_LOG', true);
 This plugin is licensed under the **GPLv2 or later**.
 
 ```
-Copyright (C) 2024 RadialMonster
+Copyright (C) 2024-2026 RadialMonster
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
