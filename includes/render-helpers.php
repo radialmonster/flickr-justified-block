@@ -144,7 +144,7 @@ function flickr_justified_build_data_attrs(array $attrs): string {
     $parts = [];
     foreach ($attrs as $key => $value) {
         $value = (string) $value;
-        if ('' === $value && '0' !== $value) {
+        if ('' === $value) {
             continue;
         }
         $parts[] = sprintf('data-%s="%s"', esc_attr($key), esc_attr($value));
@@ -337,7 +337,10 @@ function flickr_justified_get_external_image_dimensions($url) {
         ]
     ]);
 
-    $image_info = @getimagesize($url, $context);
+    // Note: getimagesize() does not accept a stream context as its second parameter.
+    // Fetch the image data with the context first, then parse dimensions from string.
+    $image_data = @file_get_contents($url, false, $context, 0, 65536);
+    $image_info = $image_data ? @getimagesizefromstring($image_data) : false;
 
     if ($image_info && isset($image_info[0], $image_info[1])) {
         $dims = [

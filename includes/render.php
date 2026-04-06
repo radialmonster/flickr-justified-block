@@ -297,6 +297,7 @@ function flickr_justified_render_block($attributes) {
                     'comments' => 0,
                     'favorites' => 0,
                     'attribution_url' => $attribution_url,
+                    'full_row' => $is_full_row,
                 ];
 
                 if ($needs_stats && $is_flickr) {

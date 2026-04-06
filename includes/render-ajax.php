@@ -149,7 +149,7 @@ function flickr_justified_should_use_async_loading($urls) {
  */
 function flickr_justified_ajax_load_async() {
     // Verify nonce for security; allow anonymous fallback to avoid cached-stale nonce failures on public pages.
-    $nonce_valid = (isset($_POST['nonce']) && wp_verify_nonce($_POST['nonce'], 'flickr_justified_async_load'));
+    $nonce_valid = (isset($_POST['nonce']) && wp_verify_nonce(wp_unslash($_POST['nonce']), 'flickr_justified_async_load'));
     $allow_anon_without_nonce = apply_filters('flickr_justified_allow_anon_async', true);
     if (!$nonce_valid && (! $allow_anon_without_nonce || is_user_logged_in())) {
         wp_send_json_error('Security check failed', 403);
