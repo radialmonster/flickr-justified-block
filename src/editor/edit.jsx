@@ -1,4 +1,4 @@
-import { useState, useRef } from '@wordpress/element';
+import { useState, useRef, useMemo, useEffect } from '@wordpress/element';
 import { useBlockProps } from '@wordpress/block-editor';
 import { useDispatch } from '@wordpress/data';
 import { __ } from '@wordpress/i18n';
@@ -16,22 +16,30 @@ export default function FlickrJustifiedEdit( props ) {
 
 	const { selectBlock } = useDispatch( 'core/block-editor' );
 
-	console.log( '[FJB Debug] Edit render — isSelected:', isSelected, 'clientId:', clientId );
-
 	useImageMigration( urls, images, setAttributes );
 
+	const imagesList = useMemo( () => {
+		if ( ! images || images.length === 0 ) return [];
+		return images.map( ( img ) => {
+			if ( img.id ) return img;
+			return {
+				id: generateId(),
+				url: img.url,
+				fullRow: !! img.fullRow,
+			};
+		} );
+	}, [ images ] );
 
-	const imagesList =
-		images && images.length > 0
-			? images.map( ( img ) => {
-					if ( img.id ) return img;
-					return {
-						id: generateId(),
-						url: img.url,
-						fullRow: !! img.fullRow,
-					};
-			  } )
-			: [];
+	const imagesNeedIds = useMemo(
+		() => images && images.some( ( img ) => ! img.id ),
+		[ images ]
+	);
+
+	useEffect( () => {
+		if ( imagesNeedIds ) {
+			setAttributes( { images: imagesList } );
+		}
+	}, [ imagesNeedIds, imagesList ] );
 
 	const [ selectedIndex, setSelectedIndex ] = useState( null );
 	const [ dragIndex, setDragIndex ] = useState( null );
@@ -76,7 +84,6 @@ export default function FlickrJustifiedEdit( props ) {
 	}
 
 	function handleSelect( idx ) {
-		console.log( '[FJB Debug] handleSelect called — idx:', idx, 'prev selectedIndex:', selectedIndex );
 		setSelectedIndex( selectedIndex === idx ? null : idx );
 	}
 
@@ -113,20 +120,12 @@ export default function FlickrJustifiedEdit( props ) {
 		setDragOverIndex
 	);
 
-	const {
-		externalDragOver,
-		handleExternalDragOver,
-		handleExternalDragEnter,
-		handleExternalDragLeave,
-		handleExternalDrop,
-	} = useExternalDrop( blockBodyRef, handleAddImages );
+	const { externalDragOver } = useExternalDrop( blockBodyRef, handleAddImages );
 
 	return (
 		<div { ...blockProps }
-			onClick={ ( e ) => {
-				console.log( '[FJB Debug] Block root clicked — isSelected:', isSelected, 'target:', e.target.tagName, 'className:', e.target.className );
+			onClick={ () => {
 				if ( ! isSelected ) {
-					console.log( '[FJB Debug] Programmatically selecting block via onClick', clientId );
 					selectBlock( clientId );
 				}
 			} }
@@ -149,10 +148,6 @@ export default function FlickrJustifiedEdit( props ) {
 								? ' fjb-card-grid--drop-active'
 								: '' )
 						}
-						onDragOver={ handleExternalDragOver }
-						onDragEnter={ handleExternalDragEnter }
-						onDragLeave={ handleExternalDragLeave }
-						onDrop={ handleExternalDrop }
 					>
 						{ imagesList.map( ( image, index ) => (
 							<ImageCard
@@ -179,10 +174,6 @@ export default function FlickrJustifiedEdit( props ) {
 								? ' fjb-empty-state--drop-active'
 								: '' )
 						}
-						onDragOver={ handleExternalDragOver }
-						onDragEnter={ handleExternalDragEnter }
-						onDragLeave={ handleExternalDragLeave }
-						onDrop={ handleExternalDrop }
 					>
 						<p className="fjb-empty-state__title">
 							{ __(

@@ -7,42 +7,6 @@ export default function useExternalDrop( blockBodyRef, handleAddImages ) {
 	const addImagesRef = useRef( handleAddImages );
 	addImagesRef.current = handleAddImages;
 
-	function handleExternalDragOver( e ) {
-		console.log( '[FJB Drop] handleExternalDragOver — types:', Array.from( e.dataTransfer.types ) );
-		e.preventDefault();
-		e.stopPropagation();
-		e.dataTransfer.dropEffect = 'copy';
-	}
-
-	function handleExternalDragEnter( e ) {
-		console.log( '[FJB Drop] handleExternalDragEnter — target:', e.target.tagName, e.target.className );
-		e.preventDefault();
-		externalDragCountRef.current++;
-		setExternalDragOver( true );
-	}
-
-	function handleExternalDragLeave() {
-		console.log( '[FJB Drop] handleExternalDragLeave' );
-		externalDragCountRef.current--;
-		if ( externalDragCountRef.current <= 0 ) {
-			externalDragCountRef.current = 0;
-			setExternalDragOver( false );
-		}
-	}
-
-	function handleExternalDrop( e ) {
-		console.log( '[FJB Drop] handleExternalDrop — types:', Array.from( e.dataTransfer.types ) );
-		e.preventDefault();
-		e.stopPropagation();
-		const urls = extractUrlsFromDropEvent( e );
-		console.log( '[FJB Drop] extracted URLs:', urls );
-		if ( urls.length > 0 ) {
-			handleAddImages( urls );
-		}
-		externalDragCountRef.current = 0;
-		setExternalDragOver( false );
-	}
-
 	useEffect( () => {
 		const blockEl = blockBodyRef.current;
 		if ( ! blockEl ) return;
@@ -52,10 +16,8 @@ export default function useExternalDrop( blockBodyRef, handleAddImages ) {
 		}
 
 		function onDropCapture( e ) {
-			console.log( '[FJB Drop] onDropCapture — isInsideBlock:', isInsideBlock( e ), 'target:', e.target.tagName, e.target.className );
 			if ( ! isInsideBlock( e ) ) return;
 			const urls = extractUrlsFromDropEvent( e );
-			console.log( '[FJB Drop] onDropCapture extracted URLs:', urls );
 			if ( urls.length > 0 ) {
 				e.preventDefault();
 				e.stopImmediatePropagation();
@@ -79,24 +41,36 @@ export default function useExternalDrop( blockBodyRef, handleAddImages ) {
 			}
 		}
 
-		document.addEventListener( 'drop', onDropCapture, true );
-		document.addEventListener( 'dragover', onDragOverCapture, true );
+		function onDragEnterCapture( e ) {
+			if ( ! isInsideBlock( e ) ) return;
+			e.preventDefault();
+			externalDragCountRef.current++;
+			setExternalDragOver( true );
+		}
+
+		function onDragLeaveCapture( e ) {
+			if ( ! isInsideBlock( e ) ) return;
+			externalDragCountRef.current--;
+			if ( externalDragCountRef.current <= 0 ) {
+				externalDragCountRef.current = 0;
+				setExternalDragOver( false );
+			}
+		}
+
+		const doc = blockEl.ownerDocument;
+
+		doc.addEventListener( 'drop', onDropCapture, true );
+		doc.addEventListener( 'dragover', onDragOverCapture, true );
+		doc.addEventListener( 'dragenter', onDragEnterCapture, true );
+		doc.addEventListener( 'dragleave', onDragLeaveCapture, true );
 
 		return () => {
-			document.removeEventListener( 'drop', onDropCapture, true );
-			document.removeEventListener(
-				'dragover',
-				onDragOverCapture,
-				true
-			);
+			doc.removeEventListener( 'drop', onDropCapture, true );
+			doc.removeEventListener( 'dragover', onDragOverCapture, true );
+			doc.removeEventListener( 'dragenter', onDragEnterCapture, true );
+			doc.removeEventListener( 'dragleave', onDragLeaveCapture, true );
 		};
 	}, [] );
 
-	return {
-		externalDragOver,
-		handleExternalDragOver,
-		handleExternalDragEnter,
-		handleExternalDragLeave,
-		handleExternalDrop,
-	};
+	return { externalDragOver };
 }

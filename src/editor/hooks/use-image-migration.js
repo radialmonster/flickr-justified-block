@@ -16,5 +16,5 @@ export default function useImageMigration( urls, images, setAttributes ) {
 				migratedRef.current = true;
 			}
 		}
-	}, [] );
+	}, [ urls, images ] );
 }

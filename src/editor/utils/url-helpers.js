@@ -51,7 +51,6 @@ export function isSupportedUrl( url ) {
 		! isFlickrCdnUrl( trimmed )
 	)
 		return true;
-	console.log( '[FJB Drop] isSupportedUrl rejected:', trimmed );
 	return false;
 }
 
@@ -100,7 +99,7 @@ export function extractUrlsFromDropEvent( e ) {
 		} );
 	}
 
-	const urls = flickrPageUrls.length > 0 ? flickrPageUrls : otherUrls;
+	const urls = [ ...flickrPageUrls, ...otherUrls ];
 
 	const seen = {};
 	return urls.filter( ( u ) => {

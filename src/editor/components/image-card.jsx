@@ -8,6 +8,7 @@ export default function ImageCard( {
 	index,
 	totalCount,
 	isSelected,
+	onSelect,
 	onRemove,
 	onToggleFullRow,
 	onMove,
@@ -169,9 +170,8 @@ export default function ImageCard( {
 			style={ cardStyle }
 			draggable={ false }
 			data-index={ index }
-			onClick={ ( e ) => {
-				console.log( '[FJB Debug] ImageCard clicked — index:', index, 'target:', e.target.tagName, 'className:', e.target.className );
-				console.log( '[FJB Debug] ImageCard — onSelect prop exists:', typeof onSelect === 'function' );
+			onClick={ () => {
+				onSelect( index );
 			} }
 		>
 			<span className="fjb-image-card__badge">

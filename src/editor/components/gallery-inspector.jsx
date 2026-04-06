@@ -84,8 +84,6 @@ export default function GalleryInspector( {
 		),
 	};
 
-	console.log( '[FJB Debug] GalleryInspector render — selectedIndex:', selectedIndex, 'selectedImage:', selectedImage ? selectedImage.url : null );
-
 	return (
 		<InspectorControls>
 			{ selectedImage ? (

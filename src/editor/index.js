@@ -6,15 +6,22 @@ import save from './save';
 // PHP may inject admin-configured attribute defaults (e.g. responsive settings)
 // as window.flickrJustifiedDefaults. Apply them over block.json's static defaults.
 const phpDefaults = window.flickrJustifiedDefaults || {};
-if ( phpDefaults.responsiveSettings && metadata.attributes?.responsiveSettings ) {
-	metadata.attributes.responsiveSettings.default = phpDefaults.responsiveSettings;
-}
 
 const blockSettings = {
 	...metadata,
 	edit,
 	save,
 };
+
+if ( phpDefaults.responsiveSettings && blockSettings.attributes?.responsiveSettings ) {
+	blockSettings.attributes = {
+		...blockSettings.attributes,
+		responsiveSettings: {
+			...blockSettings.attributes.responsiveSettings,
+			default: phpDefaults.responsiveSettings,
+		},
+	};
+}
 
 // If the block was already registered (e.g. by another script),
 // unregister first to avoid a duplicate-type error.
