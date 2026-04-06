@@ -11,6 +11,7 @@
  * Requires at least: 6.7
  * Tested up to: 6.7
  * Requires PHP: 8.1
+ * Update URI: https://github.com/radialmonster/flickr-justified-block
  * @package FlickrJustifiedBlock
  */
 
@@ -23,6 +24,7 @@ if (!defined('ABSPATH')) {
 define('FLICKR_JUSTIFIED_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('FLICKR_JUSTIFIED_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('FLICKR_JUSTIFIED_VERSION', '1.2.1');
+define('FLICKR_JUSTIFIED_PLUGIN_FILE', __FILE__);
 
 /**
  * Main plugin class
@@ -790,6 +792,8 @@ require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/render.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cache-warmers.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/cli-warmers.php';
 require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/admin-settings.php';
+require_once FLICKR_JUSTIFIED_PLUGIN_PATH . 'includes/class-updater.php';
+Flickr_Justified_Block_Updater::init();
 
 // Initialize the plugin after includes are loaded
 FlickrJustifiedBlock::init();

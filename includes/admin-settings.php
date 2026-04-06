@@ -784,9 +784,31 @@ class FlickrJustifiedAdminSettings {
         }
 
         settings_errors('flickr_justified_messages');
+
+        $update_check_notice = '';
+        if (isset($_GET['update_check'])) {
+            $has_update     = !empty($_GET['has_update']) && '1' === $_GET['has_update'];
+            $remote_version = isset($_GET['remote_version']) ? sanitize_text_field(rawurldecode($_GET['remote_version'])) : '';
+            if ($has_update && $remote_version) {
+                $update_check_notice = '<div class="notice notice-warning is-dismissible"><p>' .
+                    sprintf(
+                        /* translators: 1: new version, 2: updates page URL */
+                        wp_kses_post(__('A new version (%1$s) is available. Go to <a href="%2$s">Dashboard &rarr; Updates</a> to install it.', 'flickr-justified-block')),
+                        esc_html($remote_version),
+                        esc_url(admin_url('update-core.php'))
+                    ) .
+                    '</p></div>';
+            } else {
+                $update_check_notice = '<div class="notice notice-success is-dismissible"><p>' .
+                    esc_html__('You are running the latest version.', 'flickr-justified-block') .
+                    '</p></div>';
+            }
+        }
         ?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+
+            <?php echo $update_check_notice; ?>
 
             <div class="notice notice-info">
                 <p>
@@ -808,6 +830,25 @@ class FlickrJustifiedAdminSettings {
                     <?php _e('Open Cache Browser', 'flickr-justified-block'); ?>
                 </a>
             </p>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2><?php _e('Plugin Updates', 'flickr-justified-block'); ?></h2>
+                <p>
+                    <?php
+                    printf(
+                        /* translators: %s: current plugin version */
+                        esc_html__('Current version: %s', 'flickr-justified-block'),
+                        '<strong>' . esc_html(FLICKR_JUSTIFIED_VERSION) . '</strong>'
+                    );
+                    ?>
+                </p>
+                <p><?php esc_html_e('Updates are delivered automatically from GitHub Releases. Click below to check now.', 'flickr-justified-block'); ?></p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="flickr_justified_block_check_updates" />
+                    <?php wp_nonce_field('flickr_justified_block_check_updates'); ?>
+                    <button type="submit" class="button"><?php esc_html_e('Check for Updates', 'flickr-justified-block'); ?></button>
+                </form>
+            </div>
 
             <div class="card" style="margin-top: 20px;">
                 <h2><?php _e('Support This Plugin', 'flickr-justified-block'); ?></h2>
