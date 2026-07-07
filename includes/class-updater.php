@@ -34,46 +34,63 @@ class Flickr_Justified_Block_Updater {
             return $update;
         }
 
-        $remote_version = ltrim( $release->tag_name, 'v' );
-
-        if ( version_compare( FLICKR_JUSTIFIED_VERSION, $remote_version, '>=' ) ) {
-            return $update;
-        }
-
+        $remote_version = (string) preg_replace( '/^v/', '', (string) $release->tag_name );
         return array(
             'slug'    => self::SLUG,
             'version' => $remote_version,
+            'new_version' => $remote_version,
             'url'     => $release->html_url,
             'package' => self::get_asset_url( $release ),
         );
     }
 
     public static function fix_directory( $result, $options ) {
-        if ( is_wp_error( $result ) ) {
-            return $result;
-        }
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
 
-        if ( ! isset( $options['plugin'] ) || plugin_basename( FLICKR_JUSTIFIED_PLUGIN_FILE ) !== $options['plugin'] ) {
-            return $result;
-        }
+		if ( ! isset( $options['plugin'] ) || plugin_basename( FLICKR_JUSTIFIED_PLUGIN_FILE ) !== $options['plugin'] ) {
+			return $result;
+		}
 
-        global $wp_filesystem;
+		if ( ! function_exists( 'WP_Filesystem' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		if ( ! WP_Filesystem() ) {
+			return $result;
+		}
 
-        $expected_dir = trailingslashit( WP_PLUGIN_DIR ) . self::SLUG;
-        $actual_dir   = isset( $result['destination'] ) ? rtrim( $result['destination'], '/' ) : '';
+		global $wp_filesystem;
 
-        if ( $actual_dir === $expected_dir ) {
-            return $result;
-        }
+		$expected_dir = trailingslashit( WP_PLUGIN_DIR ) . self::SLUG;
+		$actual_dir   = isset( $result['destination'] ) ? rtrim( $result['destination'], '/' ) : '';
 
-        if ( $wp_filesystem && $wp_filesystem->move( $actual_dir, $expected_dir, true ) ) {
-            $result['destination']        = $expected_dir;
-            $result['destination_name']   = self::SLUG;
-            $result['remote_destination'] = $expected_dir;
-        }
+		if ( $actual_dir === $expected_dir ) {
+			return $result;
+		}
 
-        return $result;
-    }
+		$backup_dir = '';
+		if ( $wp_filesystem->exists( $expected_dir ) ) {
+			$backup_dir = $expected_dir . '.bak-' . time() . '-' . wp_rand( 1000, 9999 );
+			if ( ! $wp_filesystem->move( $expected_dir, $backup_dir, true ) ) {
+				return $result;
+			}
+		}
+
+		if ( $wp_filesystem->move( $actual_dir, $expected_dir, true ) ) {
+			$result['destination']        = $expected_dir;
+			$result['destination_name']   = self::SLUG;
+			$result['remote_destination'] = $expected_dir;
+
+			if ( '' !== $backup_dir && $wp_filesystem->exists( $backup_dir ) ) {
+				$wp_filesystem->delete( $backup_dir, true );
+			}
+		} elseif ( '' !== $backup_dir ) {
+			$wp_filesystem->move( $backup_dir, $expected_dir, true );
+		}
+
+		return $result;
+	}
 
     public static function plugin_info( $result, $action, $args ) {
         if ( 'plugin_information' !== $action ) {
@@ -89,7 +106,7 @@ class Flickr_Justified_Block_Updater {
             return $result;
         }
 
-        $remote_version = ltrim( $release->tag_name, 'v' );
+        $remote_version = (string) preg_replace( '/^v/', '', (string) $release->tag_name );
 
         $info                = new stdClass();
         $info->name          = 'Flickr Justified Block';
@@ -119,7 +136,7 @@ class Flickr_Justified_Block_Updater {
         wp_update_plugins();
 
         $release        = self::fetch_latest_release();
-        $remote_version = $release ? ltrim( $release->tag_name, 'v' ) : '';
+        $remote_version = $release ? (string) preg_replace( '/^v/', '', (string) $release->tag_name ) : '';
         $has_update     = $release && version_compare( FLICKR_JUSTIFIED_VERSION, $remote_version, '<' );
 
         wp_safe_redirect( add_query_arg(
@@ -144,10 +161,20 @@ class Flickr_Justified_Block_Updater {
         return $links;
     }
 
-    private static function get_asset_url( $release ) {
+	public static function action_links( $links ) {
+		$url  = wp_nonce_url(
+			admin_url( 'admin-post.php?action=flickr_justified_block_check_updates' ),
+			'flickr_justified_block_check_updates'
+		);
+		$link = '<a href="' . esc_url( $url ) . '">Check for Updates</a>';
+		array_unshift( $links, $link );
+		return $links;
+	}
+
+	private static function get_asset_url( $release ) {
         if ( ! empty( $release->assets ) ) {
             foreach ( $release->assets as $asset ) {
-                if ( '.zip' === substr( $asset->name, -4 ) ) {
+                if ( '.zip' === strtolower( substr( $asset->name, -4 ) ) ) {
                     return $asset->browser_download_url;
                 }
             }
@@ -156,37 +183,55 @@ class Flickr_Justified_Block_Updater {
     }
 
     private static function fetch_latest_release() {
-        $force = isset( $_GET['force-check'] ) || ( defined( 'DOING_CRON' ) && DOING_CRON );
-        if ( ! $force ) {
-            $cached = get_transient( self::CACHE_KEY );
-            if ( false !== $cached ) {
-                return 'error' === $cached ? false : $cached;
-            }
-        }
+		$force = ! empty( $_GET['force-check'] ) || ( defined( 'DOING_CRON' ) && DOING_CRON ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! $force ) {
+			$cached = get_transient( self::CACHE_KEY );
+			if ( false !== $cached ) {
+				if ( is_array( $cached ) && ! empty( $cached['__error'] ) ) {
+					return false;
+				}
+				return $cached;
+			}
+		}
 
-        $url = 'https://api.github.com/repos/' . self::GITHUB_REPO . '/releases/latest';
+		$url = 'https://api.github.com/repos/' . self::GITHUB_REPO . '/releases/latest';
 
-        $response = wp_remote_get( $url, array(
-            'headers' => array(
-                'Accept'     => 'application/vnd.github.v3+json',
-                'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url(),
-            ),
-            'timeout' => 10,
-        ) );
+		$response = wp_remote_get( $url, array(
+			'headers' => array(
+				'Accept'     => 'application/vnd.github.v3+json',
+				'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url(),
+			),
+			'timeout' => 10,
+		) );
 
-        if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-            set_transient( self::CACHE_KEY, 'error', 5 * MINUTE_IN_SECONDS );
-            return false;
-        }
+		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			set_transient( self::CACHE_KEY, array( '__error' => true ), 5 * MINUTE_IN_SECONDS );
+			return false;
+		}
 
-        $release = json_decode( wp_remote_retrieve_body( $response ) );
-        if ( ! $release || empty( $release->tag_name ) ) {
-            set_transient( self::CACHE_KEY, 'error', 5 * MINUTE_IN_SECONDS );
-            return false;
-        }
+		$release = json_decode( wp_remote_retrieve_body( $response ) );
+		if ( ! $release || empty( $release->tag_name ) ) {
+			set_transient( self::CACHE_KEY, array( '__error' => true ), 5 * MINUTE_IN_SECONDS );
+			return false;
+		}
 
-        set_transient( self::CACHE_KEY, $release, self::CACHE_TTL );
+		$slim              = new stdClass();
+		$slim->tag_name    = $release->tag_name;
+		$slim->html_url    = $release->html_url ?? '';
+		$slim->body        = $release->body ?? '';
+		$slim->zipball_url = $release->zipball_url ?? '';
+		$slim->assets      = array();
+		if ( ! empty( $release->assets ) && is_array( $release->assets ) ) {
+			foreach ( $release->assets as $asset ) {
+				$a                       = new stdClass();
+				$a->name                 = $asset->name ?? '';
+				$a->browser_download_url = $asset->browser_download_url ?? '';
+				$slim->assets[]          = $a;
+			}
+		}
 
-        return $release;
-    }
+		set_transient( self::CACHE_KEY, $slim, self::CACHE_TTL );
+
+		return $slim;
+	}
 }
