@@ -75,18 +75,19 @@ export default function useCardDragReorder(
 			);
 			if ( isNaN( idx ) ) return;
 
-			e.stopPropagation();
-			e.preventDefault();
-
-			try {
-				card.setPointerCapture( e.pointerId );
-			} catch ( err ) {
-				return;
-			}
-
+			// Selection is decided here, from the raw pointer up/down
+			// pair, rather than via the card's onClick: the block
+			// editor's own pointer handling can swallow the follow-up
+			// "click" event before it ever reaches React, so selection
+			// can't depend on it. Pointer capture is only attempted
+			// once an actual drag is detected — a plain click doesn't
+			// need it, and requiring it up front previously meant a
+			// failed capture silently dropped the click entirely.
+			const pointerId = e.pointerId;
 			const startX = e.clientX;
 			const startY = e.clientY;
 			let didMove = false;
+			let captured = false;
 
 			function onMove( ev ) {
 				const dx = ev.clientX - startX;
@@ -98,8 +99,15 @@ export default function useCardDragReorder(
 					)
 						return;
 					didMove = true;
+					try {
+						card.setPointerCapture( pointerId );
+						captured = true;
+					} catch ( err ) {
+						captured = false;
+					}
 					setDragIndex( idx );
 				}
+				ev.preventDefault();
 				const overIdx = cardIndexFromPoint(
 					ev.clientX,
 					ev.clientY
@@ -114,16 +122,25 @@ export default function useCardDragReorder(
 			function cleanup() {
 				card.removeEventListener( 'pointermove', onMove );
 				card.removeEventListener( 'pointerup', onUp );
+				card.removeEventListener( 'pointercancel', onUp );
 				card.removeEventListener(
 					'lostpointercapture',
 					onLost
 				);
+				if ( captured ) {
+					try {
+						card.releasePointerCapture( pointerId );
+					} catch ( err ) {
+						// already released
+					}
+				}
 				setDragIndex( null );
 				setDragOverIndex( null );
 			}
 
 			function onUp( ev ) {
 				if ( didMove ) {
+					ev.preventDefault();
 					const dropIdx = cardIndexFromPoint(
 						ev.clientX,
 						ev.clientY
@@ -143,6 +160,7 @@ export default function useCardDragReorder(
 
 			card.addEventListener( 'pointermove', onMove );
 			card.addEventListener( 'pointerup', onUp );
+			card.addEventListener( 'pointercancel', onUp );
 			card.addEventListener( 'lostpointercapture', onLost );
 		}
 

@@ -156,7 +156,6 @@ export default function FlickrJustifiedEdit( props ) {
 								index={ index }
 								totalCount={ imagesList.length }
 								isSelected={ selectedIndex === index }
-								onSelect={ handleSelect }
 								onRemove={ handleRemove }
 								onToggleFullRow={ handleToggleFullRow }
 								onMove={ handleMove }

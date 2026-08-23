@@ -8,7 +8,6 @@ export default function ImageCard( {
 	index,
 	totalCount,
 	isSelected,
-	onSelect,
 	onRemove,
 	onToggleFullRow,
 	onMove,
@@ -170,9 +169,6 @@ export default function ImageCard( {
 			style={ cardStyle }
 			draggable={ false }
 			data-index={ index }
-			onClick={ () => {
-				onSelect( index );
-			} }
 		>
 			<span className="fjb-image-card__badge">
 				{ String( index + 1 ) }
